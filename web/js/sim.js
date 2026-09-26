@@ -322,7 +322,8 @@ export class FlyBody {
     const s = this.s;
     s.airborne = true; s.vz_mm_s = JUMP_SPEED_MM_S * 0.6;
     s.speed_mm_s = JUMP_SPEED_MM_S; s.wing_angle_deg = 90;
-    if (directed) s.heading_deg = (s.heading_deg - 90 * lat + 360) % 360;
+    // away from the more active escape side (lat > 0 = right): counter-clockwise
+    if (directed) s.heading_deg = (s.heading_deg + 90 * lat + 360) % 360;
     s.behaviour = `airborne (${this.mode}-mode takeoff)`;
     this._log(tMs, `takeoff (${this.mode} mode)`, 1);
   }

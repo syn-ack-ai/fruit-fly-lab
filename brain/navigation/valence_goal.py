@@ -80,6 +80,16 @@ class ValenceGoal:
         self._last_c = None
         self.goal.enabled = False
 
+    def reset(self) -> None:
+        """A new episode: ongoing activity estimates are cleared (the learned
+        mushroom-body weights are not)."""
+        self.kc_act[:] = 0.0
+        self.kc_base[:] = 0.0
+        self.valence = self.drive = 0.0
+        self._grad[:] = 0.0
+        self._last_c = None
+        self.goal.enabled = False
+
     # ----------------------------------------------------------------- update
     def step(self, spikes: np.ndarray, dt_ms: float, heading_deg: float,
              odour: float | None = None, air_from_deg: float | None = None,

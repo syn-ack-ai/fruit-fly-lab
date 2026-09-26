@@ -32,6 +32,8 @@ import time
 
 import numpy as np
 
+from sim.habitat_bridge.authkey import authkey   # before make_env changes directory
+
 HOUSES = {"small": "small_small", "medium": "medium_medium", "large": "large_large"}
 CTRL_HZ = 120.0                 # env step = 1/120 s (kinematic mode, ac_freq_ratio 1)
 BASE_SPEED = 5.0                # m/s and rad/s at action +-1 (config values)
@@ -219,7 +221,7 @@ def main():
     a = ap.parse_args()
     srv = Server(a.house, a.max_seconds, a.hfov, a.habitat_lab, cam_pitch=a.cam_pitch)
     print("habitat server ready on port", a.port, flush=True)
-    with Listener(("127.0.0.1", a.port), authkey=b"fly-habitat") as lst:
+    with Listener(("127.0.0.1", a.port), authkey=authkey()) as lst:
         while True:
             with lst.accept() as conn:
                 while True:

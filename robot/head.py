@@ -468,12 +468,18 @@ class ObjectEncoder:
             return rates
         if s.get("person_active", 0) > 0 and not s.get("person_stale"):
             az, el, half, kind = s["person_az"], s["person_el"], s["person_half_deg"], "person"
-            now = time.monotonic()
+            # Is the person moving? Estimated once per new detection (the
+            # feed's person_t), not per call: rates_hz runs every block while a
+            # detection stays the same. A clock that jumps back (a new episode
+            # in simulation) or a long gap starts the estimate afresh.
+            pt = s.get("person_t", time.monotonic())
             prev = getattr(self, "_prev_person", None)
-            speed = abs(az - prev[1]) / max(now - prev[0], 1e-3) if prev and now - prev[0] < 1.0 else 0.0
-            if prev is None or now - prev[0] > 0.08:
-                self._prev_person = (now, az)
-            self._pmove = 0.8 * getattr(self, "_pmove", 0.0) + 0.2 * (1.0 if speed > 5.0 else 0.0)
+            if prev is None or pt < prev[0] or pt - prev[0] > 1.0:
+                self._prev_person, self._pmove = (pt, az), 0.0
+            elif pt - prev[0] >= 0.08:
+                speed = abs(az - prev[1]) / (pt - prev[0])
+                self._pmove = 0.8 * self._pmove + 0.2 * (1.0 if speed > 5.0 else 0.0)
+                self._prev_person = (pt, az)
             moving = self._pmove
         elif s.get("obj_active", 0) > 0:
             az, el, half, moving, kind = s["obj_az"], s["obj_el"], s["obj_half_deg"], 1.0, "object"

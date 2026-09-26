@@ -199,6 +199,9 @@ class NativeLIFEngine:
 
     def close(self):
         if self._h:
+            if getattr(self, "_busy", False):     # a start()ed job must finish first,
+                self._lib.lif_wait(self._h)       # or destroying the pool deadlocks
+                self._busy = False
             self._lib.lif_destroy(self._h)
             self._h = None
 
@@ -296,6 +299,9 @@ class NativeLIFEngine:
                 and np.array_equal(idx, self._poi_idx)
                 and self._lib.lif_set_poisson_rates(self._h, rates, idx.size) == 0):
             return
+        if np.unique(idx).size != idx.size:
+            # the CPU engine would drive a repeated neuron twice, the CUDA engine once
+            raise ValueError("set_poisson: repeated neuron indices")
         self._lib.lif_set_poisson(self._h, idx, rates, idx.size)
         self._poi_idx = idx
 
@@ -334,10 +340,12 @@ class NativeLIFEngine:
         """Begin `steps` steps on the engine's driver thread and return at once.
         Do not touch the engine again until wait()."""
         self._lib.lif_start(self._h, steps)
+        self._busy = True
 
     def wait(self) -> np.ndarray:
         """Block (GIL released) until start()'s steps finish; their spikes."""
         k = self._lib.lif_wait(self._h)
+        self._busy = False
         if not k:
             return np.empty(0, np.int32)
         return np.ctypeslib.as_array(self._lib.lif_collected(self._h), (k,)).copy()

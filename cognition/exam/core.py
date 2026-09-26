@@ -226,7 +226,8 @@ def orn_space():
     types_ = sorted(set(t[orn]))
     osp = OlfactorySpace([x[4:] for x in types_])
     gi = np.array([types_.index(t[i]) for i in orn])
-    side = n["side"].fillna("").astype(str).to_numpy()[orn]
+    from brain.sensory.orn_side import orn_sides
+    side = orn_sides(connectome())[orn]
     return orn, gi, side, osp
 
 

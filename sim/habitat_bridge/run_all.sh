@@ -9,7 +9,9 @@ OUT=simulation/outputs/habitat
 EPS="0 1 2 3"
 SECS=${SECS:-60}
 mkdir -p $OUT/videos
-stop() { pkill -f "^[^ ]*python -m sim.habitat_bridge.habitat_server" ; }
+# stop only this script's servers (exact ports), also on exit or Ctrl-C
+stop() { for p in 6010 6011; do pkill -f "^[^ ]*python -m sim.habitat_bridge.habitat_server --port $p( |$)"; done; }
+trap stop EXIT
 stop; sleep 1
 for spec in "6010 53" "6011 150"; do
   set -- $spec

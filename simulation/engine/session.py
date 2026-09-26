@@ -71,12 +71,14 @@ def giant_fibre_multipliers(connectome, cfg: dict) -> list:
     return out
 
 
-def bilateral_consensus(connectome, clip=(0.5, 2.0)) -> np.ndarray:
+def bilateral_consensus(connectome, clip=(0.5, 2.0), mult=None) -> np.ndarray:
     """Per-connection multipliers that make every connection type bilaterally
     symmetric: for (presynaptic type, side) -> (postsynaptic type, side), the
     mean synapse count per postsynaptic cell is set to the mean of it and its
     mirror image (left <-> right), clipped to `clip`. Unpaired types and
-    connections without a mirror are left alone (multiplier 1)."""
+    connections without a mirror are left alone (multiplier 1). `mult`:
+    multipliers already applied (CSR order); the balance is computed on the
+    effective strengths, so it is exact after earlier corrections."""
     import pandas as pd
     n = connectome.neurons
     t = n["primary_type"].fillna("").astype(str).to_numpy()
@@ -88,6 +90,8 @@ def bilateral_consensus(connectome, clip=(0.5, 2.0)) -> np.ndarray:
     pre = np.repeat(np.arange(connectome.n), np.diff(w.indptr))
     post = w.indices
     cnt = np.abs(w.data).astype(np.float64)
+    if mult is not None:
+        cnt = cnt * np.asarray(mult, np.float64)
     ok = (tcode[pre] >= 0) & (tcode[post] >= 0) & (scode[post] < 2)
     npost = pd.Series(1, index=pd.MultiIndex.from_arrays([tcode, scode])).groupby(level=[0, 1]).sum()
     df = pd.DataFrame({"tp": tcode[pre][ok], "sp": scode[pre][ok], "tq": tcode[post][ok],
@@ -116,26 +120,33 @@ def orn_pn_lateral_release(connectome, ratio: float) -> list:
     side = n["side"].fillna("").astype(str).to_numpy()
     is_orn = np.char.startswith(t.astype(str), "ORN_")
     is_pn = (n["class"].fillna("").astype(str) == "ALPN").to_numpy()
+    from brain.sensory.orn_side import orn_sides
+    oside = orn_sides(connectome)                # includes the 30 unlabelled ORNs
     w = connectome.w.tocsr()
     ipsi, contra = [], []
     for i in np.flatnonzero(is_orn):
         a, b = w.indptr[i], w.indptr[i + 1]
         j = w.indices[a:b]
         m = is_pn[j]
-        same = side[j] == side[i]
+        same = side[j] == oside[i]
         ipsi.append(a + np.flatnonzero(m & same))
         contra.append(a + np.flatnonzero(m & ~same))
     return [(np.concatenate(ipsi), 2 * ratio / (1 + ratio)), (np.concatenate(contra), 2 / (1 + ratio))]
 
 
-def orn_pn_compensation(connectome) -> list:
+def orn_pn_compensation(connectome, mult=None) -> list:
     """[(connection positions, multiplier)] per projection neuron, equalising its
-    mean strength per ORN connection to its cell type's mean (Tobin et al. 2017)."""
+    mean strength per ORN connection to its cell type's mean (Tobin et al. 2017).
+    `mult`: multipliers already applied (CSR order), so the equalisation acts on
+    the effective strengths (e.g. after bilateral consensus) instead of
+    compounding with them."""
     n = connectome.neurons
     t = n["primary_type"].fillna("").astype(str).to_numpy()
     is_orn = np.char.startswith(t.astype(str), "ORN_")
     is_pn = (n["class"].fillna("").astype(str) == "ALPN").to_numpy()
-    wt = connectome.w.T.tocsr()                 # rows: postsynaptic neuron
+    weff = connectome.w.tocsr().astype(np.float64)
+    weff.data = np.abs(weff.data) * (1.0 if mult is None else np.asarray(mult, np.float64))
+    wt = weff.T.tocsr()                         # rows: postsynaptic neuron
     per_pn = {}
     for j in np.flatnonzero(is_pn):
         a, b = wt.indptr[j], wt.indptr[j + 1]
@@ -186,16 +197,19 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
     engine.set_dynamics(tau_adapt_ms=ad["tau_ms"], adapt_mV=adapt,
                         tau_slow_ms=sl["tau_ms"],
                         slow_ratio=np.where(al_ln & (sign < 0), sl["slow_ratio"], 0.0).astype(np.float32))
-    bc = cfg.get("bilateral_consensus")
-    if bc and bc.get("enabled"):
-        # applied first: the other corrections scale the symmetric wiring
-        mult = engine.plastic_multipliers()
-        mult *= bilateral_consensus(connectome, tuple(bc.get("clip", (0.5, 2.0))))
     comp = cfg.get("orn_pn_compensation")
     if comp and comp.get("enabled"):
+        # equal strength per ORN connection within a PN type (Tobin et al. 2017)
         mult = engine.plastic_multipliers()
-        for pos, m in orn_pn_compensation(connectome):
+        for pos, m in orn_pn_compensation(connectome, mult):
             mult[pos] *= np.float32(m)
+    bc = cfg.get("bilateral_consensus")
+    if bc and bc.get("enabled"):
+        # then equal TOTAL input per cell on both sides, on the effective
+        # strengths; later corrections are symmetric scalings or the deliberate
+        # ipsi/contra release difference
+        mult = engine.plastic_multipliers()
+        mult *= bilateral_consensus(connectome, tuple(bc.get("clip", (0.5, 2.0))), mult.copy())
     gf = cfg.get("giant_fibre")
     if gf:
         mult = engine.plastic_multipliers()
@@ -206,8 +220,8 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
         is_eln = al_ln & (sign > 0)
         is_pn = (n["class"].fillna("").astype(str) == "ALPN").to_numpy()
         mult = engine.plastic_multipliers()
-        mult[_edge_positions(connectome, is_eln, is_pn)] = np.float32(eln["to_pn_gain"])
-        mult[_edge_positions(connectome, is_eln, is_eln)] = np.float32(eln["to_eln_gain"])
+        mult[_edge_positions(connectome, is_eln, is_pn)] *= np.float32(eln["to_pn_gain"])
+        mult[_edge_positions(connectome, is_eln, is_eln)] *= np.float32(eln["to_eln_gain"])
     if ring is not None and cc.get("ring_internal_gain", 1.0) != 1.0:
         mult = engine.plastic_multipliers()
         mult[_edge_positions(connectome, ring, ring)] *= np.float32(cc["ring_internal_gain"])
@@ -263,6 +277,9 @@ def make_engine(connectome, params: LIFParams = DEFAULT, seed: int = 0,
     if kind == "python":
         if _calibrated_gain() != 1.0:
             raise ValueError("the Python engine implements gain 1.0 only; use the native engine")
+        if os.environ.get("FLY_DYNAMICS", "published") != "published":
+            raise ValueError("the Python engine implements the published dynamics only "
+                             "(FLY_DYNAMICS=%s needs the native engine)" % os.environ["FLY_DYNAMICS"])
         return LIFEngine(connectome, params, seed=seed)
     raise ValueError("unknown engine %r (expected 'native' or 'python')" % kind)
 
@@ -561,7 +578,10 @@ class Session:
         steps = int(round(self.RATE_UPDATE_MS / self.p.dt))
 
         t_start = time.perf_counter()
-        if self._native and self.pipelined:
+        # The mushroom body writes synaptic multipliers and APL drive after each
+        # block; in pipelined mode that would land while the next block runs
+        # (non-reproducible). With it, run blocks serially.
+        if self._native and self.pipelined and getattr(self, "mb", None) is None:
             # Pipelined. While C computes block k, Python prepares block k+1's
             # rates and then processes block k's spikes (readout, body) during
             # block k+1. Open loop (stimuli depend only on the clock) this is

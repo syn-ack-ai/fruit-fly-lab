@@ -573,6 +573,9 @@ void lif_set_std(lif *e, const float *f, double tau_ms) {
             CK(cudaMemset(e->d_std_d, 0, (size_t)n * 4));
             CK(cudaMallocHost(&e->h_std_d, (size_t)n * 4));
         }
+        /* re-enabled after being off: start fully recovered, as the CPU engine
+         * (which frees its depletion buffer when depression is switched off) */
+        if (!e->std_on) CK(cudaMemset(e->d_std_d, 0, (size_t)n * 4));
         CK(cudaMemcpy(e->d_std_f, f, (size_t)n * 4, cudaMemcpyHostToDevice));
         e->std_e = (float)exp(-e->dt / tau_ms);
     }

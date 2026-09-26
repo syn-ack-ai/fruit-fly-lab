@@ -89,7 +89,8 @@ def report(results, base, names, quick):
         if c is not None:
             cv = c.get("value")
             cs = f"  | shuffled {'PASS' if c['pass'] else 'fail'} {cv:.3g}" if isinstance(cv, (int, float)) and cv == cv else "  | shuffled -"
-        lines.append(f"  [{'x' if r['pass'] else ' '}] {r['test']:28s} {vs:>9s}  target: {te['target']}{cs}")
+        tag = {"fit": " (fit)", "constraint": " (constraint)"}.get(te["role"], "")
+        lines.append(f"  [{'x' if r['pass'] else ' '}] {r['test']:28s} {vs:>9s}  target: {te['target']}{tag}{cs}")
     card = {"groups": {}, "overall": None}
     lines.append("")
     for gname, rs in groups.items():
@@ -101,6 +102,11 @@ def report(results, base, names, quick):
         card["passed"] = int(sum(r["pass"] for r in main_))
         card["of"] = len(main_)
         lines.append(f"  OVERALL   {card['passed']}/{card['of']} passed, score {card['overall']:.2f}")
+        for role in ("held_out", "constraint", "fit"):
+            rs = [r for r in main_ if tests.BY_NAME[r["test"]]["role"] == role]
+            if rs:
+                card.setdefault("roles", {})[role] = {"passed": int(sum(r["pass"] for r in rs)), "of": len(rs)}
+                lines.append(f"    {role:10s} {card['roles'][role]['passed']}/{card['roles'][role]['of']}")
     if ctrl:
         card["shuffled"] = {"passed": int(sum(r["pass"] for r in ctrl)), "of": len(ctrl),
                             "score": round(float(np.mean([r["score"] for r in ctrl])), 3)}

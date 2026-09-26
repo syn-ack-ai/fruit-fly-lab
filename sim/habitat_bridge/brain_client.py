@@ -72,6 +72,10 @@ class SimFeed:
 
     def __init__(self, clock: SimClock):
         self.clock = clock
+        self.reset()
+
+    def reset(self) -> None:
+        """A new episode: no carried-over looming or motion estimate."""
         self.s = {"ready": False}
         self._prev_half = None
         self._exp = 0.0
@@ -162,6 +166,11 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
     if mode == "brain":
         ses, feed, obj, clock, parts = brain
         ses.reset(seed=seed)                      # clears stimuli: attach the head's encoders again
+        clock.t = 0.0
+        feed.reset()
+        obj._prev_person, obj._pmove = None, 0.0
+        if getattr(ses, "nav", None) is not None and hasattr(ses.nav, "reset"):
+            ses.nav.reset()
         for enc, stim in parts:
             ses.add_stimulus(enc, stim)
         if ses.topdown is not None:
@@ -173,7 +182,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         home.reset(seed)
     if cortex is not None:
         cortex.reset(episode, home, conn)
-    if home is None:
+    if mode == "body_only":
         body = ForagingBody(neural=False, seed=seed, spontaneous_takeoff_per_s=0.0)
     t_sim, k, wall0 = 0.0, 0, time.time()
     fr_prev = None
@@ -298,7 +307,8 @@ def main():
         getattr(mb.e, "commit_plastic", lambda *_: None)(mb.edge_pos)
         print("loaded mushroom-body weights from", a.weights, flush=True)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    with Client(("127.0.0.1", a.port), authkey=b"fly-habitat") as conn:
+    from sim.habitat_bridge.authkey import authkey
+    with Client(("127.0.0.1", a.port), authkey=authkey()) as conn:
         if a.topdown:
             print("top-down map:", _call(conn, {"cmd": "topdown", "path": a.topdown}), flush=True)
         for day, ep in enumerate(a.episodes):

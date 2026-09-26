@@ -22,6 +22,19 @@ from cognition.exam import core
 SHIU = "Shiu et al. 2024, Nature 634:210"
 
 
+def _relesion(ctx):
+    """engine.reset() clears silencing: re-apply the configuration's lesions."""
+    if ctx.lesioned.size:
+        ctx.e.silence(ctx.lesioned)
+
+
+# Odour steering is a small difference (~0.02-0.05 turn bias) between single
+# steering neurons; with 4 trials its standard error (~0.008) is ~40% of the
+# response and the symmetry ratio measures noise. 16 trials (2026-09-25, after
+# the 4-trial test failed on noise; same for every model): SE ~0.004.
+ODOUR_TRIALS = 16
+
+
 def _ms(quick, q, f):
     return q if quick else f
 
@@ -161,6 +174,7 @@ def _mixture_sets(ctx, quick):
     for idx, rate, _ in mixes:
         o = np.argsort(idx)
         ctx.e.reset(seed=3)
+        _relesion(ctx)
         ctx.set_inputs([(idx[o], rate[o])])
         sc = ctx.window(500)
         sets.append(set(np.flatnonzero(sc[g["kc"]] > 0)))
@@ -267,7 +281,7 @@ def odour_lateralization(ctx, quick):
     out = {}
     for label, cl, cr in (("left", od, z), ("right", z, od)):
         acc = []
-        for s in _seeds(quick):
+        for s in _seeds(quick, 2, ODOUR_TRIALS):
             sc = ctx.trial(core.odour_inputs(cl, cr), 1500, s)
             acc.append(ro.channels(sc, 1500.0)["turn_bias"])
         out[label] = float(np.mean(acc))
@@ -304,15 +318,28 @@ def pursuit_sign(ctx, quick):
 
 
 def compass_tracking(ctx, quick):
-    from brain.navigation.compass import Compass, CompassDrive
-    drive = CompassDrive(Compass(core.connectome()))
+    """Heading put into E-PG is read back DOWNSTREAM, from the P-EN2 and P-EG
+    neurons that E-PGs drive in the protocerebral bridge (reading the driven
+    E-PGs themselves would pass on any wiring)."""
+    from brain.navigation.compass import Compass, CompassDrive, glom_angle
+    cx = Compass(core.connectome())
+    drive = CompassDrive(cx)
     errs = []
     for h in ((45.0, 200.0) if quick else (0.0, 90.0, 180.0, 270.0)):
         drive.set_heading(h)
         ctx.e.reset(seed=3)
+        _relesion(ctx)
         ctx.set_inputs([(drive.indices, drive.rates_hz())])
         ctx.window(200)
-        est, strength = drive.heading_estimate(ctx.window(300))
+        sc = ctx.window(300)
+        z, tot = 0j, 0.0
+        for key in ("PEN2", "PEG"):
+            for side in ("L", "R"):
+                pr = cx.profile(sc, side, key)
+                ang = np.deg2rad([glom_angle(side, g) for g in range(1, 9)])
+                z += (pr * np.exp(1j * ang)).sum()
+                tot += pr.sum()
+        est = float(np.rad2deg(np.angle(z / tot)) % 360.0) if tot > 0 else float("nan")
         errs.append(abs((est - h + 180) % 360 - 180) if est == est else 180.0)
     return {"value": float(np.max(errs))}
 
@@ -372,7 +399,7 @@ def mb_conditioning(ctx, quick):
     mb = MushroomBody(c, ctx.e, plastic=True, kc_mbon_gain=8.0, dan_modulatory=True)
 
     def present(od, seed, with_dan=False):
-        ctx.e.reset(seed=seed); mb.reset_activity()
+        ctx.e.reset(seed=seed); _relesion(ctx); mb.reset_activity()
         ctx.set_inputs([od])
         tot = np.zeros(c.n)
         for ms in range(500):
@@ -420,6 +447,7 @@ def symmetry_loom(ctx, quick):
         acc = np.zeros(core.connectome().n)
         for s in _seeds(quick):
             ctx.e.reset(seed=s)
+            _relesion(ctx)
             for k in range(20):
                 idx, r = enc.indices, enc.rates_hz(k * 10.0, st)
                 o = np.argsort(idx)
@@ -444,7 +472,7 @@ def symmetry_odour(ctx, quick):
     r = odour_lateralization(ctx, quick)
     ro = core.readout()
     base = np.mean([ro.channels(ctx.trial(core.odour_inputs(*(2 * [np.zeros(len(core.orn_space()[3].odorants))])), 1500, s), 1500.0)["turn_bias"]
-                    for s in _seeds(quick)])
+                    for s in _seeds(quick, 2, ODOUR_TRIALS)])
     l, rgt = r["turn_bias"]["left"] - base, r["turn_bias"]["right"] - base
     return {"value": _sym(l, rgt), "left_resp": round(l, 3), "right_resp": round(rgt, 3)}
 
@@ -464,6 +492,7 @@ def health_rate_cv(ctx, quick):
     """Population-rate variability (CV over 50 ms bins) at rest: runaway or bursting gives a high CV."""
     ri, rr = core.resting()
     ctx.e.reset(seed=5)
+    _relesion(ctx)
     ctx.set_inputs([(ri, rr)])
     ctx.window(300)
     bins = [ctx.window(50).sum() for _ in range(20 if quick else 40)]
@@ -474,7 +503,20 @@ def health_rate_cv(ctx, quick):
 # ------------------------------------------------------------ the catalog
 def T(name, group, fn, lo, hi, target, cite, scale=None, core_=False, quick=True):
     return dict(name=name, group=group, fn=fn, lo=lo, hi=hi, target=target, cite=cite,
-                scale=scale, core=core_, quick=quick)
+                scale=scale, core=core_, quick=quick, role=ROLES.get(name, "held_out"))
+
+
+# How each test relates to the calibrated dynamics (data/metadata/dynamics_calibrated*.json):
+#   fit         its target was used to set a parameter or choose between settings
+#   constraint  calibration was required to keep it passing (published-model results)
+#   held_out    never used in calibration
+ROLES = {
+    "rest_uPN_Hz": "fit", "rest_GF_silent": "fit", "glomerulus_specificity": "fit",
+    "no_latching": "fit", "pn_odour_transform": "fit", "odour_lateralization": "fit",
+    "symmetry_odour": "fit", "sound_startle": "fit",
+    "sugar_activates_MN9": "constraint", "bitter_no_MN9": "constraint",
+    "looming_drives_GF": "constraint",
+}
 
 
 INF = float("inf")

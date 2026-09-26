@@ -12,7 +12,9 @@ DAYS=${DAYS:-"0 1 2 3 4 5 6 7 8 9"}
 SECS=${SECS:-60}
 HFOV=${HFOV:-150}
 mkdir -p $OUT/on $OUT/off simulation/outputs/habitat/videos/rewards
-stop() { pkill -f "^[^ ]*python -m sim.habitat_bridge.habitat_server --port 60[23]" ; }
+# stop only this script's servers (exact ports), also on exit or Ctrl-C
+stop() { for p in 6020 6021; do pkill -f "^[^ ]*python -m sim.habitat_bridge.habitat_server --port $p( |$)"; done; }
+trap stop EXIT
 stop; sleep 1
 for p in 6020 6021; do
   nohup $HAB -m sim.habitat_bridge.habitat_server --port $p --hfov $HFOV --house small --max-seconds $SECS > /tmp/hserver_$p.log 2>&1 &

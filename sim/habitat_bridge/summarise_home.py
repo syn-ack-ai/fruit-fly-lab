@@ -1,6 +1,7 @@
 import json, glob, sys, os, numpy as np
 root = sys.argv[1]
-for c in sorted(os.listdir(root)):
+dirs = sorted(set(os.path.relpath(os.path.dirname(f), root) for f in glob.glob(f"{root}/**/brain_day*_ep*.json", recursive=True)))
+for c in dirs:
     fs = sorted(glob.glob(f"{root}/{c}/brain_day*_ep*.json"), key=lambda f: int(f.split("day")[1].split("_")[0]))
     if not fs: continue
     rows = []

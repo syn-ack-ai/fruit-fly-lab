@@ -228,6 +228,8 @@ class Runner:
     def head_on(self) -> dict:
         if self.head is not None and self.head.alive:
             return {"ok": True, "head": self.head.state()}
+        if self.head is not None or getattr(self, "hearing", None) is not None:
+            self.head_off()          # a dead head: release its feed, microphone and encoders
         from brain.sensory.encoders import LoomingEncoder
         from brain.sensory.retinotopy import load_retinotopy
         from robot.head import (HeadController, HeadFeed, HeadLoomingStimulus,

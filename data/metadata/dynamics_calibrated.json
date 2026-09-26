@@ -20,7 +20,8 @@
   "scope": "connections from antennal-lobe local neurons with excitatory sign (FlyWire: mostly lLN1/lLN2 types; Janelia MaleCNS: cholinergic)",
   "to_pn_gain": 0.1,
   "to_eln_gain": 0.1,
-  "rationale": "excitatory LNs reach projection neurons mainly through gap junctions; blocking chemical transmission leaves eLN->PN excitation intact (Yaksi & Wilson 2010, Neuron 67:1034; Huang et al. 2010, Neuron 67:1021 find cholinergic + electrical). The connectome records only chemical synapses, which the model turns into full-strength fast excitation: one receptor type then drives ~70% of all PNs. Chemical eLN->PN and eLN->eLN transmission is scaled to 10%; eLN->inhibitory LN is kept"
+  "rationale": "excitatory LNs reach projection neurons mainly through gap junctions; blocking chemical transmission leaves eLN->PN excitation intact (Yaksi & Wilson 2010, Neuron 67:1034; Huang et al. 2010, Neuron 67:1021 find cholinergic + electrical). The connectome records only chemical synapses, which the model turns into full-strength fast excitation: one receptor type then drives ~70% of all PNs. Chemical eLN->PN and eLN->eLN transmission is scaled to 10%; eLN->inhibitory LN is kept",
+  "note": "gains multiply earlier corrections (they overwrote them before 2026-09-25)"
  },
  "calibration": "cognition/calibrate_dynamics.py grids eln, eln_mix, eln2 + held-out mixture sets (Mac, 2026-09-25)",
  "results_fit_set": {
@@ -37,7 +38,8 @@
   "mn9_sugar_hz": 139,
   "mn9_bitter_hz": 0,
   "gf_looming_hz": 352,
-  "rest_spikes": 0
+  "rest_spikes": 0,
+  "note": "v2 fit-set values (before v3); see results_exam_v3 for the current model"
  },
  "results_v1": {
   "pn_spikes_from_stimulated_glomerulus": 0.09,
@@ -72,9 +74,10 @@
   "chemical_input_scale": 0.2,
   "johnstons_organ_input": 0.0,
   "rationale": "The Giant Fibre's low input resistance and ~1.6 ms time constant make each synapse worth ~0.3x that of a typical descending neuron (fitted per-synapse depolarisation at the spike initiation zone 0.045-0.061 vs 0.16-0.19 mV for DNp03; Moreno-Sanchez et al. 2024; Ceballos et al. 2026 use 25 vs 300 MOhm). Johnston's organ -> GF transmission is electrical (unaffected by Cd2+, abolished in shakB mutants; Lehnert et al. 2013; Pezier et al. 2016) and sub-threshold on its own (Blagburn 2020); the model has no gap junctions, so these chemical edges are removed. Real GF: no spikes at rest or to air puffs / sound alone (Mu et al. 2014).",
-  "calibration": "0.3 left the GF at 0.75 Hz under resting ORN input; 0.2 (inside the 0.083-0.35 bracket) gives 0 Hz at rest while looming still drives it to 210 Hz (was 353). 2026-09-25, cognition/calibrate_dynamics.py gf_rest_hz/gf_loom.",
+  "calibration": "0.3 left the GF at 0.75 Hz under resting ORN input; 0.2 (inside the 0.083-0.35 bracket) gives 0 Hz at rest while looming still drives it to 210 Hz (was 353). 2026-09-25, cognition/calibrate_dynamics.py gf_rest_hz/gf_loom. v3 (2026-09-25): threshold_correction 0.7 on top (effective 0.14): GF 0 Hz at rest, looming 176 Hz (fly exam).",
   "threshold_correction": 0.7,
-  "threshold_rationale": "The model's threshold is 7 mV above rest (-52 -> -45 mV, Shiu et al. 2024); the Giant Fibre's is ~10 mV above rest (Blagburn 2020, PLoS One 15:e0224057). The membrane is linear below threshold, so a 10 mV gap is equivalent to scaling its inputs by 7/10 (applied on top of chemical_input_scale)."
+  "threshold_rationale": "The model's threshold is 7 mV above rest (-52 -> -45 mV, Shiu et al. 2024); the Giant Fibre's is ~10 mV above rest (Blagburn 2020, PLoS One 15:e0224057). The membrane is linear below threshold, so a 10 mV gap is equivalent to scaling its inputs by 7/10 (applied on top of chemical_input_scale).",
+  "effective_input_scale": 0.14
  },
  "central_complex": {
   "ring_internal_gain": 1.0,
@@ -104,10 +107,10 @@
  "orn_short_term_depression": {
   "enabled": true,
   "scope": "every output synapse of olfactory receptor neurons (ORN_* types)",
-  "release_f": 0.97,
+  "release_f": 0.96,
   "tau_ms": 893.0,
-  "rule": "presynaptic depletion d per ORN: a spike transmits (1 - d) of full strength and leaves d = 1 - (1 - d) * 0.78; d recovers to 0 with tau 893 ms (native engines: lif_set_std)",
-  "rationale": "ORN->PN synapses depress (Kazama & Wilson 2008, Neuron 58:401), and presynaptic inhibition limits that depression (Nagel, Hong & Wilson 2015, Nat Neurosci 18:56). The depression per spike is FITTED to the measured ORN->PN transform (Olsen, Bhandawat & Wilson 2010, Neuron 66:287: PN = Rmax ORN^1.5/(ORN^1.5 + sigma^1.5), Rmax 144-170 Hz, sigma 12-45 Hz) for glomeruli DL5 and DM1 and the resting uPN rate; DA1 held out. Grid f 0.90/0.95/0.97 x full-strength gain 1/1.5/2: f 0.95 and 0.97 at gain 1 fit best (13/15 points in the measured band); 0.97 was chosen because 0.95 latched after odours (0.16) and steered asymmetrically. tau 893 ms from the agent-summarised Nagel et al. model (value not verified against the paper).",
+  "rule": "presynaptic depletion d per ORN: a spike transmits (1 - d) of full strength and leaves d = 1 - (1 - d) * release_f; d recovers to 0 with tau_ms (native engines: lif_set_std)",
+  "rationale": "ORN->PN synapses depress (Kazama & Wilson 2008, Neuron 58:401), and presynaptic inhibition limits that depression (Nagel, Hong & Wilson 2015, Nat Neurosci 18:56). The depression per spike is FITTED to the measured ORN->PN transform (Olsen, Bhandawat & Wilson 2010, Neuron 66:287: PN = Rmax ORN^1.5/(ORN^1.5 + sigma^1.5), Rmax 144-170 Hz, sigma 12-45 Hz) for DL5 and DM1 (DA1 held out). Refit 2026-09-25 after the review fixes (compensation/consensus order): f 0.95/0.96/0.97/0.98 put 13/15/12/11 of 15 points in the measured band; 0.96 is the only one with all points in band and was chosen on that criterion alone (it also passes latching and odour-steering symmetry; 0.97, the previous choice, now latches). tau 893 ms from a secondary summary of Nagel et al. (not verified).",
   "full_strength_gain": 1.0,
   "fitted": [
    "release_f"
@@ -126,7 +129,8 @@
    2.0
   ],
   "rule": "for every (presynaptic type, side) -> (postsynaptic type, side) connection group, the mean synapse count per postsynaptic cell is set to the mean of the group and its left-right mirror (multiplier clipped to 0.5-2); unpaired types unchanged",
-  "rationale": "FAFB is one individual; its left-right differences mix individual variation with reconstruction differences (Schlegel et al. 2024, Nature 634:139: e.g. the left DM3 adPN, right ALl1-ventral dendrites, 6% calyx completion). Individual flies have lasting turning biases but the population is unbiased (Buchanan, Kain & de Bivort 2015, PNAS 112:6700). Without this the resting brain turns left: DNa02 14 vs 4 Hz, driven by e.g. LAL051->DNa02 64 (left) vs 127 (right) synapses. A symmetric 'consensus' brain represents the species; individual handedness can be added back as an explicit parameter."
+  "rationale": "FAFB is one individual; its left-right differences mix individual variation with reconstruction differences (Schlegel et al. 2024, Nature 634:139: e.g. the left DM3 adPN, right ALl1-ventral dendrites, 6% calyx completion). Individual flies have lasting turning biases but the population is unbiased (Buchanan, Kain & de Bivort 2015, PNAS 112:6700). Without this the resting brain turns left: DNa02 14 vs 4 Hz, driven by e.g. LAL051->DNa02 64 (left) vs 127 (right) synapses. A symmetric 'consensus' brain represents the species; individual handedness can be added back as an explicit parameter.",
+  "order": "applied after orn_pn_compensation and computed on the effective strengths, so per-connection equalisation (Tobin 2017) and bilateral totals do not compound (fixed 2026-09-25 after review)"
  },
  "results_exam_v3": {
   "passed": "32/32",

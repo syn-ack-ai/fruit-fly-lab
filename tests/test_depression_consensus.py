@@ -82,3 +82,50 @@ def test_bilateral_consensus_equalises_mirror_pairs(c):
         tot[side] = s
     assert tot["left"] == pytest.approx(tot["right"], rel=1e-5)
     assert np.all((m >= 0.5) & (m <= 2.0))
+
+
+def test_calibrated_orn_input_is_bilaterally_balanced(c):
+    """Review 2026-09-25: compensation and consensus must not compound. Total
+    ORN->PN input per cell, left vs right, per PN type (ipsi/contra release
+    split off, since it is deliberately asymmetric per ORN branch)."""
+    import json
+    import config
+    from simulation.engine.session import apply_dynamics
+    cfg = json.loads((config.METADATA_DIR / "dynamics_calibrated.json").read_text())
+    cfg["orn_pn_lateral_release"]["enabled"] = False
+    cfg["orn_short_term_depression"]["enabled"] = False
+    path = config.METADATA_DIR / "dynamics_zz_test_balance.json"
+    path.write_text(json.dumps(cfg))
+    try:
+        e = lif_native.NativeLIFEngine.from_connectome(c, seed=1, threads=1)
+        apply_dynamics(e, c, "zz_test_balance")
+        mult = e.plastic_multipliers().copy()
+        e.close()
+    finally:
+        path.unlink()
+    n = c.neurons
+    t = n["primary_type"].fillna("").astype(str).to_numpy()
+    sd = n["side"].fillna("").astype(str).to_numpy()
+    w = c.w.tocsr()
+    pre = np.repeat(np.arange(c.n), np.diff(w.indptr))
+    post = w.indices
+    is_orn = np.char.startswith(t.astype(str), "ORN_")
+    is_pn = (n["class"].fillna("").astype(str) == "ALPN").to_numpy()
+    eff = np.abs(w.data) * mult
+    m = is_orn[pre] & is_pn[post]
+    logs = []
+    for ty in sorted(set(t[is_pn])):
+        nl, nr = ((t == ty) & (sd == "left")).sum(), ((t == ty) & (sd == "right")).sum()
+        L = m & (t[post] == ty) & (sd[post] == "left")
+        R = m & (t[post] == ty) & (sd[post] == "right")
+        if nl and nr and eff[L].sum() > 0 and eff[R].sum() > 0:
+            logs.append(abs(np.log((eff[L].sum() / nl) / (eff[R].sum() / nr))))
+    assert np.median(logs) < 0.03          # raw FlyWire: 0.18; the compounding bug: 0.13
+
+
+def test_escape_jump_turns_away_from_the_threat():
+    from fly.body.foraging_body import ForagingBody
+    b = ForagingBody(neural=True, seed=1)
+    b.state.heading_deg = 90.0
+    b._takeoff(0.0, laterality=+1.0, directed=True, why="test")   # right escape DNs more active
+    assert b.state.heading_deg == 180.0                           # counter-clockwise = left = away

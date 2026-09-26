@@ -16,7 +16,9 @@ HFOV=${HFOV:-150}
 PORTS=(6030 6031 6032 6033)
 CONDS=(none goal attend both)
 mkdir -p $OUT
-stop() { pkill -f "^[^ ]*python -m sim.habitat_bridge.habitat_server --port 603[0-3]" ; }
+# stop only this script's servers (exact ports), also on exit or Ctrl-C
+stop() { for p in 6030 6031 6032 6033; do pkill -f "^[^ ]*python -m sim.habitat_bridge.habitat_server --port $p( |$)"; done; }
+trap stop EXIT
 stop; sleep 1
 for p in ${PORTS[@]}; do
   nohup $HAB -m sim.habitat_bridge.habitat_server --port $p --hfov $HFOV --house small --max-seconds $SECS > /tmp/hserver_$p.log 2>&1 &

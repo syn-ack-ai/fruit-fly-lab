@@ -50,6 +50,9 @@ CELL_M = 0.5
 REPLAN_S = 1.0
 WAYPOINT_AHEAD_M = 0.8
 GIVE_UP_S = 15.0             # an unreachable goal is marked blocked
+FOOD_GIVE_UP_S = 40.0        # time allowed to reach a remembered food spot
+FINAL_APPROACH_M = 1.5       # within this, steer to the exact remembered spot
+EMPTY_SPOT_M = 0.25          # at the remembered spot and no food: it may be gone
 COMMIT = 1.3                 # a new goal must beat the current one by 30%
 PATH_COST = 0.03             # utility per metre of path
 # drives (per second of simulated time; a "day" is minutes, so they are fast)
@@ -83,12 +86,20 @@ class CognitiveMap:
 
     def visit(self, c, prev):
         n = self.nodes.setdefault(c, {"visits": 0, "food": 0.0, "bitter": 0.0, "owner": 0.0})
+        n.setdefault("fx", 0.0); n.setdefault("fz", 0.0); n.setdefault("fn", 0.0)
         n["visits"] += 1
         self.edges.setdefault(c, set())
         if prev is not None and prev != c:
             self.edges.setdefault(prev, set()).add(c)
             self.edges[c].add(prev)
         return n
+
+    def food_point(self, c):
+        """Where in this place food was tasted (mean position), or its centre."""
+        n = self.nodes.get(c)
+        if n and n.get("fn", 0.0) > 0:
+            return (n["fx"] / n["fn"], n["fz"] / n["fn"])
+        return centre(c)
 
     def frontier(self, c):
         """Unvisited neighbouring cells (possible new ground)."""
@@ -178,7 +189,8 @@ class CortexV0:
     def _features(self, pos, node, home, obs):
         f = self.freq @ np.array(pos)
         smell = float(home.conc["L"].sum() + home.conc["R"].sum()) if home else 0.0
-        diff = float(home.conc["L"][0] - home.conc["R"][0]) if home else 0.0
+        # what the fly smells: every source blended, left minus right antenna
+        diff = float(home.conc["L"].sum() - home.conc["R"].sum()) if home else 0.0
         return np.concatenate([np.sin(f + self.phase), np.cos(f + self.phase),
                                [self.hunger, self.social, float(obs["visible"]), smell,
                                 10.0 * diff, float(home.taste == "sweet") if home else 0.0,
@@ -189,7 +201,10 @@ class CortexV0:
     # --------------------------------------------------------------- episode
     def reset(self, episode, home, conn) -> None:
         if self.amnesic:
+            # control: everything learned about places is wiped, including the
+            # critic (its inputs include position, so it holds a value map)
             self.map, self.owner_prior = CognitiveMap(), {}
+            self.critic = Critic(self._n_features(), int(self.rng.integers(1 << 30)))
         self.hunger, self.social = 0.6, 0.5          # a new day: hungry, wants company
         self.t = 0.0
         self.prev_cell = None
@@ -224,16 +239,21 @@ class CortexV0:
         r = 0.1 * eating + 0.03 * sweet - 0.1 * bitter + 0.5 * new_pet + 0.5 * new_treat
         if sweet:
             node["food"] += FOOD_LEARN * (1.0 - node["food"])
+            node["fx"] += x; node["fz"] += z; node["fn"] += 1.0  # exactly where
         elif node["food"] > 0:
-            node["food"] -= FOOD_EXTINCT * node["food"]          # slowly forgets empty bowls
+            fx, fz = self.map.food_point(c)
+            if math.hypot(x - fx, z - fz) < EMPTY_SPOT_M:       # right there, and nothing:
+                node["food"] -= FOOD_EXTINCT * node["food"]      # slowly forgets empty bowls
         if bitter:
             node["bitter"] += FOOD_LEARN * (1.0 - node["bitter"])
         if new_pet or new_treat:
             node["owner"] += OWNER_LEARN * (1.0 - node["owner"])
         # the person: where are they (estimated from apparent size)?
+        person_d = None
         if obs["visible"] and obs["half"] > 0.1:
             rng = TARGET_HALF_WIDTH_M / math.tan(math.radians(obs["half"]))
             d = math.sqrt(max(rng ** 2 - HEAD_ABOVE_CAM_M ** 2, 0.0))
+            person_d = d
             b = math.radians(yaw - obs["az"])                  # az + = right
             px, pz = x + d * math.cos(b), z - d * math.sin(b)
             self.person_seen = (px, pz, t_s)
@@ -244,7 +264,7 @@ class CortexV0:
 
         # --- drives
         self.hunger = float(np.clip(self.hunger + HUNGER_RISE * dt - HUNGER_EAT * dt * eating, 0, 1))
-        near = obs["visible"] and obs["dist"] < 1.5
+        near = person_d is not None and person_d < 1.5     # from apparent size, not ground truth
         self.social = float(np.clip(self.social + SOCIAL_RISE * dt - SOCIAL_NEAR * dt * near
                                     - SOCIAL_PET * (new_pet or new_treat), 0, 1))
 
@@ -268,11 +288,11 @@ class CortexV0:
         # --- choose where to go (every REPLAN_S)
         if t_s >= self.next_plan:
             self.next_plan = t_s + REPLAN_S
-            self._plan(c, t_s)
+            self._plan(c, t_s, sweet)
         cmd = {"goal_deg": None, "goal_gain": 0.0, "rpe": rpe_drive}
         if self.goal is not None:
             gcell, kind, util, t_set = self.goal
-            wp = self._waypoint(c, gcell)
+            wp = self._waypoint(c, gcell, (x, z), kind)
             cmd["goal_deg"] = bearing_deg((x, z), wp)
             cmd["goal_gain"] = float(np.clip(util / 0.5, 0.3, 1.0))
         self.replay.append((phi, [cmd["goal_deg"] or 0.0, cmd["goal_gain"], rpe_drive], r))
@@ -298,8 +318,20 @@ class CortexV0:
             U[cell] = (u, kind)
         return U, dist
 
-    def _plan(self, here, t_s):
+    def _plan(self, here, t_s, sweet=False):
         U, dist = self._utilities(here, t_s)
+        if self.goal is not None and self.goal[1] == "food":
+            gcell, kind, util, t_set = self.goal
+            if sweet:                                  # arrived: the fly eats
+                self.goal = None
+                self._dist = dist
+                return
+            best_u = max(u for u, _ in U.values())
+            if t_s - t_set <= FOOD_GIVE_UP_S and gcell in U and best_u < COMMIT * U[gcell][0]:
+                self.goal = (gcell, kind, U[gcell][0], t_set)   # keep going, even inside the cell
+                self._dist = dist
+                return
+            self.goal = None
         if self.goal is not None:
             gcell, kind, util, t_set = self.goal
             reached = gcell == here
@@ -319,16 +351,20 @@ class CortexV0:
                 return
         best = max(U.items(), key=lambda kv: kv[1][0])
         cell, (u, kind) = best
-        if u <= 0.02 or cell == here:
+        if u <= 0.02 or (cell == here and (kind != "food" or sweet)):
             self.goal = None                          # content: the fly brain does as it likes
         else:
             self.goal = (cell, kind, u, t_s)
             self.day_log["goals"][kind] = self.day_log["goals"].get(kind, 0) + 1
         self._dist = dist
 
-    def _waypoint(self, here, gcell):
+    def _waypoint(self, here, gcell, pos=None, kind=None):
         if gcell not in self.map.nodes:               # a step into new ground
             return centre(gcell)
+        if kind == "food" and pos is not None:
+            fp = self.map.food_point(gcell)
+            if math.hypot(pos[0] - fp[0], pos[1] - fp[1]) < FINAL_APPROACH_M or gcell == here:
+                return fp                             # final approach: the exact spot
         dist = getattr(self, "_dist", None)
         if dist is None or here not in dist or gcell not in dist or dist[here][0] != 0.0:
             dist = self._dist = self.map.distances(here)

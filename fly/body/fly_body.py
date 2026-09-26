@@ -206,8 +206,10 @@ class FlyBody:
         s.speed_mm_s = JUMP_SPEED_MM_S
         s.wing_angle_deg = 90.0
         if directed:
-            # Long mode is directed away from the more active escape side.
-            s.heading_deg = (s.heading_deg - 90.0 * laterality) % 360.0
+            # Long mode is directed away from the more active escape side
+            # (laterality > 0 = right side more active -> turn left, i.e.
+            # counter-clockwise; the sign was reversed before 2026-09-25).
+            s.heading_deg = (s.heading_deg + 90.0 * laterality) % 360.0
         s.behaviour = "airborne (%s-mode takeoff)" % self._escape_mode
         self._log(t_ms, "takeoff (%s mode)" % self._escape_mode, 1.0)
 

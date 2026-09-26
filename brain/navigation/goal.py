@@ -60,7 +60,7 @@ import collections
 
 import numpy as np
 
-PEAK_HZ = 60.0
+PEAK_HZ = 120.0          # the validated strength (tests, exam, dynamics json)
 SIGMA_DEG = 45.0
 GOAL_OFFSET_DEG = 0.0        # set by calibration (see GoalDrive docstring)
 

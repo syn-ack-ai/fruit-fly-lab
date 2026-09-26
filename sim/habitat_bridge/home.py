@@ -136,9 +136,11 @@ class HomeSenses:
         orn_types = sorted({x for x in t if x.startswith("ORN_")})
         self.olf = OlfactorySpace([x[4:] for x in orn_types])
         groups, self._orn = {}, {"L": [], "R": []}
+        from brain.sensory.orn_side import orn_sides
+        oside = orn_sides(connectome)      # side of entry, inferred for unlabelled ORNs
         for gi, ty in enumerate(orn_types):
             for sd, k in (("left", "L"), ("right", "R")):
-                idx = np.flatnonzero((t == ty) & (side == sd))
+                idx = np.flatnonzero((t == ty) & (oside == sd))
                 if len(idx):
                     groups["orn_%s_%s" % (ty, k)] = idx
                     self._orn[k].append(("orn_%s_%s" % (ty, k), gi))

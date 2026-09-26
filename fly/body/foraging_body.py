@@ -246,7 +246,10 @@ class ForagingBody:
         s.wing_angle_deg = 90.0
         s.proboscis_extension = 0.0
         if directed:
-            s.heading_deg = (s.heading_deg - 90.0 * laterality) % 360.0
+            # away from the more active escape side: a threat on the right drives
+            # the right escape DNs more (laterality > 0; checked with looming at
+            # +-60 deg), so turn left = counter-clockwise (Card & Dickinson 2008)
+            s.heading_deg = (s.heading_deg + 90.0 * laterality) % 360.0
         self._phase = "jump"
         self._flight_end = t_ms + 1000.0 * self.rng.exponential(MEAN_FLIGHT_S)
         self._escape_armed_at = None

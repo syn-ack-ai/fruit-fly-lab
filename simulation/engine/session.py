@@ -701,10 +701,17 @@ class Session:
         self.body_track.clear()
         self.clear_stimuli()
         if self.world is not None:
-            self.world.reset(seed)
             self.body._seed = seed
-            self.body.reset()
+        self.body.reset()
+        if self.mb is not None:
+            self.mb.reset_activity()
+        if getattr(self, "nav", None) is not None:
+            self.nav.reset()
+        if self.world is not None:
+            self.world.reset(seed)
             self.world_senses.body = self.body
+            self.world_senses._B = None
+            self.world_senses._jo_adapt[:] = 0.0
             self.add_stimulus(self.world_senses, self.world_senses)
             if getattr(self, "nav", None) is not None:
                 self.nav.compass.set_heading(self.body.state.heading_deg)

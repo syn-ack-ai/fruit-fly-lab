@@ -173,6 +173,7 @@ class FlyBody:
                 s.behaviour = "walking forward (DNp09)"
             elif backward >= BACKWARD_THRESHOLD:
                 s.speed_mm_s = -BACKWARD_SPEED_MM_S * backward
+                s.turn_rate_deg_s = 0.0
                 s.behaviour = "walking backward (MDN)"
             elif abs(turn_bias) > 0.02:
                 s.turn_rate_deg_s = -MAX_TURN_RATE_DEG_S * turn_bias

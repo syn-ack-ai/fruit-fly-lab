@@ -234,7 +234,7 @@ function onFrame(f) {
     `heading ${(b.heading_deg || 0).toFixed(0)}°  z ${(b.z_mm || 0).toFixed(1)} mm` +
     (b.proboscis_extension > 0.05 ? `  proboscis ${(b.proboscis_extension * 100).toFixed(0)}%` : '');
 
-  const st = (f.stimuli || [])[0];
+  const st = (f.stimuli || []).find(s => s.active);
   $('#stim-info').textContent = st
     ? (st.kind === 'looming'
         ? `looming  θ=${st.half_angle_deg.toFixed(1)}°  dθ/dt=${st.expansion_rate_deg_s.toFixed(0)}°/s  d=${st.distance_mm.toFixed(0)} mm`
@@ -356,7 +356,7 @@ function drawArena() {
   const rp = state.replay ? state.replay[state.replayIdx] : null;
   const f = rp || state.latest;
   const b = (f && f.body) || { heading_deg: 0, z_mm: 0, wing_angle_deg: 0 };
-  const st = rp ? null : (f && (f.stimuli || [])[0]);
+  const st = rp ? null : (f && (f.stimuli || []).find(s => s.kind === 'looming' && s.active));
 
   if (st && st.kind === 'looming' && st.active) {
     const az = (st.azimuth_deg - 90) * Math.PI / 180;

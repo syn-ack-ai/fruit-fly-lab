@@ -819,6 +819,7 @@ function noteStimuli(f) {
 
 function worldDir(azDeg, elDeg, headingDeg) {
   const a = azDeg * DEG, e = elDeg * DEG;
+  // azimuth + = the fly's right (simulation/stimuli/looming.py) = +z in the fly's frame
   return new THREE.Vector3(Math.cos(e) * Math.cos(a), Math.sin(e), Math.cos(e) * Math.sin(a))
     .applyAxisAngle(UP, headingDeg * DEG);
 }

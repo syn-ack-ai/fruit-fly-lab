@@ -372,6 +372,8 @@ class Runner:
     def world_stop(self) -> dict:
         self.running = False
         time.sleep(0.05)
+        self._replay = []
+        self._anchor = None
         with self.lock:
             self.session.set_world(None)
             if hasattr(self.session.engine, "set_quiesce_tolerance"):

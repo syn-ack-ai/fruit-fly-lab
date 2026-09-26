@@ -75,6 +75,8 @@ typedef struct lif {
     int32_t *poi_idx; double *poi_p; int npoi;
     int ext, plastic, pm_dirty, host_valid, state_dirty;
     float ea, ka, es, ks;
+    /* short-term depression of output synapses (lif_set_std; see lif_native.c) */
+    float *d_std_f, *d_std_d, *h_std_d; float std_e; int std_on;
     cudaStream_t st;
     DevState *d_st;
     int cfg_version, graph_steps[4], graph_version[4]; cudaGraphExec_t graph[4]; int ngraph;
@@ -95,6 +97,7 @@ __device__ __forceinline__ double mulberry_at(uint32_t s0, uint32_t k) {
 struct StepArgs {
     int n, ext;
     float ev, eg, kg, v0r, vth, poi_w, vfix, qtol, ka, ks, ea, es, xe;
+    const float *std_f; float *std_d; float std_e;     /* std_f NULL = no depression */
 };
 
 
@@ -178,6 +181,7 @@ __global__ void k_update(StepArgs a, const DevState *__restrict__ ds_, float *__
         }
         spk = cand;
         V[j] = v2; G[j] = g2;
+        if (a.std_f && a.std_f[j] > 0.0f) a.std_d[j] = __fmul_rn(a.std_d[j], a.std_e);
         flag[j] = spk ? 1 : 0;
     }
     const int c = __syncthreads_count(spk);
@@ -242,7 +246,8 @@ __global__ void k_spikes(int n, const DevState *__restrict__ ds_, int D, const i
                          const uint8_t *__restrict__ sil, const int32_t *__restrict__ indptr,
                          const uint32_t *__restrict__ pe, const float *__restrict__ wlut,
                          const float *__restrict__ pm, const float *__restrict__ slow_r,
-                         double *__restrict__ ring, double *__restrict__ ring_s) {
+                         double *__restrict__ ring, double *__restrict__ ring_s,
+                         const float *__restrict__ std_f, float *__restrict__ std_d) {
     const int ns = scount[stepi];
     const long long s0 = sstart[stepi];
     const int out = (ds_->slot + D) % (D + 1);
@@ -258,12 +263,19 @@ __global__ void k_spikes(int n, const DevState *__restrict__ ds_, int D, const i
             if (ext && adapt_b[i] != 0.0f) { A[i] = __fadd_rn(A[i], adapt_b[i]); xf[i] = 1; }
             rl[i] = rlen[i];
         }
+        /* short-term depression: every lane reads the release before lane 0 depletes */
+        float rel = 1.0f;
+        const bool dep = std_f && std_f[i] > 0.0f;
+        if (dep) rel = __fsub_rn(1.0f, std_d[i]);
+        __syncwarp();
+        if (dep && lane == 0) std_d[i] = __fsub_rn(1.0f, __fmul_rn(rel, std_f[i]));
         if (sil[i]) continue;
         const int a = indptr[i], z = indptr[i + 1];
         for (int q = a + lane; q < z; q += 32) {
             const uint32_t p = pe[q];
             const int tgt = (int)(p >> PE_SHIFT);
-            const float w = pm ? __fmul_rn(wlut[p & PE_MASK], pm[q]) : wlut[p & PE_MASK];
+            float w = pm ? __fmul_rn(wlut[p & PE_MASK], pm[q]) : wlut[p & PE_MASK];
+            if (rel != 1.0f) w = __fmul_rn(w, rel);
             atomicAdd(rg + tgt, (double)w);
             if (ext && w < 0.0f) atomicAdd(rs + tgt, (double)__fmul_rn(w, slow_r[i]));
         }
@@ -347,7 +359,13 @@ lif *lif_create(int n, int nnz, const int32_t *indptr, const int32_t *indices,
     e->rng = seed;
     e->nb = nblocks_for(n, TPB);
     e->nblk16 = (n + BLK - 1) / BLK;
-    CK(cudaStreamCreateWithFlags(&e->st, cudaStreamNonBlocking));
+    /* A BLOCKING stream: the host-side cudaMemcpy/cudaMemset calls below run on
+     * the legacy default stream, and a pageable host->device cudaMemcpy may
+     * return before its DMA lands. A non-blocking stream would let the next
+     * kernel read the old data (seen when several processes share the GPU:
+     * wrong silencing / Poisson rates / weights). A blocking stream is ordered
+     * after all legacy default-stream work. */
+    CK(cudaStreamCreate(&e->st));
     CK(cudaMalloc(&e->d_indptr, (size_t)(n + 1) * 4));
     CK(cudaMemcpy(e->d_indptr, indptr, (size_t)(n + 1) * 4, cudaMemcpyHostToDevice));
     CK(cudaMalloc(&e->d_pe, (size_t)nnz * 4));
@@ -388,11 +406,12 @@ void lif_destroy(lif *e) {
     void *dp[] = {e->d_st, e->d_indptr, e->d_pe, e->d_wlut, e->d_pmult, e->d_v, e->d_g, e->d_adapt, e->d_gs, e->d_adapt_b,
                   e->d_slow_r, e->d_rl, e->d_rlen, e->d_sil, e->d_poi, e->d_xf, e->d_pinned, e->d_flag, e->d_poi_q,
                   e->d_poi_p, e->d_ring, e->d_ring_s, e->d_blkcnt, e->d_blkoff, e->d_tot, e->d_coll, e->d_sstart,
-                  e->d_scount, e->d_tmp_i, e->d_tmp_f};
+                  e->d_scount, e->d_tmp_i, e->d_tmp_f, e->d_std_f, e->d_std_d};
     for (size_t k = 0; k < sizeof dp / sizeof dp[0]; k++) if (dp[k]) cudaFree(dp[k]);
     cudaFreeHost(e->h_v); cudaFreeHost(e->h_g);
     if (e->h_adapt) cudaFreeHost(e->h_adapt);
     if (e->h_gs) cudaFreeHost(e->h_gs);
+    if (e->h_std_d) cudaFreeHost(e->h_std_d);
     free(e->wlut); free(e->pmult); free(e->spike_counts); free(e->spikes); free(e->collected);
     free(e->poi_idx); free(e->poi_p);
     cudaStreamDestroy(e->st);
@@ -413,6 +432,7 @@ void lif_reset(lif *e) {
     CK(cudaMemset(e->d_ring, 0, (size_t)(e->D + 1) * n * 8));
     if (e->d_ring_s) CK(cudaMemset(e->d_ring_s, 0, (size_t)(e->D + 1) * n * 8));
     if (e->d_adapt) { CK(cudaMemset(e->d_adapt, 0, (size_t)n * 4)); CK(cudaMemset(e->d_gs, 0, (size_t)n * 4)); CK(cudaMemset(e->d_xf, 0, n)); }
+    if (e->d_std_d) CK(cudaMemset(e->d_std_d, 0, (size_t)n * 4));
     if (e->h_adapt) { memset(e->h_adapt, 0, (size_t)n * 4); memset(e->h_gs, 0, (size_t)n * 4); }
     memset(e->spike_counts, 0, (size_t)n * 4);
     e->slot = 0; e->step_count = 0; e->nspikes = 0; e->npoi = 0;
@@ -543,6 +563,28 @@ void lif_set_dynamics(lif *e, double tau_adapt_ms, const float *adapt_mV, double
     e->cfg_version++;           /* pointers and constants captured in graphs changed */
 }
 
+void lif_set_std(lif *e, const float *f, double tau_ms) {
+    const int n = e->n;
+    int on = 0;
+    for (int i = 0; i < n && !on; i++) on = f[i] > 0.0f;
+    if (on) {
+        if (!e->d_std_f) {
+            CK(cudaMalloc(&e->d_std_f, (size_t)n * 4)); CK(cudaMalloc(&e->d_std_d, (size_t)n * 4));
+            CK(cudaMemset(e->d_std_d, 0, (size_t)n * 4));
+            CK(cudaMallocHost(&e->h_std_d, (size_t)n * 4));
+        }
+        CK(cudaMemcpy(e->d_std_f, f, (size_t)n * 4, cudaMemcpyHostToDevice));
+        e->std_e = (float)exp(-e->dt / tau_ms);
+    }
+    e->std_on = on;
+    e->cfg_version++;
+}
+float *lif_std_depletion(lif *e) {
+    if (!e->d_std_d) return NULL;
+    CK(cudaMemcpy(e->h_std_d, e->d_std_d, (size_t)e->n * 4, cudaMemcpyDeviceToHost));
+    return e->h_std_d;
+}
+
 float *lif_adapt(lif *e) { return e->h_adapt; }
 float *lif_gs(lif *e) { return e->h_gs; }
 float *lif_v(lif *e) { return e->h_v; }
@@ -601,6 +643,7 @@ static void enqueue_step(lif *e, int stepi) {
     a.n = e->n; a.ext = e->ext;
     a.ev = e->ev; a.eg = e->eg; a.kg = e->kg; a.v0r = e->v0rest; a.vth = e->vth; a.poi_w = e->poi_w;
     a.vfix = e->vfix; a.qtol = e->qtol; a.ka = e->ka; a.ks = e->ks; a.ea = e->ea; a.es = e->es; a.xe = e->x_eps;
+    a.std_f = e->std_on ? e->d_std_f : NULL; a.std_d = e->d_std_d; a.std_e = e->std_e;
     k_update<<<e->nb, TPB, 0, e->st>>>(a, e->d_st, e->d_v, e->d_g, e->d_ring, e->d_ring_s, e->d_rl, e->d_poi,
                                        e->d_poi_q, e->d_poi_p, e->d_adapt, e->d_gs, e->d_xf, e->d_pinned,
                                        e->d_flag, e->d_blkcnt);
@@ -609,7 +652,8 @@ static void enqueue_step(lif *e, int stepi) {
     k_spikes<<<128, 256, 0, e->st>>>(e->n, e->d_st, e->D, e->d_coll, e->d_sstart, e->d_scount, stepi, e->ext,
                                      e->vrst, e->d_v, e->d_g, e->d_adapt, e->d_adapt_b, e->d_xf, e->d_rl,
                                      e->d_rlen, e->d_sil, e->d_indptr, e->d_pe, e->d_wlut,
-                                     e->plastic ? e->d_pmult : NULL, e->d_slow_r, e->d_ring, e->d_ring_s);
+                                     e->plastic ? e->d_pmult : NULL, e->d_slow_r, e->d_ring, e->d_ring_s,
+                                     e->std_on ? e->d_std_f : NULL, e->d_std_d);
     k_advance<<<1, 1, 0, e->st>>>(e->d_st, e->D);
 }
 

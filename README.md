@@ -9,10 +9,13 @@
 >   bit-exact with the published Python model; ~5x real time on an RTX 3080 Ti.
 > - Calibrated dynamics (`data/metadata/dynamics_calibrated.json`, applied in
 >   `simulation/engine/session.py`): resting ORN input (Hallem & Carlson 2006),
->   ORN->PN compensation, excitatory-LN and Giant Fibre corrections, adaptation;
+>   ORN->PN compensation, excitatory-LN and Giant Fibre corrections, adaptation,
+>   bilateral consensus wiring, ipsilateral ORN release (Gaudry 2013), and ORN
+>   synaptic depression fitted to the measured ORN->PN transform (Olsen 2010);
 >   every change cites its source.
-> - `cognition/exam/` - a 31-test validation battery ("fly exam") with shuffled-wiring
->   controls and robustness curves.
+> - `cognition/exam/` - a 32-test validation battery ("fly exam") with shuffled-wiring
+>   controls and robustness curves. Results (`results/fly_exam_2026-09-25/`): published
+>   model 17/32, calibrated v2 27/32, calibrated v3 (default) 32/32, shuffled wiring 10/32.
 > - `brain/plasticity/` (dopamine-gated mushroom-body learning), `brain/navigation/`
 >   (E-PG compass, FC2 -> PFL3 goal steering), `fly/world/` (closed-loop foraging world).
 > - `robot/` (pan/tilt camera head, person detection, microphone hearing),

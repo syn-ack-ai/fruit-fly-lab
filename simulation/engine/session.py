@@ -64,10 +64,68 @@ def giant_fibre_multipliers(connectome, cfg: dict) -> list:
     jo = np.char.startswith(t.astype(str), "JO-")
     out = []
     for gf in np.flatnonzero(t == cfg.get("cell_type", "DNp01")):
-        out.append((_positions_into(connectome, gf), float(cfg["chemical_input_scale"])))
+        out.append((_positions_into(connectome, gf),
+                    float(cfg["chemical_input_scale"]) * float(cfg.get("threshold_correction", 1.0))))
         out.append((_positions_into(connectome, gf, jo),
                     float(cfg["johnstons_organ_input"]) / float(cfg["chemical_input_scale"])))
     return out
+
+
+def bilateral_consensus(connectome, clip=(0.5, 2.0)) -> np.ndarray:
+    """Per-connection multipliers that make every connection type bilaterally
+    symmetric: for (presynaptic type, side) -> (postsynaptic type, side), the
+    mean synapse count per postsynaptic cell is set to the mean of it and its
+    mirror image (left <-> right), clipped to `clip`. Unpaired types and
+    connections without a mirror are left alone (multiplier 1)."""
+    import pandas as pd
+    n = connectome.neurons
+    t = n["primary_type"].fillna("").astype(str).to_numpy()
+    sd = n["side"].fillna("").astype(str).to_numpy()
+    scode = np.where(sd == "left", 0, np.where(sd == "right", 1, 2))
+    tcode, _ = pd.factorize(t)
+    tcode = np.where(t == "", -1, tcode)
+    w = connectome.w.tocsr()
+    pre = np.repeat(np.arange(connectome.n), np.diff(w.indptr))
+    post = w.indices
+    cnt = np.abs(w.data).astype(np.float64)
+    ok = (tcode[pre] >= 0) & (tcode[post] >= 0) & (scode[post] < 2)
+    npost = pd.Series(1, index=pd.MultiIndex.from_arrays([tcode, scode])).groupby(level=[0, 1]).sum()
+    df = pd.DataFrame({"tp": tcode[pre][ok], "sp": scode[pre][ok], "tq": tcode[post][ok],
+                       "sq": scode[post][ok], "c": cnt[ok]})
+    g = df.groupby(["tp", "sp", "tq", "sq"])["c"].sum()
+    per = g / npost.reindex(pd.MultiIndex.from_arrays([g.index.get_level_values("tq"),
+                                                       g.index.get_level_values("sq")])).to_numpy()
+    mir_sp = np.where(g.index.get_level_values("sp") == 2, 2, 1 - g.index.get_level_values("sp"))
+    mkey = pd.MultiIndex.from_arrays([g.index.get_level_values("tp"), mir_sp,
+                                      g.index.get_level_values("tq"), 1 - g.index.get_level_values("sq")])
+    mper = per.reindex(mkey).to_numpy()
+    fac = np.where(np.isnan(mper), 1.0, np.clip(0.5 * (per.to_numpy() + np.nan_to_num(mper)) / per.to_numpy(), *clip))
+    fac_s = pd.Series(fac, index=g.index)
+    out = np.ones(len(cnt), np.float32)
+    key = pd.MultiIndex.from_arrays([df.tp, df.sp, df.tq, df.sq])
+    out[np.flatnonzero(ok)] = fac_s.reindex(key).to_numpy().astype(np.float32)
+    return out
+
+
+def orn_pn_lateral_release(connectome, ratio: float) -> list:
+    """[(positions, multiplier)]: ORN -> PN connections on the ORN's own side
+    x 2r/(1+r), on the other side x 2/(1+r), so ipsi/contra = r and a PN with
+    equal ipsi and contra input keeps its total (Gaudry et al. 2013)."""
+    n = connectome.neurons
+    t = n["primary_type"].fillna("").astype(str).to_numpy()
+    side = n["side"].fillna("").astype(str).to_numpy()
+    is_orn = np.char.startswith(t.astype(str), "ORN_")
+    is_pn = (n["class"].fillna("").astype(str) == "ALPN").to_numpy()
+    w = connectome.w.tocsr()
+    ipsi, contra = [], []
+    for i in np.flatnonzero(is_orn):
+        a, b = w.indptr[i], w.indptr[i + 1]
+        j = w.indices[a:b]
+        m = is_pn[j]
+        same = side[j] == side[i]
+        ipsi.append(a + np.flatnonzero(m & same))
+        contra.append(a + np.flatnonzero(m & ~same))
+    return [(np.concatenate(ipsi), 2 * ratio / (1 + ratio)), (np.concatenate(contra), 2 / (1 + ratio))]
 
 
 def orn_pn_compensation(connectome) -> list:
@@ -128,6 +186,11 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
     engine.set_dynamics(tau_adapt_ms=ad["tau_ms"], adapt_mV=adapt,
                         tau_slow_ms=sl["tau_ms"],
                         slow_ratio=np.where(al_ln & (sign < 0), sl["slow_ratio"], 0.0).astype(np.float32))
+    bc = cfg.get("bilateral_consensus")
+    if bc and bc.get("enabled"):
+        # applied first: the other corrections scale the symmetric wiring
+        mult = engine.plastic_multipliers()
+        mult *= bilateral_consensus(connectome, tuple(bc.get("clip", (0.5, 2.0))))
     comp = cfg.get("orn_pn_compensation")
     if comp and comp.get("enabled"):
         mult = engine.plastic_multipliers()
@@ -148,6 +211,28 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
     if ring is not None and cc.get("ring_internal_gain", 1.0) != 1.0:
         mult = engine.plastic_multipliers()
         mult[_edge_positions(connectome, ring, ring)] *= np.float32(cc["ring_internal_gain"])
+    lat = cfg.get("orn_pn_lateral_release")
+    if lat and lat.get("enabled"):
+        # ipsilateral ORN->PN release > contralateral (Gaudry et al. 2013)
+        mult = engine.plastic_multipliers()
+        for pos, m in orn_pn_lateral_release(connectome, float(lat["ipsi_contra_ratio"])):
+            mult[pos] *= np.float32(m)
+    std = cfg.get("orn_short_term_depression")
+    if std and std.get("enabled"):
+        # presynaptic depression of every ORN output synapse (native engines only)
+        t = n["primary_type"].fillna("").astype(str).to_numpy()
+        f = np.zeros(connectome.n, np.float32)
+        f[np.char.startswith(t.astype(str), "ORN_")] = std["release_f"]
+        if not hasattr(engine, "set_std"):
+            raise RuntimeError("orn_short_term_depression needs the native engine")
+        engine.set_std(f, std["tau_ms"])
+        g = float(std.get("full_strength_gain", 1.0))
+        if g != 1.0:
+            # strength of a fully recovered ORN synapse (see the dynamics json)
+            w = connectome.w.tocsr()
+            mult = engine.plastic_multipliers()
+            for i in np.flatnonzero(f > 0):
+                mult[w.indptr[i]:w.indptr[i + 1]] *= np.float32(g)
     return cfg
 
 

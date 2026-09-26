@@ -104,7 +104,13 @@ def sufficiency(ctx, quick):
 
 
 def necessity(ctx, quick):
-    """Silencing Roundup or Fdg reduces sugar-evoked MN9 to <= 80% (Shiu's criterion)."""
+    """Silencing the named pre-motor neurons changes sugar-evoked MN9 as the
+    Shiu et al. 2024 model predicts (their criterion: required = MN9 <= 80% of
+    control): Roundup required (Supp. Table 1C: 0.44-0.80), Fdg NOT required
+    (0.85-0.93; Fdg's role in feeding is also contested experimentally:
+    required in Flood et al. 2013 Nature 499:83, not in Shiu, Sterne et al.
+    2022 eLife 11:e79887). Earlier versions of this test wrongly expected Fdg
+    to be required; the published model fails that (0.93) as ours did (0.84)."""
     g = core.groups()
     ms, sd = _ms(quick, 500, 1000), _seeds(quick)
     base = float(ctx.rates([(g["sugar"], 100.0)], ms, sd)[g["mn9"]].mean())
@@ -121,7 +127,9 @@ def necessity(ctx, quick):
             acc += float(ctx.window(ms)[g["mn9"]].mean())
         ctx.e.unsilence(cells)
         out[k] = acc / len(sd) / (ms / 1000.0) / base if base > 0 else float("nan")
-    return {"value": float(np.mean([v <= 0.8 for v in out.values()])), "ratio": {k: round(v, 2) for k, v in out.items()}}
+    expect = {"Roundup": True, "Fdg": False}          # required? (Shiu et al. 2024 model)
+    ok = [(out[k] <= 0.8) == req for k, req in expect.items()]
+    return {"value": float(np.mean(ok)), "ratio": {k: round(v, 2) for k, v in out.items()}}
 
 
 # ------------------------------------------------------------------- rest
@@ -194,6 +202,49 @@ def glomerulus_specificity(ctx, quick):
         tot = sc[pn].sum()
         vals.append(float(sc[own].sum() / tot) if tot else 0.0)
     return {"value": float(np.mean(vals))}
+
+
+OLSEN_RMAX, OLSEN_SIGMA = (144.0, 170.0), (11.8, 44.8)
+
+
+def pn_transform(ctx, quick):
+    """ORN -> PN input-output function of single glomeruli (DL5, VM7, DM1,
+    DA1): ORNs of one type driven at 10-200 Hz above rest, PN rate above
+    baseline over 500 ms, compared with the measured transform
+    PN = Rmax ORN^1.5 / (ORN^1.5 + sigma^1.5) (lateral suppression s ~ 0 for a
+    single glomerulus; Olsen, Bhandawat & Wilson 2010, Neuron 66:287; Rmax
+    144-170 Hz, sigma 11.8-44.8 Hz). Value = fraction of (glomerulus, rate)
+    points inside the band spanned by those parameter ranges, widened by 20%."""
+    c = core.connectome()
+    n = c.neurons
+    t = n["primary_type"].fillna("").astype(str).to_numpy()
+    pn = n["class"].fillna("").astype(str).to_numpy() == "ALPN"
+    ri, rr = core.resting()
+    ms = 500
+    rates = (10.0, 50.0, 200.0) if quick else (10.0, 25.0, 50.0, 100.0, 200.0)
+    gloms = ("DL5", "VM7") if quick else ("DL5", "VM7", "DM1", "DA1")
+
+    def band(x):
+        vals = [R * x ** 1.5 / (x ** 1.5 + sg ** 1.5) for R in OLSEN_RMAX for sg in OLSEN_SIGMA]
+        return 0.8 * min(vals), 1.2 * max(vals)
+    ok, detail = [], {}
+    for glom in gloms:
+        orn = np.flatnonzero(t == "ORN_" + glom)
+        own = np.flatnonzero(pn & np.char.startswith(t.astype(str), glom + "_") & ~np.char.startswith(t.astype(str), glom + "_m"))
+        if not len(orn) or not len(own):
+            continue
+        base = ctx.rates([(ri, rr)], ms, _seeds(quick, 1, 2))[own].mean()
+        rest_orn = float(np.mean(rr[np.isin(ri, orn)])) if np.isin(ri, orn).any() else 0.0
+        pts = []
+        for x in rates:
+            inp = [(ri, rr), (orn, rest_orn + x)]
+            r = ctx.rates(inp, ms, _seeds(quick, 1, 2))[own].mean() - base
+            lo, hi = band(x)
+            ok.append(lo <= r <= hi)
+            pts.append(round(float(r), 1))
+        detail[glom] = pts
+    return {"value": float(np.mean(ok)) if ok else float("nan"), "pn_minus_baseline_hz": detail,
+            "orn_rates_above_rest_hz": list(rates)}
 
 
 def loom_gf(ctx, quick):
@@ -436,7 +487,7 @@ TESTS = [
     T("contralateral_MN9", "shiu", contralateral_mn9, 0.01, INF, "unilateral sugar -> contralateral MN9 stronger", SHIU, scale=10),
     T("sugar_pathway_responders", "shiu", sugar_responders, 0.8, 1, "10 named 2nd-order/premotor types respond to sugar", SHIU, scale=0.5),
     T("named_sufficiency", "shiu", sufficiency, 0.8, 1, "50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)", SHIU, scale=0.5),
-    T("named_necessity", "shiu", necessity, 1, 1, "silencing Roundup / Fdg -> sugar MN9 <= 80%", SHIU, scale=1),
+    T("named_necessity", "shiu", necessity, 1, 1, "silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts", SHIU, scale=1),
     T("rest_uPN_Hz", "rest", rest_group("upn"), 0.5, 9.0, "uniglomerular PNs 4.6 +- 4.2 Hz",
       "Kazama & Wilson 2009 Nat Neurosci; Turner et al. 2008", scale=10),
     T("rest_LN_Hz", "rest", rest_group("ln"), 1.0, 10.0, "AL local neurons 4.6 +- 2.8 Hz", "Nagel, Hong & Wilson 2015 Nat Neurosci", scale=10),
@@ -447,6 +498,9 @@ TESTS = [
     T("kc_mixture_sparseness", "calib", kc_mixture_frac, 0.02, 0.10, "~5-10% of KCs per odour", "Turner et al. 2008; Honegger et al. 2011", scale=0.1),
     T("kc_mixture_overlap", "calib", kc_mixture_overlap, 0.0, 0.15, "distinct KC codes for different odours", "Lin et al. 2014 Nat Neurosci", scale=0.3),
     T("no_latching", "calib", no_latching, 0.0, 0.05, "activity decays after odour offset", "calibration (dynamics_calibrated.json)", scale=0.3),
+    T("pn_odour_transform", "calib", pn_transform, 0.7, 1.0,
+      "ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz)",
+      "Olsen, Bhandawat & Wilson 2010 Neuron 66:287", scale=0.7),
     T("glomerulus_specificity", "calib", glomerulus_specificity, 0.5, 1.0, "single receptor type drives mostly its own PNs", "calibration; Bhandawat et al. 2007", scale=0.5),
     T("looming_drives_GF", "calib", loom_gf, 100, INF, "LC4/LPLC2 150 Hz -> Giant Fibre", "von Reyn et al. 2014; Shiu et al. 2024", scale=150, core_=True),
     T("odour_lateralization", "calib", odour_lateralization, 0.01, INF, "odour at right antenna steers right vs left", "Borst & Heisenberg 1982; Gaudry et al. 2013", scale=0.05),

@@ -57,6 +57,16 @@ def scenario(c, name, e):
         e.reset(seed=7); e.set_poisson(orn, 15.0)
         for _ in range(1000):
             e.start(10); out.append(e.wait())
+    elif name == "orn_std":
+        # v3 dynamics: ORN output depression, rate steps so depletion rises and recovers
+        apply_dynamics(e, c, "calibrated_v3")
+        e.reset(seed=7)
+        for k in range(1500):
+            if k == 0: e.set_poisson(orn, 8.0)
+            if k == 500: e.set_poisson(orn, np.where(np.isin(t[orn], ["ORN_DM1", "ORN_VA2"]), 120.0, 8.0))
+            if k == 1000: e.set_poisson(orn, 4.0)
+            out.append(e.run_collect(10))
+        out.append(e.std_depletion())
     elif name == "quiesce_tol":
         apply_dynamics(e, c, "calibrated"); e.set_quiesce_tolerance(1e-3)
         e.reset(seed=7); e.set_poisson(orn, 15.0)
@@ -67,7 +77,7 @@ def scenario(c, name, e):
 
 def main():
     names = sys.argv[1:] or ["published_looming", "calibrated_odour", "silence_and_switch", "gain",
-                             "pipelined", "quiesce_tol", "dt02"]
+                             "pipelined", "quiesce_tol", "orn_std", "dt02"]
     ok_all = True
     for name in names:
         if name == "dt02":

@@ -85,6 +85,11 @@ def _load_lib():
     if hasattr(lib, "lif_plastic_commit"):     # CUDA engine: upload multipliers
         lib.lif_plastic_commit.argtypes = [C.c_void_p, C.c_void_p, C.c_int]
         lib.lif_plastic_commit.restype = None
+    if hasattr(lib, "lif_set_std"):            # short-term depression of output synapses
+        lib.lif_set_std.argtypes = [C.c_void_p, _f32p, C.c_double]
+        lib.lif_set_std.restype = None
+        lib.lif_std_depletion.argtypes = [C.c_void_p]
+        lib.lif_std_depletion.restype = C.POINTER(C.c_float)
     if hasattr(lib, "lif_dt"):
         lib.lif_dt.argtypes = [C.c_void_p]
         lib.lif_dt.restype = C.c_double
@@ -232,6 +237,21 @@ class NativeLIFEngine:
         # views of the extra state (None when the published model is active)
         self._adapt = np.ctypeslib.as_array(self._lib.lif_adapt(self._h), (self.n,)) if on else None
         self._gs = np.ctypeslib.as_array(self._lib.lif_gs(self._h), (self.n,)) if on else None
+
+    def set_std(self, release_f=0.0, tau_ms=893.0):
+        """Short-term depression of each neuron's OUTPUT synapses: a spike
+        transmits (1 - d) of full strength and leaves d = 1 - (1 - d) * f;
+        d recovers to 0 with tau_ms. release_f: scalar or array of n, 0 = no
+        depression. All zero restores the exact published model."""
+        f = np.ascontiguousarray(np.broadcast_to(np.float32(release_f) if np.isscalar(release_f)
+                                                 else np.asarray(release_f, np.float32), (self.n,)))
+        self._lib.lif_set_std(self._h, f, float(tau_ms))
+        self.std = dict(tau_ms=tau_ms, n=int((f > 0).sum()))
+
+    def std_depletion(self):
+        """Current depletion d per neuron (a copy), or None when off."""
+        p = self._lib.lif_std_depletion(self._h)
+        return None if not p else np.ctypeslib.as_array(p, (self.n,)).copy()
 
     def add_g(self, indices, values):
         """Add to the synaptic drive g (mV) of the given neurons, between steps."""

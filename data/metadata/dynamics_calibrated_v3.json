@@ -1,8 +1,8 @@
 {
- "name": "calibrated",
+ "name": "calibrated_v3",
  "version": 3,
  "dataset": "FlyWire FAFB v783",
- "summary": "v3: v2 plus bilateral consensus wiring, ipsilateral ORN release (Gaudry 2013), Giant Fibre threshold gap, and ORN output depression fitted to the measured ORN->PN transform (Olsen et al. 2010). Fly exam (GPU, 2026-09-25): 32/32 (published 17/32, v2 27/32, shuffled wiring 10/32), robustness AUC 0.95. v2 kept as dynamics_calibrated_v2.json.",
+ "summary": "Optional changes beyond Shiu et al. 2024 that keep antennal-lobe output glomerulus-specific, Kenyon cell odour codes sparse and distinct, and stop latching, without changing the published sugar->MN9, bitter->MN9 and looming->Giant Fibre results.",
  "adaptation": {
   "scope": "all neurons",
   "adapt_mV_per_spike": 0.2,
@@ -127,13 +127,5 @@
   ],
   "rule": "for every (presynaptic type, side) -> (postsynaptic type, side) connection group, the mean synapse count per postsynaptic cell is set to the mean of the group and its left-right mirror (multiplier clipped to 0.5-2); unpaired types unchanged",
   "rationale": "FAFB is one individual; its left-right differences mix individual variation with reconstruction differences (Schlegel et al. 2024, Nature 634:139: e.g. the left DM3 adPN, right ALl1-ventral dendrites, 6% calyx completion). Individual flies have lasting turning biases but the population is unbiased (Buchanan, Kain & de Bivort 2015, PNAS 112:6700). Without this the resting brain turns left: DNa02 14 vs 4 Hz, driven by e.g. LAL051->DNa02 64 (left) vs 127 (right) synapses. A symmetric 'consensus' brain represents the species; individual handedness can be added back as an explicit parameter."
- },
- "results_exam_v3": {
-  "passed": "32/32",
-  "shuffled": "10/32",
-  "robustness_auc": 0.95,
-  "published_model": "17/32",
-  "v2": "27/32",
-  "outputs": "simulation/outputs/exam_gpu/{published,v2,v3}"
  }
 }

@@ -183,6 +183,13 @@ struct lif {
     float qtol, vfix, x_eps;
     double dt;                       /* ms; 0.1 = Shiu et al. 2024 (FLY_DT overrides) */
 
+    /* Optional short-term depression of a neuron's OUTPUT synapses (lif_set_std;
+     * off unless enabled): depletion d in [0,1) per presynaptic neuron, decaying
+     * by std_e every step; a spike releases (1 - d) of full strength and leaves
+     * d = 1 - (1 - d) * f (f = fraction of release sites still available). */
+    float *std_f, *std_d, *std_rel; float std_e;
+    int32_t *std_list; int std_n;
+
     /* asynchronous driver: runs lif_run_collect on its own thread */
     pthread_t driver; int has_driver;
     _Atomic int job_gen __attribute__((aligned(64)));
@@ -484,6 +491,7 @@ static void phase_b(lif *e, worker *k) {
         if (e->silenced[i]) continue;
         const int32_t *sp = &split[(long)i * T1 + tid];   /* rows are sorted by target */
         int32_t a = sp[0], z = sp[1];
+        const float rel = (e->std_n && e->std_f[i] > 0.0f) ? e->std_rel[i] : 1.0f;
         k->edges += z - a;
         for (int32_t q = a; q < z; q++) {
             const uint32_t p = pe[q];
@@ -501,7 +509,8 @@ static void phase_b(lif *e, worker *k) {
             }
             /* exact float64 sum; with plasticity on, each weight is scaled first
              * (multipliers start at 1.0f, so an untrained brain is unchanged) */
-            const float w = pm ? wlut[p & PE_MASK] * pm[q] : wlut[p & PE_MASK];
+            float w = pm ? wlut[p & PE_MASK] * pm[q] : wlut[p & PE_MASK];
+            if (rel != 1.0f) w = w * rel;
             k->hval[h] += w;
             if (e->ext && w < 0.0f) k->hval_s[h] += w * e->slow_r[i];   /* inhibitory: slow channel */
         }
@@ -590,6 +599,7 @@ void lif_reset(lif *e) {
     if (e->adapt) memset(e->adapt, 0, (size_t)n * sizeof(float));
     if (e->gs) memset(e->gs, 0, (size_t)n * sizeof(float));
     if (e->xflag) memset(e->xflag, 0, n);
+    if (e->std_d) memset(e->std_d, 0, (size_t)n * sizeof(float));
     for (int t = 0; t < e->nthreads; t++) e->wk[t].nxl = 0;
     for (int t = 0; t < e->nthreads; t++) {
         for (int s = 0; s <= e->D; s++) e->wk[t].ring[s].n = 0;
@@ -718,6 +728,7 @@ void lif_destroy(lif *e) {
     free(e->pe); free(e->wlut); free(e->pmult); free(e->adapt); free(e->gs); free(e->xflag); free(e->adapt_b); free(e->slow_r); free(e->split); free(e->v); free(e->g); free(e->rfc_left); free(e->rfc_len);
     free(e->silenced); free(e->is_poi); free(e->quiet); free(e->pinned);
     free(e->spike_counts); free(e->spikes);
+    free(e->std_f); free(e->std_d); free(e->std_rel); free(e->std_list);
     free(e->poi_idx); free(e->poi_p); free(e->collected);
     free(e);
 }
@@ -803,6 +814,19 @@ int lif_step(lif *e) {
     for (int q = 0; q < e->npoi; q++)
         if (v[e->poi_idx[q]] > e->vth) push_spike(e, e->poi_idx[q]);
     if (e->nspikes > base) qsort(e->spikes, e->nspikes, sizeof(int32_t), cmp_i32);
+
+    if (e->std_n) {                                   /* short-term depression */
+        for (int q = 0; q < e->std_n; q++) { int32_t i = e->std_list[q]; e->std_d[i] = e->std_d[i] * e->std_e; }
+        for (int s = 0; s < e->nspikes; s++) {
+            int32_t i = e->spikes[s];
+            if (e->std_f[i] > 0.0f) {
+                float rel = 1.0f - e->std_d[i];
+                e->std_rel[i] = rel;
+                float t = rel * e->std_f[i];
+                e->std_d[i] = 1.0f - t;
+            }
+        }
+    }
 
     /* B. reset spikers + scatter their output into the delay line (parallel) */
     double t2 = now_us();
@@ -932,6 +956,23 @@ void lif_set_dynamics(lif *e, double tau_adapt_ms, const float *adapt_mV,
     e->ext = on;
     memset(e->quiet, 0, e->nblocks);
 }
+
+/* Short-term depression of output synapses (see struct lif): f[i] in (0, 1]
+ * for depressing presynaptic neurons, 0 = none (all 0 disables it). tau_ms =
+ * recovery time constant. Depletion starts at 0 (fully recovered). */
+void lif_set_std(lif *e, const float *f, double tau_ms) {
+    int m = 0;
+    for (int i = 0; i < e->n; i++) m += f[i] > 0.0f;
+    free(e->std_list); e->std_list = NULL; e->std_n = 0;
+    if (!m) { free(e->std_f); free(e->std_d); free(e->std_rel); e->std_f = e->std_d = e->std_rel = NULL; return; }
+    if (!e->std_f) { e->std_f = malloc(e->n * sizeof(float)); e->std_d = calloc(e->n, sizeof(float));
+                     e->std_rel = malloc(e->n * sizeof(float)); }
+    memcpy(e->std_f, f, e->n * sizeof(float));
+    e->std_list = malloc((size_t)m * sizeof(int32_t));
+    for (int i = 0; i < e->n; i++) if (f[i] > 0.0f) e->std_list[e->std_n++] = i;
+    e->std_e = (float)exp(-e->dt / tau_ms);
+}
+float *lif_std_depletion(lif *e) { return e->std_d; }
 
 float *lif_adapt(lif *e) { return e->adapt; }
 float *lif_gs(lif *e) { return e->gs; }

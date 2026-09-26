@@ -18,10 +18,18 @@ a pet that is full is not made to eat because the model said so.
 
 The model is reached through an OpenAI-compatible endpoint: NVIDIA's Personal
 AI Router (PAIR) on the machine running the brain (port 1236) routes it to the
-cluster (qwen/qwen3.8-27b in LM Studio on the Mac Studio, so the fly brain keeps
-the local GPU). Reasoning is switched off: ~2 s per decision instead of >20 s.
+cluster (LM Studio on the Mac Studio, so the fly brain keeps the local GPU).
+Default model: Gemma 4 E4B (MLX 4-bit): 0.6 s per decision, praise and scolding
+read correctly in every test (cortex/llm_bench.py, 2026-09-26: vs Qwen3.5-9B
+1.2 s and Qwen3.8-27B 3.7 s, all 54-56/60 checks).
 Calls run in a background thread; while one is pending the pet carries on on
 its drives. If the model is unreachable the pet simply has no personality layer.
+
+Safety note: speech and the model's own diary notes (saved, fed back on later
+days) reach the prompt, so whoever the microphone hears can steer intentions
+and praise/scold (dopamine). Replies are restricted to fixed lists and short
+phrases (parse), intentions only nudge the drives, and nothing here reaches the
+motors or the safety layer; still, treat the diary as untrusted text.
 
 C. APPROXIMATIONS: not a fly structure. The analogy is a cortex-like layer for
 language and social behaviour (Habitat: speech arrives as ground-truth text).
@@ -47,13 +55,15 @@ startle. A neocortex layer keeps a map, hunger and company drives. You only choo
 intentions, sounds and a few words; the body decides the details.
 Character: {character}
 Stay true to the drives you are given: a full pet does not want to eat; a pet that was
-just petted a lot may want space. Cats do not always obey.
+just petted a lot may want space. Cats do not always obey. Your person rarely feeds
+you on request: when hungry, go to where you remember food ("eat").
 Reply with ONLY one JSON object, no other text:
 {{"intent": one of {intents},
   "sound": one of {sounds},
   "say": a very short phrase (<= 6 words) or null,
   "mood": one of {moods},
-  "feedback": -1 if the person just scolded you, +1 if they praised you, else 0,
+  "feedback": -1 if the person just scolded you in words, +1 if they praised you in words, else 0
+              (being petted or given a treat is not praise: those are rewarded already),
   "note": a few words for your diary, or null}}"""
 
 DEFAULT_CHARACTER = ("affectionate but independent, curious about new places, loves food, "
@@ -62,7 +72,7 @@ DEFAULT_CHARACTER = ("affectionate but independent, curious about new places, lo
 
 class Personality:
     def __init__(self, url: str = "http://127.0.0.1:1236/v1/chat/completions",
-                 model: str = "qwen/qwen3.8-27b", name: str = "Mote",
+                 model: str = "gemma-4-e4b-it-mlx", name: str = "Mote",
                  character: str = DEFAULT_CHARACTER, state_path: str | None = None,
                  timeout_s: float = 20.0):
         self.url, self.model, self.name, self.timeout = url, model, name, timeout_s
@@ -72,7 +82,8 @@ class Personality:
         self.diary = self._load_diary()
         self._lock = threading.Lock()
         self._pending = None                 # thread
-        self._reply = None                   # (t_asked, dict) waiting to be taken
+        self._reply = None                   # (t_asked, dict, latency, ok) waiting to be taken
+        self._gen = 0                        # day counter: replies to an earlier day are dropped
         self.log = []                        # every exchange this day
         self.reset(0)
 
@@ -88,6 +99,12 @@ class Personality:
         return []
 
     def reset(self, day: int) -> None:
+        """A new day. A reply still in flight from the day before is dropped
+        (its simulated clock restarts at 0, so it would otherwise never be due
+        and would block every later call)."""
+        with self._lock:
+            self._gen += 1
+            self._reply = None
         self.day = day
         self.current = {"intent": "none", "sound": "none", "say": None, "mood": "calm",
                         "feedback": 0, "t": -1e9}
@@ -138,13 +155,15 @@ class Personality:
                 self.stats["failures"] += 1
         if out["intent"] != "none" and t_s - self.current["t"] > INTENT_S:
             self.current["intent"] = out["intent"] = "none"
-        busy = (self._pending is not None and self._pending.is_alive()) or self._reply is not None
+        with self._lock:
+            waiting = self._reply is not None
+        busy = (self._pending is not None and self._pending.is_alive()) or waiting
         due = self.events or t_s - self.last_call_t > IDLE_S
         if not busy and due and t_s - self.last_call_t >= MIN_GAP_S:
             self.last_call_t = t_s
             msg = self._message(t_s, digest)
             self.events = []
-            self._pending = threading.Thread(target=self._ask, args=(t_s, msg), daemon=True)
+            self._pending = threading.Thread(target=self._ask, args=(t_s, msg, self._gen), daemon=True)
             self._pending.start()
         return out
 
@@ -164,19 +183,20 @@ class Personality:
         recent = "; ".join(f"t={t} {x}" for t, x in self.events[-6:]) or "nothing new"
         past = " | ".join(f"day {e['day']}: " + ", ".join(e["notes"][-3:]) for e in self.diary[-3:] if e["notes"])
         lines = [f"Time {t_s:.0f} s into day {self.day}.",
-                 f"Drives: hunger {d.get('hunger', 0):.2f}, wants company {d.get('social', 0):.2f} (0-1).",
+                 f"Drives: hunger {d.get('hunger', 0):.2f}, wants company {d.get('social', 0):.2f}"
+                 + (f", sleepy {d['sleepy']:.2f}" if d.get("sleepy") is not None else "") + " (0-1)."
+                 + (f" Battery {d['battery']:.0%}." if d.get("battery") is not None else ""),
                  f"Body (fly brain): {d.get('behaviour', '?')}.",
                  f"Person: {d.get('person', 'not in view')}.",
+                 f"Food: {d.get('food', 'unknown')}.",
                  f"Doing: {d.get('doing', '?')}. Your last mood: {self.current['mood']}.",
                  f"Just now: {recent}."]
         if past:
             lines.append(f"Diary, earlier days: {past}.")
         return "\n".join(lines)
 
-    def _ask(self, t_s, msg):
-        body = {"model": self.model, "temperature": 0.7, "max_tokens": 200,
-                "chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "none",
-                "messages": [{"role": "system", "content": self.system}, {"role": "user", "content": msg}]}
+    def _ask(self, t_s, msg, gen):
+        body = request_body(self.model, self.system, msg)
         t0 = time.time()
         reply, ok = None, False
         try:
@@ -188,27 +208,45 @@ class Personality:
         except Exception as ex:                       # unreachable, timeout, bad reply
             text = f"error: {ex}"
         lat = time.time() - t0
-        self.stats["calls"] += 1
-        self.log.append({"t": round(t_s, 1), "asked": msg, "answer": text[:400], "reply": reply,
-                         "latency_s": round(lat, 2)})
         with self._lock:
+            if gen != self._gen:              # asked on an earlier day
+                return
+            self.stats["calls"] += 1
+            self.log.append({"t": round(t_s, 1), "asked": msg, "answer": text[:400], "reply": reply,
+                             "latency_s": round(lat, 2)})
             self._reply = (t_s, reply, lat, ok)
+
+
+def request_body(model: str, system: str, msg: str) -> dict:
+    """An OpenAI-style chat request with the model's reasoning switched off.
+    LM Studio (2026-09) ignores enable_thinking / reasoning_effort for the small
+    Qwen3.5 models, which then spend the whole reply thinking; starting the
+    answer with an empty think block skips it (0.6 s instead of > 3 s with no
+    answer). Gemma 4 only thinks when asked in its system prompt."""
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": msg}]
+    if "qwen" in model.lower():
+        messages.append({"role": "assistant", "content": "<think>\n\n</think>\n\n"})
+    return {"model": model, "temperature": 0.7, "max_tokens": 200,
+            "chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "none",
+            "messages": messages}
 
 
 def parse(text: str) -> dict | None:
     """The model's JSON, validated; anything outside the allowed values is dropped."""
-    a, b = text.find("{"), text.rfind("}")
-    if a < 0 or b <= a:
+    a = text.find("{")
+    if a < 0:
         return None
     try:
-        r = json.loads(text[a:b + 1])
-    except json.JSONDecodeError:
+        r, _ = json.JSONDecoder().raw_decode(text[a:])      # the first object only
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(r, dict):
         return None
     say = r.get("say")
     say = str(say)[:60] if say not in (None, "", "null") else None
     try:
-        fb = int(r.get("feedback", 0))
-    except (TypeError, ValueError):
+        fb = round(float(r.get("feedback", 0)))
+    except (TypeError, ValueError, OverflowError):
         fb = 0
     note = r.get("note")
     return {"intent": r.get("intent") if r.get("intent") in INTENTS else "none",

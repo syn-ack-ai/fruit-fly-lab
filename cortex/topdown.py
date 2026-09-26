@@ -17,6 +17,16 @@ Channels (each a Session stimulus; overlapping drives take the maximum):
   dopamine  the cortex critic's reward-prediction error into the mushroom
             body's teaching neurons: positive -> reward PAM05-08, negative ->
             punishment PPL101/103 (the same DANs taste drives in the home).
+  rest      sleep pressure (0..1): drive to the ER5 ring neurons (sleep drive;
+            Liu et al. 2016 Cell 165:1347) plus the body's stand-in for sleep-
+            promoting nerve-cord neurons (fly/body/foraging_body.py rest_level).
+            In the calibrated model (experiments/sleep_drive_test.py, 6 seeds,
+            matched Poisson sets) ER5 at 80 Hz silences ExR1 and lowers the
+            walking command DNg100 by 18% (paired p = 0.075); the R23E10 dFB
+            types by 8% (p = 0.42), both together 11% (p = 0.026). So the brain-
+            side effect is modest and most of the settling comes from the body
+            gate. (A first, uncontrolled test reported -35% for ER5 and ExR1
+            silencing by dFB; neither held with matched controls.)
   arousal   interest in the person: a gain (0..1) on the camera's LC10a drive
             for the person (robot.head.ObjectEncoder.arousal). Pursuit is
             state-gated in flies (P1 arousal gates the LC10a pathway in courting
@@ -98,6 +108,27 @@ class DopamineEncoder:
         return {"kind": "cortex_dopamine", "active": self.rpe != 0.0, "rpe": round(self.rpe, 3)}
 
 
+REST_HZ = 80.0
+
+
+class RestEncoder:
+    """Sleep pressure -> ER5 ring neurons."""
+
+    def __init__(self, connectome):
+        t = connectome.neurons["primary_type"].fillna("").astype(str).to_numpy()
+        self.indices = np.flatnonzero(t == "ER5")
+        self.level = 0.0
+
+    def set(self, level: float) -> None:
+        self.level = float(np.clip(level, 0.0, 1.0))
+
+    def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
+        return np.full(len(self.indices), REST_HZ * self.level)
+
+    def state(self, t_ms: float = 0.0) -> dict:
+        return {"kind": "cortex_rest", "active": self.level > 0, "level": round(self.level, 2)}
+
+
 class TopDown:
     """All cortex -> fly channels for one Session. Call attach() after every
     Session.reset() (which clears stimuli), then apply() each control step."""
@@ -113,6 +144,8 @@ class TopDown:
         self.attend = AttendEncoder(obj_encoder)
         self.dopamine = DopamineEncoder(connectome)
         self.obj = obj_encoder
+        self.rest = RestEncoder(connectome)
+        self.ses = None
         self.last = {}
 
     def attach(self, ses) -> None:
@@ -123,6 +156,9 @@ class TopDown:
             ses.add_stimulus(self.attend, self.attend)
         if "dopamine" in self.channels:
             ses.add_stimulus(self.dopamine, self.dopamine)
+        if "rest" in self.channels:
+            ses.add_stimulus(self.rest, self.rest)
+        self.ses = ses
 
     def apply(self, heading_deg: float, cmd: dict) -> None:
         """cmd: goal_deg (world frame, CCW) and goal_gain; attend_az (+ = right)
@@ -143,9 +179,14 @@ class TopDown:
         self.dopamine.set(cmd.get("rpe", 0.0) if "dopamine" in self.channels else 0.0)
         arousal = float(np.clip(cmd.get("arousal", 1.0), 0.0, 1.0)) if "arousal" in self.channels else 1.0
         self.obj.arousal = arousal
+        rest = float(np.clip(cmd.get("rest", 0.0), 0.0, 1.0)) if "rest" in self.channels else 0.0
+        self.rest.set(rest)
+        body = getattr(self.ses, "body", None)
+        if body is not None and hasattr(body, "rest_level"):
+            body.rest_level = rest
         self.last = {"goal_deg": None if g is None else round(g % 360.0, 1), "goal_gain": round(gain, 2),
                      "attend_az": round(self.attend.az, 1), "attend_gain": round(self.attend.gain, 2),
-                     "rpe": round(self.dopamine.rpe, 3), "arousal": round(arousal, 2)}
+                     "rpe": round(self.dopamine.rpe, 3), "arousal": round(arousal, 2), "rest": round(rest, 2)}
 
 
 def goal_azimuth(goal_deg: float, heading_deg: float) -> float:

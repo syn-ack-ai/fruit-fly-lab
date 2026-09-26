@@ -17,8 +17,14 @@ import sys
 from collections import defaultdict
 
 
-def classify(log, t):
-    i = min(range(len(log)), key=lambda k: abs(log[k]["t"] - t))
+def classify(log, t, period_s: float = 0.1):
+    """t = the bump's time as brain_client stores it: the START of the control
+    step in which contact began. Log entries are stamped at the END of their
+    step, so the contact step is the entry at t + period: its "v" is the speed
+    the pet was driving at during that step, and the previous entry holds the
+    poses at the step's start. (Fixed 2026-09-26: the first version used the
+    step before, i.e. the pet's speed two steps before contact.)"""
+    i = min(range(len(log)), key=lambda k: abs(log[k]["t"] - (t + period_s)))
     a, b = log[max(0, i - 1)], log[i]
     dt = max(b["t"] - a["t"], 1e-3)
     rx, rz = a["robot"][0] - a["human"][0], a["robot"][1] - a["human"][1]
@@ -27,11 +33,11 @@ def classify(log, t):
     hvx, hvz = (b["human"][0] - a["human"][0]) / dt, (b["human"][1] - a["human"][1]) / dt
     person_closing = hvx * ux + hvz * uz
     yaw = math.radians(a["robot"][2])                         # CCW from +x in the (x, -z) plane
-    pvx, pvz = a["v"] * math.cos(yaw), -a["v"] * math.sin(yaw)
+    pvx, pvz = b["v"] * math.cos(yaw), -b["v"] * math.sin(yaw)
     pet_closing = -(pvx * ux + pvz * uz)
     return {"pet_closing": pet_closing, "person_closing": person_closing,
             "pet_fault": pet_closing > 0.02 and pet_closing >= person_closing, "behind": abs(a["az"]) > 90,
-            "manner": (a.get("cortex") or {}).get("manner")}
+            "manner": (b.get("cortex") or {}).get("manner")}
 
 
 def main(root):

@@ -29,6 +29,17 @@ C. OUR APPROXIMATIONS :
    - The owner: when the pet is within 1.5 m and sees them, each second there
      is a PET_RATE chance of a 1.5 s pat on the head (head-bristle neurons at
      80 Hz) and a TREAT_RATE chance of a 1 s treat (sugar taste + reward DANs).
+
+Battery mode (battery=robot.battery.Battery): the bowl is the charging dock and
+hunger is the battery (robot/battery.py). Charging happens while the pet is at
+the dock with its proboscis out. Hunger sets how strongly the dock is sensed,
+as in real flies, where starvation raises the sensitivity of sugar-taste
+neurons (dopamine; Inagaki et al. 2012 Cell 148:583; Marella et al. 2012 Neuron
+73:941; Inagaki, Panse & Anderson 2014 Neuron 84:806) and
+of food-odour ORNs (sNPF; Root et al. 2011 Cell 145:133): the dock's taste,
+its reward-DAN drive and its odour are scaled by 0.15 + 0.85 x hunger (odour:
+0.3 + 0.7 x hunger), so a charged pet passes the dock without the feeding
+reflex. Treats from the owner are not scaled.
 """
 from __future__ import annotations
 
@@ -50,8 +61,10 @@ PUNISH_DANS = ("PPL101", "PPL103")
 
 class HomeWorld:
     def __init__(self, pet_rate: float = 0.15, treat_rate: float = 0.05, plant: bool = True,
-                 seed: int = 0):
+                 seed: int = 0, battery=None, hunger_senses: bool = True):
         self.pet_rate, self.treat_rate = pet_rate, treat_rate
+        self.battery = battery
+        self.hunger_senses = hunger_senses      # False: control, the dock is sensed at full strength
         self.sources = [("bowl", BOWL_XZ, "fermenting_fruit", 1.0, "sweet")]
         if plant:
             self.sources.append(("plant", PLANT_XZ, "leaves", 1.0, "bitter"))
@@ -66,9 +79,25 @@ class HomeWorld:
         self.taste = None
         self.events = []
         self.stats = {"first_bowl_s": None, "near_bowl_s": 0.0, "at_bowl_s": 0.0, "eating_s": 0.0,
-                      "at_plant_s": 0.0, "pets": 0, "treats": 0, "near_person_s": 0.0}
+                      "at_plant_s": 0.0, "pets": 0, "treats": 0, "near_person_s": 0.0,
+                      "eating_when_full_s": 0.0}
+        if self.battery is not None:
+            self.battery.day_start()
 
-    def step(self, obs: dict, dt: float, proboscis: float) -> None:
+    @property
+    def hunger(self) -> float | None:
+        """Battery mode: how hungry (0..1) the charge makes the pet; else None."""
+        return None if self.battery is None else self.battery.hunger
+
+    def sense_gain(self) -> tuple:
+        """(taste, odour) gain on the dock's signals: hunger-dependent sensitivity."""
+        h = self.hunger
+        if h is None or not self.hunger_senses:
+            return (1.0, 1.0)
+        return (0.15 + 0.85 * h, 0.3 + 0.7 * h)
+
+    def step(self, obs: dict, dt: float, proboscis: float, speed: float = 0.0,
+             resting: bool = False) -> None:
         x, z, yaw = obs["robot"]
         a = math.radians(yaw)
         # yaw is measured in the (x, -z) plane, CCW seen from above
@@ -95,10 +124,15 @@ class HomeWorld:
                     st["at_bowl_s"] += dt
                     if proboscis > 0.5:
                         st["eating_s"] += dt
+                        if self.hunger is not None and self.hunger < 0.1:
+                            st["eating_when_full_s"] += dt
             elif d < EAT_R_M:
                 st["at_plant_s"] += dt
             if d < EAT_R_M:
                 self.taste = taste
+        if self.battery is not None:
+            d_dock = math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1])
+            self.battery.step(dt, speed, resting, charging=d_dock < EAT_R_M and proboscis > 0.5)
         # the owner
         if obs["dist"] < OWNER_R_M:
             st["near_person_s"] += dt
@@ -167,14 +201,17 @@ class HomeSenses:
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
         w = self.world
         G = np.zeros(len(self._npos))
+        g_taste, g_odour = w.sense_gain()
+        src_gain = np.array([g_odour if nm == "bowl" else 1.0 for nm, *_ in w.sources])
         for k in ("L", "R"):
-            r = self.olf.rates(w.conc[k] @ self._blend)
+            r = self.olf.rates((w.conc[k] * src_gain) @ self._blend)
             G[self._opos[k]] = r[self._ogi[k]]
         sweet = w.taste == "sweet" or w.treating
         if sweet:
-            G[self._npos["sugar"]] = TASTE_HZ
+            g = 1.0 if w.treating else g_taste
+            G[self._npos["sugar"]] = TASTE_HZ * g
             if self.reinforcement:
-                G[self._npos["reward_dan"]] = REINFORCE_HZ
+                G[self._npos["reward_dan"]] = REINFORCE_HZ * g
         elif w.taste == "bitter":
             G[self._npos["bitter"]] = TASTE_HZ
             if self.reinforcement:

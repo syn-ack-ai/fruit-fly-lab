@@ -116,6 +116,13 @@ class ForagingBody:
         self._a01_f = 0.0               # smoothed DNa01 L-R (monophasic)
         self._p09_f = 0.0
         self._hz100 = None              # smoothed DNg100 rate
+        # Rest / sleep pressure (0..1), set top-down (cortex/topdown.py "rest").
+        # The brain side drives ER5 ring neurons; this is the missing nerve
+        # cord's side: sleep-promoting VNC neurons (VNC-SP; Jones et al. 2023
+        # PLoS Biol) lengthen stops and shorten spontaneous walking bouts.
+        # Command neurons (DNg100/DNp09 over threshold) still start a bout, so
+        # a strong stimulus wakes a resting pet.
+        self.rest_level = 0.0
 
     # ----------------------------------------------------------------- update
     def update(self, dt_ms: float, channels: dict, t_ms: float,
@@ -183,10 +190,11 @@ class ForagingBody:
         feeding = s.proboscis_extension > 0.5
 
         # spontaneous walk/stop bouts
+        rest = self.rest_level
         if self._walking:
-            if self.rng.random() < dt_s / MEAN_WALK_S:
+            if self.rng.random() < dt_s * (1 + 3 * rest) / MEAN_WALK_S:
                 self._walking = False
-        elif self.rng.random() < dt_s / MEAN_STOP_S:
+        elif self.rng.random() < dt_s / (MEAN_STOP_S * (1 + 9 * rest)):
             self._walking = True
 
         beh = "walking" if self._walking else "resting"

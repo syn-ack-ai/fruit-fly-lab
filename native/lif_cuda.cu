@@ -248,7 +248,7 @@ __global__ void k_write(int n, const uint8_t *__restrict__ flag, const int *__re
 }
 
 /* reset spikers (v, g, adaptation, refractory) and scatter their outputs */
-__global__ void k_spikes(int n, const DevState *__restrict__ ds_, int D, const int32_t *__restrict__ coll,
+__global__ void k_spikes(int n, long long cap, const DevState *__restrict__ ds_, int D, const int32_t *__restrict__ coll,
                          const long long *__restrict__ sstart,
                          const int *__restrict__ scount, int stepi, int ext, float vrst,
                          float *__restrict__ V, float *__restrict__ G, float *__restrict__ A,
@@ -259,8 +259,9 @@ __global__ void k_spikes(int n, const DevState *__restrict__ ds_, int D, const i
                          const float *__restrict__ pm, const float *__restrict__ slow_r,
                          double *__restrict__ ring, double *__restrict__ ring_s,
                          const float *__restrict__ std_f, float *__restrict__ std_d) {
-    const int ns = scount[stepi];
     const long long s0 = sstart[stepi];
+    const long long room = cap - s0 > 0 ? cap - s0 : 0;         /* never read past the buffer */
+    const int ns = (long long)scount[stepi] < room ? scount[stepi] : (int)room;
     const int out = (ds_->slot + D) % (D + 1);
     const int lane = threadIdx.x & 31;
     const int warp = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
@@ -394,11 +395,14 @@ lif *lif_create(int n, int nnz, const int32_t *indptr, const int32_t *indices,
     CKC(cudaMalloc(&e->d_blkcnt, (size_t)e->nb * 4)); CKC(cudaMalloc(&e->d_blkoff, (size_t)e->nb * 4));
     CKC(cudaMalloc(&e->d_tot, 8));
     CKC(cudaMalloc(&e->d_st, sizeof(DevState)));
-    /* Room for every spike a chunk can hold: after a spike a neuron is
-     * refractory for R steps, so it spikes at most CHUNK / R + 1 times in
-     * CHUNK steps. (A fixed 4M-spike buffer could overflow when the whole
-     * brain fires, e.g. at FLY_DT 0.2 or with the published model's latching;
-     * the kernels would have written past it before the host noticed.) */
+    /* Spike buffer. After a spike a neuron is refractory for R steps, so it
+     * spikes at most c / R + 1 times in c steps -- except Poisson-driven
+     * neurons, which have no refractory period (rlen = 0) and can spike every
+     * step. run_steps() therefore shortens a chunk when the Poisson set is
+     * large, so that npoi * c + (n - npoi) * (c / R + 1) <= coll_cap always
+     * holds (chunk_steps). (A fixed 4M-spike buffer overflowed in a whole-
+     * brain storm at FLY_DT 0.2; the review of 2026-09-26 found that the first
+     * fix, sized for refractory neurons only, could still overflow.) */
     e->coll_cap = (long)n * (CHUNK / e->R + 1);
     CKC(cudaMalloc(&e->d_coll, (size_t)e->coll_cap * 4));
     CKC(cudaMalloc(&e->d_sstart, CHUNK * 8)); CKC(cudaMalloc(&e->d_scount, CHUNK * 4));
@@ -677,7 +681,7 @@ static void enqueue_step(lif *e, int stepi) {
     k_scan<<<1, 1024, 0, e->st>>>(e->nb, e->d_blkcnt, e->d_blkoff, e->d_tot, e->d_sstart, e->d_scount, stepi);
     k_write<<<e->nb, TPB, 0, e->st>>>(e->n, e->d_flag, e->d_blkoff, e->d_sstart, stepi, e->d_coll,
                                       (long long)e->coll_cap);
-    k_spikes<<<128, 256, 0, e->st>>>(e->n, e->d_st, e->D, e->d_coll, e->d_sstart, e->d_scount, stepi, e->ext,
+    k_spikes<<<128, 256, 0, e->st>>>(e->n, (long long)e->coll_cap, e->d_st, e->D, e->d_coll, e->d_sstart, e->d_scount, stepi, e->ext,
                                      e->vrst, e->d_v, e->d_g, e->d_adapt, e->d_adapt_b, e->d_xf, e->d_rl,
                                      e->d_rlen, e->d_sil, e->d_indptr, e->d_pe, e->d_wlut,
                                      e->plastic ? e->d_pmult : NULL, e->d_slow_r, e->d_ring, e->d_ring_s,
@@ -740,6 +744,14 @@ static void collect_host(lif *e, const int32_t *src, long k) {
     e->ncollected += k;
 }
 
+/* the longest chunk whose worst-case spike count fits the buffer (see lif_create) */
+static int chunk_steps(const lif *e) {
+    const long long np = e->npoi, other = (long long)e->n - np;
+    long long c = CHUNK;
+    while (c > 1 && np * c + other * (c / e->R + 1) > e->coll_cap) c = c * 9 / 10;
+    return (int)c;
+}
+
 /* run `steps` steps; collect=1 keeps every spike in e->collected */
 static long run_steps(lif *e, int steps, int collect) {
     if (e->plastic && e->pm_dirty) {
@@ -750,7 +762,8 @@ static long run_steps(lif *e, int steps, int collect) {
     e->ncollected = 0;
     long total = 0;
     for (int s = 0; s < steps;) {
-        const int c = steps - s < CHUNK ? steps - s : CHUNK;
+        const int cmax = chunk_steps(e);
+        const int c = steps - s < cmax ? steps - s : cmax;
         CK(cudaMemsetAsync(e->d_tot, 0, 8, e->st));
         launch_steps(e, c);
         advance_host(e, c);

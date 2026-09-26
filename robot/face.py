@@ -85,8 +85,10 @@ class FaceModel:
 class FacePublisher:
     """POST the face state to robot/face_server.py; never blocks the caller."""
 
-    def __init__(self, url: str = "http://127.0.0.1:8010/state"):
+    def __init__(self, url: str = "http://127.0.0.1:8010/state", key: str | None = None):
+        from robot.face_server import face_key
         self.url = url
+        self.key = key or face_key()
         self.q = queue.Queue(maxsize=1)
         self.fails = 0
         threading.Thread(target=self._run, daemon=True).start()
@@ -106,7 +108,7 @@ class FacePublisher:
             st = self.q.get()
             try:
                 req = urllib.request.Request(self.url, json.dumps(st).encode(),
-                                             {"Content-Type": "application/json"})
+                                             {"Content-Type": "application/json", "X-Face-Token": self.key})
                 urllib.request.urlopen(req, timeout=1.0).read()
             except Exception:
                 self.fails += 1

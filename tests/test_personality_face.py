@@ -47,3 +47,54 @@ def test_scripted_person_praises_an_answered_call():
     # the pet walking into a standing person is scolded
     a = {"dist": 0.7, "robot": [0, 0, 0], "human": [0.7, 0]}
     assert p.step(10.0, 0.1, a, a, True, 0.1) == "ouch, careful!"
+
+
+def test_new_day_drops_a_reply_from_the_day_before():
+    # regression (2026-09-26): a reply still pending at the end of a day was due
+    # at a time the new day's clock never reached, and blocked every later call
+    p = Personality(url="http://127.0.0.1:9/none")
+    p._reply = (118.0, parse('{"intent": "rest"}'), 6.0, True)
+    p.reset(1)
+    assert p._reply is None
+    p.last_call_t = 0.0
+    p.events.append((5.0, "your person said: hi"))
+    p.step(5.0, {})
+    assert p._pending is not None                 # a new call was started
+    p.wait(15.0)
+
+
+def test_parse_is_robust():
+    assert parse('{"feedback": 1e999}')["feedback"] == 0
+    assert parse('{"feedback": 0.9}')["feedback"] == 1
+    assert parse('{"intent": "rest"} and then {"intent": "eat"}')["intent"] == "rest"
+    assert parse('[1, 2]') is None
+
+
+def test_face_server_needs_the_token_and_clean_fields():
+    import pytest
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    import robot.face_server as fs
+    fs.app.state.key = "k"
+    c = TestClient(fs.app)
+    good = {"gaze": [0.2, 0.1], "open": 0.9, "mouth": "smile", "event": {"id": 3, "say": "hi", "sound": "purr"}}
+    assert c.post("/state", json=good).status_code == 403                              # no token
+    assert c.post("/state", content="{}", headers={"X-Face-Token": "k",
+                                                   "Content-Type": "text/plain"}).status_code == 415
+    assert c.post("/state", json={"gaze": None}, headers={"X-Face-Token": "k"}).status_code == 400
+    assert c.post("/state", json=good, headers={"X-Face-Token": "k"}).status_code == 200
+    st = fs.STATE["state"]
+    assert st["event"]["say"] == "hi" and st["mouth"] == "smile"
+    assert fs.clean_state({"mouth": "<script>", "event": {"id": 1, "sound": "roar", "say": "x" * 500}})["event"]["say"] == "x" * 60
+
+
+def test_face_state_cleaning():
+    import pytest
+    from robot.face_server import clean_state
+    st = clean_state({"gaze": [5, -5], "mouth": "<b>", "mood": "m" * 100,
+                      "event": {"id": 2, "say": "x" * 500, "sound": "roar"}})
+    assert st["gaze"] == [1.0, -1.0] and st["mouth"] == "cat" and len(st["mood"]) == 24
+    assert st["event"] == {"id": 2, "say": "x" * 60, "sound": None}
+    for bad in ({"gaze": None}, {"gaze": [0, float("nan")]}, {"open": "wide"}, [1, 2], {"event": 5}):
+        with pytest.raises(ValueError):
+            clean_state(bad)

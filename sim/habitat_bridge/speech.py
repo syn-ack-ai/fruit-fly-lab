@@ -8,8 +8,11 @@ text: the stand-in for speech recognition on the robot's microphone).
           toward the person faster than they were moving toward it: ground
           truth, as a person would judge it)
 
-Records whether each call was answered and how fast (evaluation only). The same
-script plays in every condition; without a personality layer nothing listens.
+Records whether each call was answered and how fast (evaluation only). The
+same rules and random seed apply in every condition, but WHEN calls happen
+depends on the pet (no call while it is within 2 m, and the random draws follow
+from that), so conditions hear different call times. Without a personality
+layer nothing listens.
 """
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ import numpy as np
 CALL_PER_S = 1 / 45.0        # about one call every 45 s
 ANSWER_S = 25.0              # a call is answered if the pet arrives within this
 ARRIVE_M = 1.2
+SCOLD_GAP_S = 5.0            # one "ouch" per collision, not one per contact frame
 CALLS = ("come here, {name}!", "{name}, come!", "where are you, {name}?")
 
 
@@ -34,6 +38,7 @@ class ScriptedPerson:
         self.calls = []              # (t, answered_after_s or None)
         self.heard = []              # (t, kind, text)
         self.scolds = 0
+        self.last_scold = -1e9
 
     def step(self, t: float, dt: float, obs: dict, prev: dict, bumped: bool, v: float) -> str | None:
         say = None
@@ -45,8 +50,10 @@ class ScriptedPerson:
             elif t - self.call_t > ANSWER_S:
                 self.calls.append((self.call_t, None))
                 self.call_t = None
-        if say is None and bumped and self._pet_ran_into_me(obs, prev, v, dt):
+        if (say is None and bumped and t - self.last_scold >= SCOLD_GAP_S
+                and self._pet_ran_into_me(obs, prev, v, dt)):
             self.scolds += 1
+            self.last_scold = t
             say = ("scold", "ouch, careful!")
         if (say is None and self.call_t is None and obs["dist"] > 2.0
                 and self.rng.random() < CALL_PER_S * dt):

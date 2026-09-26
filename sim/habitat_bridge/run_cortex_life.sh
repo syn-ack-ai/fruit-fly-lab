@@ -8,6 +8,9 @@
 #   manners  v0 with cat-like manners around its person (CONDS="none v0 manners")
 #   talk     v0 with manners + the LLM personality (cortex/personality.py) and a scripted
 #            talking person; needs the model at LLM_URL (default: the NVIDIA PAIR router on the box, port 1236)
+#   pet      battery pet: the bowl is a charging dock, hunger = charge, cat-like naps
+#   petreflex  control: the battery pet with the old always-on feeding reflex at the dock
+#   pettalk  the battery pet + personality + scripted talking person
 # SAFE_SPEED=1 adds the robot's near-person speed limit (robot/safety.py) to every condition.
 # SPEECH=1 lets the scripted person talk in every condition (only "talk" listens).
 # FACE_URL=http://127.0.0.1:8010/state shows the face (robot/face_server.py); one pet only.
@@ -47,6 +50,10 @@ life() {  # port condition seed
   [ $2 = manners ] && cx=v0_manners
   local extra=""
   [ $2 = talk ] && cx=v0_manners && extra="--personality $LLM_URL --speech"
+  # the battery pet: dock = charger, hunger = charge, naps (BATTERY = starting charge)
+  [ $2 = pet ] && cx=pet && extra="--battery ${BATTERY:-0.7}"
+  [ $2 = petreflex ] && cx=pet && extra="--battery ${BATTERY:-0.7} --dock-reflex"
+  [ $2 = pettalk ] && cx=pet && extra="--battery ${BATTERY:-0.7} --personality $LLM_URL --speech"
   [ "$SEEDS" != "1" ] && d=$OUT/seed$3/$2
   mkdir -p $d; rm -rf $d/state $d/mb_weights.npy
   .venv/bin/python -m sim.habitat_bridge.brain_client --port $1 --mode brain --home --learning on \

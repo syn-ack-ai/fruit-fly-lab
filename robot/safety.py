@@ -10,7 +10,10 @@ turning are never limited. The person's distance comes from the head camera
 the last estimate is held briefly when the person drops out of view.
 
 C. APPROXIMATIONS: not a fly structure. Numbers are engineering choices for a
-small indoor robot (contact at <= 0.08 m/s; full speed from 2 m).
+small indoor robot: 0.08 m/s inside 0.5 m (person's head-and-shoulders distance
+from the camera), full speed from 2 m. Contact speed depends on the body: in
+Habitat (Spot-sized robot) contact happens at 0.6-0.8 m between centres, where
+the limit is 0.1-0.16 m/s; set CONTACT_M for the real robot's size.
 """
 from __future__ import annotations
 

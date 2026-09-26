@@ -80,9 +80,15 @@ CONTENT_AROUSAL = 0.3        # interest in chasing the person when content
 PERSONAL_M = 0.8             # content: step back if closer than this
 YIELD_M = 1.2                # a walking person: get out of their path within this
 WALKING_MS = 0.25            # estimated person speed that counts as walking
+# rest (cat-like naps): sleepiness builds while awake, faster when active, and
+# drains while resting; a content, not-hungry, sleepy pet goes to a favourite
+# spot (where it has napped before) and rests there (top-down "rest" channel)
+SLEEP_RISE, SLEEP_ACTIVE, SLEEP_FALL = 0.004, 0.004, 0.03   # per second
+SLEEPY, AWAKE = 0.6, 0.15
+REST_LEARN = 0.02
 # personality (cortex/personality.py): an intention multiplies the matching
 # utility, so the drive behind it still decides how much it matters
-INTENT_GAIN = 1.5
+INTENT_GAIN = 0.5            # 1.5 let a chatty whim beat hunger (talking-pet run 1, 2026-09-26)
 FEEDBACK_R = 0.5             # praise / scolding: reward like a pat on the head
 # critic
 GAMMA = 0.98                 # per 100 ms step: ~5 s horizon
@@ -106,6 +112,7 @@ class CognitiveMap:
 
     def visit(self, c, prev):
         n = self.nodes.setdefault(c, {"visits": 0, "food": 0.0, "bitter": 0.0, "owner": 0.0})
+        n.setdefault("rest", 0.0)
         n.setdefault("fx", 0.0); n.setdefault("fz", 0.0); n.setdefault("fn", 0.0)
         n["visits"] += 1
         self.edges.setdefault(c, set())
@@ -188,9 +195,10 @@ class CortexV0:
     N_FOURIER = 16
 
     def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False,
-                 manners: bool = False):
+                 manners: bool = False, naps: bool = False):
         self.state_path = state_path
         self.manners = manners
+        self.naps = naps                            # cat-like rest (off: as v0 / v0_manners were run)
         self.amnesic = amnesic                      # control: place memories wiped every day
         self.rng = np.random.default_rng(seed)
         # random Fourier features of position: a place code for the critic
@@ -228,6 +236,8 @@ class CortexV0:
             self.map, self.owner_prior = CognitiveMap(), {}
             self.critic = Critic(self._n_features(), int(self.rng.integers(1 << 30)))
         self.hunger, self.social = 0.6, 0.5          # a new day: hungry, wants company
+        self.sleepy, self.resting, self.want_rest = 0.2, False, False
+        self.prev_xz = None
         self.t = 0.0
         self.prev_cell = None
         self.goal = None                             # (cell, kind, utility, t_set)
@@ -302,10 +312,25 @@ class CortexV0:
             self.owner_prior[k] *= (1 - OWNER_DECAY * dt)
 
         # --- drives
-        self.hunger = float(np.clip(self.hunger + HUNGER_RISE * dt - HUNGER_EAT * dt * eating, 0, 1))
+        if home is not None and getattr(home, "hunger", None) is not None:
+            self.hunger = float(home.hunger)        # battery mode: hunger is the charge
+        else:
+            self.hunger = float(np.clip(self.hunger + HUNGER_RISE * dt - HUNGER_EAT * dt * eating, 0, 1))
         near = person_d is not None and person_d < 1.5     # from apparent size, not ground truth
         self.social = float(np.clip(self.social + SOCIAL_RISE * dt - SOCIAL_NEAR * dt * near
                                     - SOCIAL_PET * (new_pet or new_treat), 0, 1))
+        speed = 0.0 if self.prev_xz is None else math.hypot(x - self.prev_xz[0], z - self.prev_xz[1]) / max(dt, 1e-3)
+        self.prev_xz = (x, z)
+        if self.resting:
+            self.sleepy = max(0.0, self.sleepy - SLEEP_FALL * dt)
+            node["rest"] += REST_LEARN * dt * (1.0 - node["rest"])      # a good place to nap
+            if self.sleepy <= AWAKE or self.hunger > 0.7 or new_pet or self.intent in ("seek_person", "eat", "explore"):
+                self.resting = False
+        else:
+            self.sleepy = min(1.0, self.sleepy + (SLEEP_RISE + SLEEP_ACTIVE * min(1.0, speed / 0.3)) * dt)
+        self.want_rest = (self.naps and not self.resting and self.hunger < 0.5
+                          and (self.sleepy >= SLEEPY or (self.intent == "rest" and self.sleepy >= 0.3))
+                          and (self.social < SEEK_SOCIAL or self.intent == "rest"))
 
         # --- critic: reward-prediction error -> dopamine
         phi = self._features((x, z), node, home, obs)
@@ -336,9 +361,15 @@ class CortexV0:
             cmd["goal_gain"] = float(np.clip(util / 0.5, 0.3, 1.0))
         if self.manners:
             cmd = self._manners(cmd, x, z, t_s, dt)
+            if self.manner == "yield":
+                self.resting = False                  # never nap in a walking person's path
+        if self.resting:
+            cmd.update(goal_deg=None, goal_gain=0.0, rest=1.0, arousal=min(cmd.get("arousal", 1.0), 0.2))
+            self.day_log["rest_s"] = self.day_log.get("rest_s", 0.0) + dt
         self.replay.append((phi, [cmd["goal_deg"] or 0.0, cmd["goal_gain"], rpe_drive], r))
         self.last = {"hunger": round(self.hunger, 2), "social": round(self.social, 2),
                      "goal_kind": None if self.goal is None else self.goal[1], "manner": self.manner,
+                     "sleepy": round(self.sleepy, 2), "resting": self.resting,
                      "cells": len(self.map.nodes), "delta": round(delta, 3)}
         return cmd
 
@@ -379,6 +410,13 @@ class CortexV0:
             n = self.map.nodes[cell]
             u_food = self.hunger * n["food"]
             u_owner = self.social * max(n["owner"], self.owner_prior.get(cell, 0.0))
+            if self.naps:
+                # the pet (battery mode): past half hungry, food becomes urgent
+                # (up to 3x) and company matters less (a hungry cat goes to the
+                # bowl; in the first battery run a low pet kept visiting its person)
+                starving = max(0.0, self.hunger - 0.5) / 0.5
+                u_food *= 1.0 + 2.0 * starving
+                u_owner *= 1.0 - 0.8 * starving
             if self.person_seen is not None:
                 pc = cell_of(*self.person_seen[:2])
                 if cell == pc or cell in [(pc[0] + a, pc[1] + b) for a, b in NEIGH]:
@@ -394,8 +432,10 @@ class CortexV0:
                 u_new *= 1 + INTENT_GAIN
             elif self.intent == "rest":
                 u_new /= 1 + INTENT_GAIN
-            u = u_food + u_owner + u_new - n["bitter"] - PATH_COST * d
-            kind = max((("food", u_food), ("owner", u_owner), ("explore", u_new)), key=lambda kv: kv[1])[0]
+            u_rest = self.sleepy * (0.3 + n.get("rest", 0.0)) if self.want_rest else 0.0
+            u = u_food + u_owner + u_new + u_rest - n["bitter"] - PATH_COST * d
+            kind = max((("food", u_food), ("owner", u_owner), ("explore", u_new), ("rest", u_rest)),
+                       key=lambda kv: kv[1])[0]
             U[cell] = (u, kind)
         return U, dist
 
@@ -432,6 +472,10 @@ class CortexV0:
                 return
         best = max(U.items(), key=lambda kv: kv[1][0])
         cell, (u, kind) = best
+        if kind == "rest" and (cell == here or (self.goal is not None and self.goal[1] == "rest" and self.goal[0] == here)):
+            self.resting, self.want_rest, self.goal = True, False, None     # settle here
+            self._dist = dist
+            return
         if u <= 0.02 or (cell == here and (kind != "food" or sweet)):
             self.goal = None                          # content: the fly brain does as it likes
         else:
@@ -471,7 +515,8 @@ class CortexV0:
                 "goals": self.day_log["goals"], "rpe_pos_steps": self.day_log["rpe_pos"],
                 "rpe_neg_steps": self.day_log["rpe_neg"],
                 "hunger_end": round(self.hunger, 2), "social_end": round(self.social, 2),
-                "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()}}
+                "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()},
+                "rest_s": round(self.day_log.get("rest_s", 0.0), 1)}
 
     def save(self) -> None:
         self.days += 1

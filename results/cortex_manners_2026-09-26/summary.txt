@@ -78,6 +78,8 @@
    (9, 9, 105.2, 11.9, 3.6, 2.56, 0.0, 0, 0, 26.1, 6, 358.0)
    reached bowl 7/10, mean near 22.3 s, eating 10.2 s, bumps 61
    bumps: into walking person 22, fast (>0.15 m/s) 21, when it did not want company 22 | pets 9 | near person 19.6 s/day
-manners {'bumps': 57, 'person walked into pet': 49, '  ...from behind the pet': 37, 'pet ran into person': 8, '  ...at > 0.15 m/s': 3, '  ...when it did not want company': 0}
-none {'bumps': 72, 'pet ran into person': 36, '  ...at > 0.15 m/s': 3, '  ...when it did not want company': 0, 'person walked into pet': 36, '  ...from behind the pet': 18}
-v0 {'bumps': 100, 'person walked into pet': 50, '  ...from behind the pet': 32, 'pet ran into person': 50, '  ...at > 0.15 m/s': 8, '  ...when it did not want company': 19}
+
+who bumped whom (bump_analysis.py, corrected step alignment 2026-09-26):
+manners {'bumps': 57, 'person walked into pet': 48, '  ...from behind the pet': 36, 'pet ran into person': 9, '  ...at > 0.15 m/s': 2, '  ...when it did not want company': 1}
+none {'bumps': 72, 'pet ran into person': 32, '  ...at > 0.15 m/s': 3, '  ...when it did not want company': 0, 'person walked into pet': 40, '  ...from behind the pet': 19}
+v0 {'bumps': 100, 'person walked into pet': 52, '  ...from behind the pet': 31, 'pet ran into person': 48, '  ...at > 0.15 m/s': 6, '  ...when it did not want company': 19}

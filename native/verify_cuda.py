@@ -72,6 +72,10 @@ def scenario(c, name, e):
         # than the old fixed 4M-spike device buffer held
         e.reset(seed=7); e.set_poisson(np.arange(len(n)), 150.0)
         for _ in range(3): out.append(e.run_collect(1000))
+        # Poisson neurons have no refractory period: at 600 Hz one 1000-step
+        # chunk would hold ~17M spikes, over the buffer; chunks must shorten
+        e.set_poisson(np.arange(len(n)), 600.0)
+        for _ in range(2): out.append(e.run_collect(1000))
     elif name == "quiesce_tol":
         apply_dynamics(e, c, "calibrated"); e.set_quiesce_tolerance(1e-3)
         e.reset(seed=7); e.set_poisson(orn, 15.0)

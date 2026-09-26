@@ -199,18 +199,20 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
     fr_prev = None
     found_t = None
     bumps = []                                    # (t, person speed m/s, pet speed m/s, wanted company)
+    last_v = 0.0
     while t_sim < seconds and not obs["over"]:
         dn = {}
         if home is not None:
             prob = ses.body.state.proboscis_extension if mode == "brain" else 0.0
-            home.step(obs, period_ms / 1000.0, prob)
+            resting = mode == "brain" and ses.body.state.behaviour.startswith("resting")
+            home.step(obs, period_ms / 1000.0, prob, speed=last_v, resting=resting)
         if mode == "brain":
             clock.t = t_sim
             feed.update(obs, period_ms / 1000.0)
             if getattr(ses, "nav", None) is not None:
                 ses.body.state.heading_deg = float(obs["robot"][2]) % 360.0   # odometry yaw
             if personality is not None and cortex is not None:
-                pout = personality.step(t_sim, _digest(cortex, ses, obs))
+                pout = personality.step(t_sim, _digest(cortex, ses, obs, home))
                 cortex.set_personality(pout["intent"], pout["feedback"] if pout["new"] else 0)
                 if pout["new"]:
                     said.append((round(t_sim, 1), {k: pout[k] for k in ("intent", "sound", "say", "mood", "feedback")}))
@@ -231,6 +233,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if governor is not None:
             governor.observe(obs["visible"], obs["half"], t_sim)
             v = governor.limit(v, t_sim, period_ms / 1000.0)
+        if home is not None and home.battery is not None and home.battery.flat:
+            v, w = 0.0, 0.0                       # a flat battery: the robot stops
+        last_v = v
         prev_obs = obs
         obs = _call(conn, {"cmd": "step", "v": v, "w": w, "n": n_env,
                            "frame": bool(video_dir) and k % 5 == 0})
@@ -278,6 +283,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
            "video": video, "log": log}
     if home is not None:
         res["home"] = dict(home.stats)
+        if home.battery is not None:
+            res["home"]["battery"] = home.battery.summary()
         res["home"]["mean_bowl_dist"] = round(float(np.mean([math.hypot(r["robot"][0] - home.sources[0][1][0],
                                                                          r["robot"][1] - home.sources[0][1][1])
                                                               for r in log])), 2) if log else None
@@ -303,15 +310,23 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
     return res
 
 
-def _digest(cortex, ses, obs) -> dict:
+def _digest(cortex, ses, obs, home=None) -> dict:
     """What the personality layer is told each call (cortex/personality.py)."""
     from robot.safety import person_distance
     d = person_distance(obs["half"]) if obs["visible"] else None
     side = "ahead" if abs(obs["az"]) < 20 else ("to the right" if obs["az"] > 0 else "to the left")
     goal = cortex.goal[1] if getattr(cortex, "goal", None) else "nothing in particular"
+    # what the neocortex remembers: the nearest place where it has tasted food
+    x, z = obs["robot"][0], obs["robot"][1]
+    food = [cortex.map.food_point(c) for c, n in cortex.map.nodes.items() if n["food"] > 0.1]
+    fd = min((math.hypot(fx - x, fz - z) for fx, fz in food), default=None)
     return {"hunger": cortex.hunger, "social": cortex.social,
+            # sleepiness only means something to a pet that naps (review 2026-09-26)
+            "sleepy": cortex.sleepy if getattr(cortex, "naps", False) else None,
+            "battery": getattr(getattr(home, "battery", None), "soc", None) if home is not None else None,
             "behaviour": ses.body.state.behaviour,
             "person": f"{d:.1f} m {side}" if d is not None else "not in view",
+            "food": f"you remember food {fd:.1f} m away" if fd is not None else "you do not know where food is yet",
             "doing": f"heading for {goal}" + (f"; manners: {cortex.manner}" if getattr(cortex, "manner", None) else "")}
 
 
@@ -376,6 +391,11 @@ def main():
     ap.add_argument("--video-dir", default=None)
     ap.add_argument("--out", default="simulation/outputs/habitat")
     ap.add_argument("--home", action="store_true", help="food bowl, bitter plant, owner rewards")
+    ap.add_argument("--battery", type=float, default=None, metavar="SOC",
+                    help="battery mode: the bowl is a charging dock and hunger is the charge "
+                         "(robot/battery.py); SOC = starting charge, kept across days")
+    ap.add_argument("--dock-reflex", action="store_true",
+                    help="battery-mode control: sense the dock at full strength whatever the charge")
     ap.add_argument("--pet-rate", type=float, default=0.15)
     ap.add_argument("--treat-rate", type=float, default=0.05)
     ap.add_argument("--learning", choices=("on", "off"), default=None,
@@ -383,7 +403,7 @@ def main():
     ap.add_argument("--weights", default=None, help="keep mushroom-body weights here across episodes")
     ap.add_argument("--nav", action="store_true", help="learned valence gates a central-complex goal")
     ap.add_argument("--topdown", default=None, help="save the house's top-down map here (npz)")
-    ap.add_argument("--cortex", choices=("none", "oracle", "v0", "v0_amnesic", "v0_manners"), default="none",
+    ap.add_argument("--cortex", choices=("none", "oracle", "v0", "v0_amnesic", "v0_manners", "pet"), default="none",
                     help="neocortex driving the fly brain top-down (cortex/)")
     ap.add_argument("--channels", default="goal,attend,dopamine,arousal",
                     help="top-down channels the cortex may use (cortex/topdown.py)")
@@ -392,7 +412,7 @@ def main():
                     help="a scripted person calls, praises and scolds the pet (sim/habitat_bridge/speech.py)")
     ap.add_argument("--personality", default=None, metavar="URL",
                     help="LLM personality layer (cortex/personality.py), e.g. http://127.0.0.1:1236/v1/chat/completions (PAIR)")
-    ap.add_argument("--llm-model", default="qwen/qwen3.8-27b")
+    ap.add_argument("--llm-model", default="gemma-4-e4b-it-mlx")
     ap.add_argument("--pet-name", default="Mote")
     ap.add_argument("--face", default=None, metavar="URL",
                     help="send the face to robot/face_server.py, e.g. http://127.0.0.1:8010/state")
@@ -403,9 +423,16 @@ def main():
     home = None
     if a.home:
         from sim.habitat_bridge.home import HomeWorld
-        home = HomeWorld(pet_rate=a.pet_rate, treat_rate=a.treat_rate, seed=a.seed)
+        battery = None
+        if a.battery is not None:
+            from robot.battery import Battery
+            battery = Battery(a.battery)
+        home = HomeWorld(pet_rate=a.pet_rate, treat_rate=a.treat_rate, seed=a.seed, battery=battery,
+                         hunger_senses=not a.dock_reflex)
     learning = None if a.learning is None else a.learning == "on"
     chans = tuple(x for x in a.channels.split(",") if x) if a.cortex != "none" else None
+    if a.cortex == "pet" and "rest" not in chans:
+        chans += ("rest",)       # naps drive ER5 (attached only here: an idle input would shift the RNG stream)
     brain = build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans) if a.mode == "brain" else None
     cortex = None
     if a.cortex != "none" and brain is not None:
@@ -448,7 +475,8 @@ def main():
                 cortex.save()
             if a.home:
                 h, L = r["home"], r.get("learning") or {}
-                print(f"day {day} (ep {ep}): bowl first {h['first_bowl_s']} s, near {h['near_bowl_s']:.1f} s, "
+                print(f"day {day} (ep {ep}): " + (f"battery {h['battery']} | " if "battery" in h else "")
+                      + f"bowl first {h['first_bowl_s']} s, near {h['near_bowl_s']:.1f} s, "
                       f"eating {h['eating_s']:.1f} s, mean bowl dist {h['mean_bowl_dist']} m | plant {h['at_plant_s']:.1f} s "
                       f"| pets {h['pets']} treats {h['treats']} near person {h['near_person_s']:.1f} s "
                       f"| bumps {r['collisions']} (walking {r['bumps']['into_walking']}, fast {r['bumps']['fast']}, "

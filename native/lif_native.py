@@ -143,8 +143,9 @@ class NativeLIFEngine:
             if dt != self.p.dt:
                 self.p = dataclasses.replace(self.p, dt=dt)
         if not self._h:
-            raise ValueError("engine creation failed (FLY_DT must make 1.8 and 2.2 ms whole steps) or connectome too large for the packed format "
-                             "(>262,144 neurons or |synapse count| >= 8192)")
+            raise ValueError("engine creation failed: FLY_DT must make 1.8 and 2.2 ms whole steps, the connectome must fit the packed "
+                             "format (<=262,144 neurons, |synapse count| < 8192), and the CUDA engine needs enough free GPU memory "
+                             "(its message is on stderr)")
         self._sync = getattr(self._lib, "lif_sync_host", None)
         self._v = np.ctypeslib.as_array(self._lib.lif_v(self._h), (self.n,))
         self._g = np.ctypeslib.as_array(self._lib.lif_g(self._h), (self.n,))
@@ -344,6 +345,8 @@ class NativeLIFEngine:
 
     def wait(self) -> np.ndarray:
         """Block (GIL released) until start()'s steps finish; their spikes."""
+        if not getattr(self, "_busy", False):
+            raise RuntimeError("wait() without start()")
         k = self._lib.lif_wait(self._h)
         self._busy = False
         if not k:

@@ -25,6 +25,16 @@ What it learns (nothing about places or people is built in):
 
 What is innate (as in any animal): the drives and how they rise and fall, and
 the rule that picks the most valuable reachable place for the current drives.
+
+Manners (manners=True): cat-like, not polite-at-all-times. When it wants
+company (social drive >= SEEK_SOCIAL) it goes to its person and contact is
+welcome (rubbing against the legs; the robot's safety layer, robot/safety.py,
+makes it arrive at a crawl). When it has had enough (just petted), it loses
+interest in chasing the person (arousal down) and steps back if closer than
+PERSONAL_M. Whatever it wants, it never cuts in front of someone walking:
+within YIELD_M of a walking person and not behind them, it steps out of their
+path. The person's walking is estimated from its own sightings (position from
+apparent size, smoothed over ~0.5 s).
 The fly brain still does all the moving: the cortex only sets a goal
 direction (and how strongly), and the fly's own pursuit, walking rhythm,
 feeding, grooming and startle stay in charge of the body.
@@ -45,6 +55,7 @@ from collections import deque
 import numpy as np
 
 from cortex.topdown import bearing_deg
+from robot.safety import person_distance
 
 CELL_M = 0.5
 REPLAN_S = 1.0
@@ -63,7 +74,16 @@ CURIOSITY = 0.35
 FOOD_LEARN, FOOD_EXTINCT = 0.5, 0.01
 OWNER_LEARN, OWNER_DECAY = 0.3, 0.002
 SEEN_TAU_S = 60.0
-TARGET_HALF_WIDTH_M, HEAD_ABOVE_CAM_M = 0.25, 1.10
+# manners
+SEEK_SOCIAL = 0.35           # wants company at or above this social drive
+CONTENT_AROUSAL = 0.3        # interest in chasing the person when content
+PERSONAL_M = 0.8             # content: step back if closer than this
+YIELD_M = 1.2                # a walking person: get out of their path within this
+WALKING_MS = 0.25            # estimated person speed that counts as walking
+# personality (cortex/personality.py): an intention multiplies the matching
+# utility, so the drive behind it still decides how much it matters
+INTENT_GAIN = 1.5
+FEEDBACK_R = 0.5             # praise / scolding: reward like a pat on the head
 # critic
 GAMMA = 0.98                 # per 100 ms step: ~5 s horizon
 RPE_DEADBAND = 2.0           # surprises only: |error| > 2 running SDs
@@ -167,8 +187,10 @@ class Critic:
 class CortexV0:
     N_FOURIER = 16
 
-    def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False):
+    def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False,
+                 manners: bool = False):
         self.state_path = state_path
+        self.manners = manners
         self.amnesic = amnesic                      # control: place memories wiped every day
         self.rng = np.random.default_rng(seed)
         # random Fourier features of position: a place code for the critic
@@ -211,13 +233,22 @@ class CortexV0:
         self.goal = None                             # (cell, kind, utility, t_set)
         self.next_plan = 0.0
         self.person_seen = None                      # (x, z, t)
+        self.person_vel = (0.0, 0.0)                 # estimated, m/s
+        self.manner = None
+        self.intent, self.feedback = "none", 0
         self.prev_phi = None
         self.prev_events = (0, 0)
         self.rpe_sd = 0.1
         self.last = {}
-        self.day_log = {"goals": {}, "rpe_pos": 0, "rpe_neg": 0, "new_cells": 0}
+        self.day_log = {"goals": {}, "rpe_pos": 0, "rpe_neg": 0, "new_cells": 0, "manners_s": {}}
         self.cells_at_start = len(self.map.nodes)
         self.replay = []                             # (phi, cmd, reward) for the world model
+
+    def set_personality(self, intent: str, feedback: int = 0) -> None:
+        """From cortex/personality.py: the current intention, and praise (+1) or
+        scolding (-1) heard since the last step (counted once)."""
+        self.intent = intent or "none"
+        self.feedback += int(feedback)
 
     # ------------------------------------------------------------------ step
     def act(self, obs, home, t_s, frame) -> dict:
@@ -237,6 +268,8 @@ class CortexV0:
         new_pet, new_treat = pets > self.prev_events[0], treats > self.prev_events[1]
         self.prev_events = (pets, treats)
         r = 0.1 * eating + 0.03 * sweet - 0.1 * bitter + 0.5 * new_pet + 0.5 * new_treat
+        r += FEEDBACK_R * max(-1, min(1, self.feedback))
+        self.feedback = 0
         if sweet:
             node["food"] += FOOD_LEARN * (1.0 - node["food"])
             node["fx"] += x; node["fz"] += z; node["fn"] += 1.0  # exactly where
@@ -249,13 +282,19 @@ class CortexV0:
         if new_pet or new_treat:
             node["owner"] += OWNER_LEARN * (1.0 - node["owner"])
         # the person: where are they (estimated from apparent size)?
-        person_d = None
-        if obs["visible"] and obs["half"] > 0.1:
-            rng = TARGET_HALF_WIDTH_M / math.tan(math.radians(obs["half"]))
-            d = math.sqrt(max(rng ** 2 - HEAD_ABOVE_CAM_M ** 2, 0.0))
-            person_d = d
+        person_d = person_distance(obs["half"]) if obs["visible"] else None
+        if person_d is not None:
+            d = person_d
             b = math.radians(yaw - obs["az"])                  # az + = right
             px, pz = x + d * math.cos(b), z - d * math.sin(b)
+            prev = self.person_seen
+            if prev is not None and 0.05 <= t_s - prev[2] <= 1.0:
+                k = min(1.0, (t_s - prev[2]) / 0.5)
+                vx, vz = (px - prev[0]) / (t_s - prev[2]), (pz - prev[1]) / (t_s - prev[2])
+                self.person_vel = (self.person_vel[0] + k * (vx - self.person_vel[0]),
+                                   self.person_vel[1] + k * (vz - self.person_vel[1]))
+            elif prev is None or t_s - prev[2] > 1.0:
+                self.person_vel = (0.0, 0.0)
             self.person_seen = (px, pz, t_s)
             pc = cell_of(px, pz)
             self.owner_prior[pc] = self.owner_prior.get(pc, 0.0) + OWNER_LEARN * (1 - self.owner_prior.get(pc, 0.0))
@@ -295,10 +334,42 @@ class CortexV0:
             wp = self._waypoint(c, gcell, (x, z), kind)
             cmd["goal_deg"] = bearing_deg((x, z), wp)
             cmd["goal_gain"] = float(np.clip(util / 0.5, 0.3, 1.0))
+        if self.manners:
+            cmd = self._manners(cmd, x, z, t_s, dt)
         self.replay.append((phi, [cmd["goal_deg"] or 0.0, cmd["goal_gain"], rpe_drive], r))
         self.last = {"hunger": round(self.hunger, 2), "social": round(self.social, 2),
-                     "goal_kind": None if self.goal is None else self.goal[1],
+                     "goal_kind": None if self.goal is None else self.goal[1], "manner": self.manner,
                      "cells": len(self.map.nodes), "delta": round(delta, 3)}
+        return cmd
+
+    def _manners(self, cmd, x, z, t_s, dt):
+        wants = self.social >= SEEK_SOCIAL and self.intent != "give_space"
+        cmd["arousal"] = 1.0 if wants else CONTENT_AROUSAL
+        mode = "want" if wants else "content"
+        ps = self.person_seen
+        if ps is not None and t_s - ps[2] < 1.0:
+            px, pz = ps[0], ps[1]
+            rx, rz = x - px, z - pz
+            d = math.hypot(rx, rz)
+            vx, vz = self.person_vel
+            speed = math.hypot(vx, vz)
+            if speed > WALKING_MS and d < YIELD_M and rx * vx + rz * vz > -0.2 * speed:
+                # in (or beside) a walking person's path: step out of it, to the side it is on
+                ux, uz = vx / speed, vz / speed
+                sx, sz = -uz, ux
+                if sx * rx + sz * rz < 0:
+                    sx, sz = -sx, -sz
+                cmd.update(goal_deg=bearing_deg((x, z), (x + sx, z + sz)), goal_gain=1.0, arousal=0.0)
+                mode = "yield"
+            elif speed > WALKING_MS:
+                mode = "follow" if wants else "content"
+            elif wants:
+                mode = "greet"                          # contact welcome (at a crawl: robot/safety.py)
+            elif d < PERSONAL_M:
+                cmd.update(goal_deg=bearing_deg((x, z), (x + rx, z + rz)), goal_gain=0.6)
+                mode = "give_space"
+        self.manner = mode
+        self.day_log["manners_s"][mode] = self.day_log["manners_s"].get(mode, 0.0) + dt
         return cmd
 
     def _utilities(self, here, t_s):
@@ -313,6 +384,16 @@ class CortexV0:
                 if cell == pc or cell in [(pc[0] + a, pc[1] + b) for a, b in NEIGH]:
                     u_owner = max(u_owner, self.social * math.exp(-(t_s - self.person_seen[2]) / SEEN_TAU_S))
             u_new = CURIOSITY * (len(self.map.frontier(cell)) / 8.0) / math.sqrt(1 + n["visits"] / 20.0)
+            if self.intent in ("seek_person", "follow"):
+                u_owner *= 1 + INTENT_GAIN
+            elif self.intent == "give_space":
+                u_owner /= 1 + INTENT_GAIN
+            elif self.intent == "eat":
+                u_food *= 1 + INTENT_GAIN
+            elif self.intent == "explore":
+                u_new *= 1 + INTENT_GAIN
+            elif self.intent == "rest":
+                u_new /= 1 + INTENT_GAIN
             u = u_food + u_owner + u_new - n["bitter"] - PATH_COST * d
             kind = max((("food", u_food), ("owner", u_owner), ("explore", u_new)), key=lambda kv: kv[1])[0]
             U[cell] = (u, kind)
@@ -389,7 +470,8 @@ class CortexV0:
                 "food_places": len(food), "best_food": [centre(c) for _, c in food[:2]],
                 "goals": self.day_log["goals"], "rpe_pos_steps": self.day_log["rpe_pos"],
                 "rpe_neg_steps": self.day_log["rpe_neg"],
-                "hunger_end": round(self.hunger, 2), "social_end": round(self.social, 2)}
+                "hunger_end": round(self.hunger, 2), "social_end": round(self.social, 2),
+                "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()}}
 
     def save(self) -> None:
         self.days += 1

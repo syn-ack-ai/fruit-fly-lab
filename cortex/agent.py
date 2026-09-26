@@ -11,6 +11,7 @@ brain's goal (FC2), pursuit (LC10a) and teaching (DAN) neurons.
           the fly brain at all.
   v0      the prototype neocortex (cortex/v0.py): a cognitive map learned from
           its own odometry, drives, and a critic.
+  v0_manners  v0 with cat-like manners around its person (cortex/v0.py).
 """
 from __future__ import annotations
 
@@ -51,7 +52,8 @@ class OracleCortex:
 def make_cortex(kind: str, state_path: str | None = None, seed: int = 0):
     if kind == "oracle":
         return OracleCortex()
-    if kind in ("v0", "v0_amnesic"):
+    if kind in ("v0", "v0_amnesic", "v0_manners"):
         from cortex.v0 import CortexV0
-        return CortexV0(state_path=state_path, seed=seed, amnesic=kind == "v0_amnesic")
+        return CortexV0(state_path=state_path, seed=seed, amnesic=kind == "v0_amnesic",
+                        manners=kind == "v0_manners")
     raise ValueError(kind)

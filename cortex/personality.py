@@ -1,0 +1,219 @@
+"""
+The pet's personality: a local language model on top of the neocortex.
+
+    heard speech, events, drives ─> digest ─> LLM (slow, event-driven) ─> intention
+                                                                       ─> sound / words
+                                                                       ─> praise or scolding
+    intention  -> biases the neocortex's goal choice (cortex/v0.py); never motors
+    feedback   -> reward / punishment for the neocortex's critic, whose error is the
+                  dopamine sent to the fly's mushroom body: words can teach the connectome
+
+Layers and who wins:
+  fly brain (connectome)  moves the body, eats, startles, pursues   (10 kHz)
+  neocortex v0            map, drives, critic, manners              (10 Hz)
+  personality (this)      speech, intentions, voice, diary          (~ one call per event, ~2 s)
+  safety layer            speed limit near people; nothing above can change it
+An intention only nudges the neocortex's choice, weighted by the matching drive:
+a pet that is full is not made to eat because the model said so.
+
+The model is reached through an OpenAI-compatible endpoint: NVIDIA's Personal
+AI Router (PAIR) on the machine running the brain (port 1236) routes it to the
+cluster (qwen/qwen3.8-27b in LM Studio on the Mac Studio, so the fly brain keeps
+the local GPU). Reasoning is switched off: ~2 s per decision instead of >20 s.
+Calls run in a background thread; while one is pending the pet carries on on
+its drives. If the model is unreachable the pet simply has no personality layer.
+
+C. APPROXIMATIONS: not a fly structure. The analogy is a cortex-like layer for
+language and social behaviour (Habitat: speech arrives as ground-truth text).
+"""
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+import urllib.request
+
+INTENTS = ("seek_person", "follow", "rest", "explore", "eat", "give_space", "none")
+MOODS = ("happy", "eager", "content", "curious", "sleepy", "hungry", "grumpy", "startled", "playful", "calm")
+SOUNDS = ("mrrp", "meow", "purr", "trill", "chirp", "hiss", "none")
+INTENT_S = 20.0              # an intention lasts this long unless replaced
+IDLE_S = 30.0                # with nothing happening, reconsider this often
+MIN_GAP_S = 1.0              # at most one call per this (simulated) time
+
+SYSTEM = """You are {name}, the personality of a small cat-like robot pet. A real
+fruit-fly brain (a connectome simulation) runs the body: walking, steering, eating,
+startle. A neocortex layer keeps a map, hunger and company drives. You only choose
+intentions, sounds and a few words; the body decides the details.
+Character: {character}
+Stay true to the drives you are given: a full pet does not want to eat; a pet that was
+just petted a lot may want space. Cats do not always obey.
+Reply with ONLY one JSON object, no other text:
+{{"intent": one of {intents},
+  "sound": one of {sounds},
+  "say": a very short phrase (<= 6 words) or null,
+  "mood": one of {moods},
+  "feedback": -1 if the person just scolded you, +1 if they praised you, else 0,
+  "note": a few words for your diary, or null}}"""
+
+DEFAULT_CHARACTER = ("affectionate but independent, curious about new places, loves food, "
+                     "a little vain; talks rarely, mostly chirps and purrs")
+
+
+class Personality:
+    def __init__(self, url: str = "http://127.0.0.1:1236/v1/chat/completions",
+                 model: str = "qwen/qwen3.8-27b", name: str = "Mote",
+                 character: str = DEFAULT_CHARACTER, state_path: str | None = None,
+                 timeout_s: float = 20.0):
+        self.url, self.model, self.name, self.timeout = url, model, name, timeout_s
+        self.system = SYSTEM.format(name=name, character=character, intents=list(INTENTS),
+                                    sounds=list(SOUNDS), moods=list(MOODS))
+        self.state_path = state_path
+        self.diary = self._load_diary()
+        self._lock = threading.Lock()
+        self._pending = None                 # thread
+        self._reply = None                   # (t_asked, dict) waiting to be taken
+        self.log = []                        # every exchange this day
+        self.reset(0)
+
+    # ---------------------------------------------------------------- memory
+    def _diary_file(self):
+        return os.path.join(self.state_path, "diary.json") if self.state_path else None
+
+    def _load_diary(self):
+        f = self._diary_file()
+        if f and os.path.exists(f):
+            with open(f) as fh:
+                return json.load(fh)
+        return []
+
+    def reset(self, day: int) -> None:
+        self.day = day
+        self.current = {"intent": "none", "sound": "none", "say": None, "mood": "calm",
+                        "feedback": 0, "t": -1e9}
+        self.last_call_t = -1e9
+        self._fresh = None                   # the newest reply, until the face takes it
+        self.events = []                     # (t, text) since the last call
+        self.log = []
+        self.stats = {"calls": 0, "failures": 0, "latency_s": 0.0, "praise": 0, "scold": 0}
+
+    def save(self) -> None:
+        notes = [e["reply"].get("note") for e in self.log if e.get("reply") and e["reply"].get("note")]
+        self.diary.append({"day": self.day, "notes": notes[-8:]})
+        self.diary = self.diary[-14:]        # the last two weeks
+        f = self._diary_file()
+        if f:
+            os.makedirs(self.state_path, exist_ok=True)
+            with open(f, "w") as fh:
+                json.dump(self.diary, fh, indent=1)
+
+    # ------------------------------------------------------------------ loop
+    def event(self, t_s: float, text: str) -> None:
+        """Something worth reacting to (heard speech, petted, startled, found food)."""
+        self.events.append((round(t_s, 1), text))
+
+    def step(self, t_s: float, digest: dict) -> dict:
+        """Every control step: collect a finished reply, maybe start a new call,
+        and return the current personality output (fresh keys marked new=True)."""
+        out = dict(self.current, new=False)
+        with self._lock:
+            rep = self._reply
+            # in simulation (slower than real time) a reply takes effect only
+            # once the model's real latency has passed in simulated time
+            if rep is not None and t_s >= rep[0] + rep[2]:
+                self._reply = None
+            else:
+                rep = None
+        if rep is not None:
+            t_asked, r, latency, ok = rep
+            self.stats["latency_s"] += latency
+            if ok and r is not None:
+                r["t"] = t_s
+                self.current = r
+                self.stats["praise"] += r["feedback"] > 0
+                self.stats["scold"] += r["feedback"] < 0
+                out = dict(r, new=True)
+                self._fresh = out
+            else:
+                self.stats["failures"] += 1
+        if out["intent"] != "none" and t_s - self.current["t"] > INTENT_S:
+            self.current["intent"] = out["intent"] = "none"
+        busy = (self._pending is not None and self._pending.is_alive()) or self._reply is not None
+        due = self.events or t_s - self.last_call_t > IDLE_S
+        if not busy and due and t_s - self.last_call_t >= MIN_GAP_S:
+            self.last_call_t = t_s
+            msg = self._message(t_s, digest)
+            self.events = []
+            self._pending = threading.Thread(target=self._ask, args=(t_s, msg), daemon=True)
+            self._pending.start()
+        return out
+
+    def take_fresh(self) -> dict | None:
+        """The newest reply once (for the face: words and sounds play once)."""
+        f, self._fresh = self._fresh, None
+        return f
+
+    def wait(self, timeout: float | None = None) -> None:
+        """Block until a pending call finishes (for simulated time, which does
+        not wait for the model on its own)."""
+        if self._pending is not None:
+            self._pending.join(timeout)
+
+    # --------------------------------------------------------------- the model
+    def _message(self, t_s, d):
+        recent = "; ".join(f"t={t} {x}" for t, x in self.events[-6:]) or "nothing new"
+        past = " | ".join(f"day {e['day']}: " + ", ".join(e["notes"][-3:]) for e in self.diary[-3:] if e["notes"])
+        lines = [f"Time {t_s:.0f} s into day {self.day}.",
+                 f"Drives: hunger {d.get('hunger', 0):.2f}, wants company {d.get('social', 0):.2f} (0-1).",
+                 f"Body (fly brain): {d.get('behaviour', '?')}.",
+                 f"Person: {d.get('person', 'not in view')}.",
+                 f"Doing: {d.get('doing', '?')}. Your last mood: {self.current['mood']}.",
+                 f"Just now: {recent}."]
+        if past:
+            lines.append(f"Diary, earlier days: {past}.")
+        return "\n".join(lines)
+
+    def _ask(self, t_s, msg):
+        body = {"model": self.model, "temperature": 0.7, "max_tokens": 200,
+                "chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "none",
+                "messages": [{"role": "system", "content": self.system}, {"role": "user", "content": msg}]}
+        t0 = time.time()
+        reply, ok = None, False
+        try:
+            req = urllib.request.Request(self.url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=self.timeout) as fh:
+                text = json.load(fh)["choices"][0]["message"]["content"]
+            reply = parse(text)
+            ok = reply is not None
+        except Exception as ex:                       # unreachable, timeout, bad reply
+            text = f"error: {ex}"
+        lat = time.time() - t0
+        self.stats["calls"] += 1
+        self.log.append({"t": round(t_s, 1), "asked": msg, "answer": text[:400], "reply": reply,
+                         "latency_s": round(lat, 2)})
+        with self._lock:
+            self._reply = (t_s, reply, lat, ok)
+
+
+def parse(text: str) -> dict | None:
+    """The model's JSON, validated; anything outside the allowed values is dropped."""
+    a, b = text.find("{"), text.rfind("}")
+    if a < 0 or b <= a:
+        return None
+    try:
+        r = json.loads(text[a:b + 1])
+    except json.JSONDecodeError:
+        return None
+    say = r.get("say")
+    say = str(say)[:60] if say not in (None, "", "null") else None
+    try:
+        fb = int(r.get("feedback", 0))
+    except (TypeError, ValueError):
+        fb = 0
+    note = r.get("note")
+    return {"intent": r.get("intent") if r.get("intent") in INTENTS else "none",
+            "sound": r.get("sound") if r.get("sound") in SOUNDS else "none",
+            "say": say,
+            "mood": r.get("mood") if r.get("mood") in MOODS else "calm",
+            "feedback": max(-1, min(1, fb)),
+            "note": str(note)[:80] if note not in (None, "", "null") else None}

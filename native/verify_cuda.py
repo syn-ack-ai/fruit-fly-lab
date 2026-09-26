@@ -67,6 +67,11 @@ def scenario(c, name, e):
             if k == 1000: e.set_poisson(orn, 4.0)
             out.append(e.run_collect(10))
         out.append(e.std_depletion())
+    elif name == "storm":
+        # the whole brain driven hard at dt 0.2: more spikes per 1000-step chunk
+        # than the old fixed 4M-spike device buffer held
+        e.reset(seed=7); e.set_poisson(np.arange(len(n)), 150.0)
+        for _ in range(3): out.append(e.run_collect(1000))
     elif name == "quiesce_tol":
         apply_dynamics(e, c, "calibrated"); e.set_quiesce_tolerance(1e-3)
         e.reset(seed=7); e.set_poisson(orn, 15.0)
@@ -77,10 +82,10 @@ def scenario(c, name, e):
 
 def main():
     names = sys.argv[1:] or ["published_looming", "calibrated_odour", "silence_and_switch", "gain",
-                             "pipelined", "quiesce_tol", "orn_std", "dt02"]
+                             "pipelined", "quiesce_tol", "orn_std", "dt02", "storm"]
     ok_all = True
     for name in names:
-        if name == "dt02":
+        if name in ("dt02", "storm"):
             os.environ["FLY_DT"] = "0.2"
         c = load_connectome()
         res = {}
@@ -96,6 +101,15 @@ def main():
         print(f"{name:20s} {'IDENTICAL' if same else 'DIFFERENT (first block %s)' % first}  spikes {nspk}"
               f"  cpu {res['cpu_s']:.1f}s gpu {res['gpu_s']:.1f}s", flush=True)
         os.environ.pop("FLY_DT", None)
+    # lif_wait with no job started returns at once (it used to block forever)
+    import threading
+    e = make(load_connectome(), GPU)
+    th = threading.Thread(target=e._lib.lif_wait, args=(e._h,), daemon=True)
+    th.start(); th.join(10.0)
+    print("wait without start  ", "returns" if not th.is_alive() else "HANGS")
+    ok_all &= not th.is_alive()
+    if not th.is_alive():
+        e.close()
     print("ALL IDENTICAL" if ok_all else "MISMATCH")
 
 

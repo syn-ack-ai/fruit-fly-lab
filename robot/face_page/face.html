@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d0f13">
+<title>Pet face</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0f13; overflow: hidden;
+               -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+               font-family: -apple-system, system-ui, sans-serif; }
+  svg { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #status { position: fixed; left: 0; right: 0; bottom: max(10px, env(safe-area-inset-bottom));
+            text-align: center; color: #5d6675; font-size: 14px; letter-spacing: .02em; }
+  #status.hidden { display: none; }
+  #wake { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+          color: #c9d1dc; font-size: 22px; background: rgba(13,15,19,.72); }
+  #wake.hidden { display: none; }
+  #conn { position: fixed; top: max(10px, env(safe-area-inset-top)); right: 14px; width: 10px; height: 10px;
+          border-radius: 50%; background: #a33; }
+  #conn.ok { background: #2a6; opacity: .35; }
+</style>
+</head>
+<body>
+<svg id="face" viewBox="-800 -500 1600 1000" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <clipPath id="clipL"><ellipse id="cL" cx="-330" cy="-40" rx="190" ry="170"/></clipPath>
+    <clipPath id="clipR"><ellipse id="cR" cx="330" cy="-40" rx="190" ry="170"/></clipPath>
+    <radialGradient id="iris" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#f4d36a"/><stop offset="70%" stop-color="#c9962e"/><stop offset="100%" stop-color="#7a5a1c"/>
+    </radialGradient>
+  </defs>
+  <!-- ears -->
+  <path d="M-620,-470 L-420,-330 L-640,-230 Z" fill="#1b1f27"/>
+  <path d="M620,-470 L420,-330 L640,-230 Z" fill="#1b1f27"/>
+  <!-- eyes -->
+  <g id="eyeL" clip-path="url(#clipL)">
+    <ellipse cx="-330" cy="-40" rx="190" ry="170" fill="url(#iris)"/>
+    <ellipse id="pL" cx="-330" cy="-40" rx="40" ry="150" fill="#0a0a0c"/>
+    <circle id="hL" cx="-280" cy="-110" r="26" fill="#fff" opacity=".85"/>
+    <rect id="lidL" x="-540" y="-400" width="420" height="200" fill="#0d0f13"/>
+    <rect id="lowL" x="-540" y="130" width="420" height="200" fill="#0d0f13"/>
+  </g>
+  <g id="eyeR" clip-path="url(#clipR)">
+    <ellipse cx="330" cy="-40" rx="190" ry="170" fill="url(#iris)"/>
+    <ellipse id="pR" cx="330" cy="-40" rx="40" ry="150" fill="#0a0a0c"/>
+    <circle id="hR" cx="380" cy="-110" r="26" fill="#fff" opacity=".85"/>
+    <rect id="lidR" x="120" y="-400" width="420" height="200" fill="#0d0f13"/>
+    <rect id="lowR" x="120" y="130" width="420" height="200" fill="#0d0f13"/>
+  </g>
+  <!-- blush -->
+  <ellipse id="bL" cx="-430" cy="200" rx="110" ry="45" fill="#e0607a" opacity="0"/>
+  <ellipse id="bR" cx="430" cy="200" rx="110" ry="45" fill="#e0607a" opacity="0"/>
+  <!-- nose, mouth, whiskers -->
+  <path d="M-38,150 L38,150 L0,195 Z" fill="#d9798c"/>
+  <path id="mouth" d="" fill="none" stroke="#c9d1dc" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="#3a414d" stroke-width="7" stroke-linecap="round">
+    <line x1="-150" y1="200" x2="-520" y2="160"/><line x1="-150" y1="230" x2="-530" y2="250"/>
+    <line x1="150" y1="200" x2="520" y2="160"/><line x1="150" y1="230" x2="530" y2="250"/>
+  </g>
+  <!-- speech bubble and sleep -->
+  <g id="bubble" opacity="0">
+    <rect id="bubbleBox" x="-300" y="-480" width="600" height="110" rx="55" fill="#e8edf3"/>
+    <text id="bubbleText" x="0" y="-410" text-anchor="middle" font-size="52" fill="#1b1f27"></text>
+  </g>
+  <text id="zz" x="560" y="-330" font-size="80" fill="#5d6675" opacity="0">z z</text>
+</svg>
+<div id="status"></div>
+<div id="conn"></div>
+<div id="wake">Tap to wake the pet (turns sound on)</div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const target = {gaze: [0, 0.2], open: 0.85, pupil: 0.4, mouth: "cat", mood: "calm", blush: false, slow_blink: false};
+const cur = {gx: 0, gy: 0.2, open: 0.85, pupil: 0.4, blush: 0};
+let lastEvent = -1, audio = null, soundOn = false, bubbleUntil = 0;
+let nextBlink = performance.now() + 3000, blinkT = -1, slowT = -1, nextSlow = 0;
+
+// --- connection
+function connect() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => $("conn").className = "ok";
+  ws.onmessage = m => { const s = JSON.parse(m.data); Object.assign(target, s); onEvent(s.event); status(s); };
+  ws.onclose = () => { $("conn").className = ""; setTimeout(connect, 1500); };
+}
+connect();
+
+function status(s) {
+  const b = (s.behaviour || "").replace(/\(.*?\)/g, "").trim();
+  $("status").textContent = [s.mood, b, s.hunger != null ? "hunger " + s.hunger : "",
+                             s.social != null ? "company " + s.social : ""].filter(Boolean).join("  ·  ");
+}
+
+// --- words and sounds (events are numbered; each plays once)
+function onEvent(ev) {
+  if (!ev || ev.id === lastEvent) return;
+  const first = lastEvent < 0;
+  lastEvent = ev.id;
+  if (first) return;                     // don't replay whatever was last said before we connected
+  if (ev.say) {
+    $("bubbleText").textContent = ev.say;
+    const w = Math.min(1400, 120 + 27 * ev.say.length);
+    $("bubbleBox").setAttribute("x", -w / 2); $("bubbleBox").setAttribute("width", w);
+    bubbleUntil = performance.now() + 3500;
+    if (soundOn && window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(ev.say); u.pitch = 1.7; u.rate = 1.05; u.volume = 0.8;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    }
+  }
+  if (ev.sound && soundOn) play(ev.sound);
+}
+
+$("wake").addEventListener("click", () => {
+  audio = new (window.AudioContext || window.webkitAudioContext)();
+  soundOn = true; $("wake").className = "hidden";
+  if (window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+  play("trill");
+});
+let taps = 0;
+document.addEventListener("click", () => {        // double tap: show / hide the status line
+  if (!soundOn) return;
+  taps++; setTimeout(() => taps = 0, 350);
+  if (taps === 2) $("status").classList.toggle("hidden");
+});
+
+function tone(type, f0, f1, dur, vol, t0 = 0) {
+  const t = audio.currentTime + t0, o = audio.createOscillator(), g = audio.createGain(), bp = audio.createBiquadFilter();
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  bp.type = "bandpass"; bp.frequency.value = 1400; bp.Q.value = 1.2;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(bp).connect(g).connect(audio.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(dur, vol, lfo, freq) {
+  const n = audio.sampleRate * dur, buf = audio.createBuffer(1, n, audio.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (lfo ? 0.5 * (1 + Math.sin(2 * Math.PI * lfo * i / audio.sampleRate)) : 1);
+  const s = audio.createBufferSource(), g = audio.createGain(), f = audio.createBiquadFilter();
+  s.buffer = buf; f.type = lfo ? "lowpass" : "highpass"; f.frequency.value = freq;
+  const t = audio.currentTime; g.gain.setValueAtTime(vol, t); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  s.connect(f).connect(g).connect(audio.destination); s.start();
+}
+function play(k) {
+  if (!audio) return;
+  if (k === "meow") { tone("sawtooth", 520, 900, 0.25, 0.25); tone("sawtooth", 900, 480, 0.35, 0.25, 0.22); }
+  else if (k === "mrrp") { tone("triangle", 380, 700, 0.18, 0.3); }
+  else if (k === "trill") { for (let i = 0; i < 5; i++) tone("triangle", 600, 760, 0.06, 0.2, i * 0.06); }
+  else if (k === "chirp") { tone("sine", 1200, 1900, 0.09, 0.25); }
+  else if (k === "purr") { noise(1.8, 0.5, 26, 180); }
+  else if (k === "hiss") { noise(0.7, 0.25, 0, 2500); }
+}
+
+// --- drawing
+const lerp = (a, b, k) => a + (b - a) * k;
+function mouthPath(kind, t) {
+  if (kind === "smile") return "M-120,240 Q0,330 120,240";
+  if (kind === "frown") return "M-110,290 Q0,230 110,290";
+  if (kind === "o") return "M-35,250 a35,35 0 1,0 70,0 a35,35 0 1,0 -70,0";
+  if (kind === "chew") { const h = 20 + 25 * Math.abs(Math.sin(t / 110)); return `M-70,240 Q0,${240 + h} 70,240`; }
+  return "M-110,235 Q-55,285 0,240 Q55,285 110,235";   // cat "w"
+}
+function frame(t) {
+  const k = 0.12;
+  cur.gx = lerp(cur.gx, target.gaze[0], k); cur.gy = lerp(cur.gy, target.gaze[1], k);
+  cur.pupil = lerp(cur.pupil, target.pupil, 0.08);
+  cur.blush = lerp(cur.blush, target.blush ? 0.55 : 0, 0.05);
+  let open = target.open;
+  // blinks: quick random ones; slow "I trust you" blinks when petted or content near the person
+  if (t > nextBlink) { blinkT = t; nextBlink = t + 2500 + Math.random() * 4000; }
+  if (blinkT >= 0) { const u = (t - blinkT) / 160; open *= u < 1 ? Math.abs(1 - 2 * u) : 1; if (u >= 1) blinkT = -1; }
+  if (target.slow_blink && t > nextSlow && slowT < 0) { slowT = t; nextSlow = t + 5000; }
+  if (slowT >= 0) { const u = (t - slowT) / 1800; open *= u < 1 ? 0.12 + 0.88 * Math.abs(Math.cos(Math.PI * u)) : 1; if (u >= 1) slowT = -1; }
+  cur.open = lerp(cur.open, open, 0.35);
+  for (const [s, cx] of [["L", -330], ["R", 330]]) {
+    const px = cx + cur.gx * 95, py = -40 + cur.gy * 70;
+    const p = $("p" + s); p.setAttribute("cx", px); p.setAttribute("cy", py);
+    p.setAttribute("rx", 18 + 95 * cur.pupil); p.setAttribute("ry", 150 - 25 * cur.pupil);
+    $("h" + s).setAttribute("cx", px + 50); $("h" + s).setAttribute("cy", py - 70);
+    const lidY = -210 - 200 + 340 * (1 - cur.open) * 0.55 + (target.mood === "grumpy" ? 60 : 0);
+    $("lid" + s).setAttribute("y", lidY);
+    $("low" + s).setAttribute("y", 130 - 340 * (1 - cur.open) * 0.45);
+    $("b" + s).setAttribute("opacity", cur.blush);
+  }
+  $("mouth").setAttribute("d", mouthPath(target.mouth, t));
+  $("bubble").setAttribute("opacity", t < bubbleUntil ? Math.min(1, (bubbleUntil - t) / 400) : 0);
+  $("zz").setAttribute("opacity", cur.open < 0.45 && !target.slow_blink ? 0.4 + 0.3 * Math.sin(t / 600) : 0);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

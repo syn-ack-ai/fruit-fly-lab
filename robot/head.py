@@ -445,6 +445,7 @@ class ObjectEncoder:
     MAX_HZ = 150.0           # the model's standard activation rate (LIFParams.r_poi)
     PEAK_DEG = 15.0          # preferred angular (full) size
     STILL_FRACTION = 0.4     # a still object drives LC10a less than a moving one
+    arousal = 1.0            # interest in the person (see __init__)
 
     def __init__(self, connectome, feed: HeadFeed):
         from brain.sensory.retinotopy import load_retinotopy, receptive_fields_2hop
@@ -457,6 +458,11 @@ class ObjectEncoder:
         self._az = rf["azimuth_deg"].to_numpy(float)[order]
         self._el = rf["elevation_deg"].to_numpy(float)[order]
         self._sigma = np.clip(rf["rf_radius_deg"].to_numpy(float)[order], 8.0, 40.0)
+        # Interest in the person, 0..1 (set by the neocortex; 1 = innate): the
+        # fly's pursuit is gated by internal state (in courting males P1
+        # arousal gates the LC10a pursuit pathway; Hindmarsh Sten et al. 2021).
+        # Applies to the person only, not to other moving objects.
+        self.arousal = 1.0
         self.last = {}
 
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
@@ -488,6 +494,8 @@ class ObjectEncoder:
         size = max(2 * half, 1.0)
         tuning = np.exp(-0.5 * (np.log(size / self.PEAK_DEG) / 0.8) ** 2)
         gain = self.STILL_FRACTION + (1 - self.STILL_FRACTION) * moving
+        if kind == "person":
+            gain *= self.arousal
         d = angular_distance_deg(az, el, self._az, self._el)
         edge = np.maximum(0.0, d - half)
         rates = self.MAX_HZ * tuning * gain * np.exp(-edge ** 2 / (2 * self._sigma ** 2))

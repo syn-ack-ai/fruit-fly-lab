@@ -45,8 +45,16 @@
 #define TPB 1024                       /* threads per block for neuron kernels */
 #define CHUNK 1000                     /* steps per device buffer flush */
 
+/* A CUDA error while the engine runs leaves its device state unusable (and a
+ * sticky error, e.g. an illegal address, poisons the whole context), so it
+ * stops the process with a message. Creating an engine is different: running
+ * out of GPU memory there is ordinary (several processes share one GPU), so
+ * lif_create uses CKC and returns NULL, which Python turns into an exception. */
 #define CK(x) do { cudaError_t _e = (x); if (_e != cudaSuccess) { \
     fprintf(stderr, "CUDA %s at %s:%d\n", cudaGetErrorString(_e), __FILE__, __LINE__); abort(); } } while (0)
+#define CKC(x) do { cudaError_t _e = (x); if (_e != cudaSuccess) { \
+    fprintf(stderr, "lif_cuda: engine not created: CUDA %s at %s:%d\n", cudaGetErrorString(_e), __FILE__, __LINE__); \
+    goto fail; } } while (0)
 
 /* per-step counters on the device, so a CUDA graph can replay many steps */
 struct DevState { int slot; int npoi; uint32_t rng; int pad; long long step; };
@@ -72,6 +80,7 @@ typedef struct lif {
     /* host */
     float *wlut, *pmult, *h_v, *h_g, *h_adapt, *h_gs;
     int32_t *spike_counts, *spikes, *collected; long ncollected, collected_cap; int nspikes;
+    int32_t *hbuf; long hcap; long long *hstart; int *hcount;   /* one chunk's spikes, copied back */
     int32_t *poi_idx; double *poi_p; int npoi;
     int ext, plastic, pm_dirty, host_valid, state_dirty;
     float ea, ka, es, ks;
@@ -220,7 +229,8 @@ __global__ void k_scan(int nb, const int *__restrict__ blkcnt, int *__restrict__
 }
 
 __global__ void k_write(int n, const uint8_t *__restrict__ flag, const int *__restrict__ blkoff,
-                        const long long *__restrict__ sstart, int stepi, int32_t *__restrict__ coll) {
+                        const long long *__restrict__ sstart, int stepi, int32_t *__restrict__ coll,
+                        long long cap) {
     __shared__ int wcnt[TPB / 32];
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const bool f = j < n && flag[j];
@@ -232,7 +242,8 @@ __global__ void k_write(int n, const uint8_t *__restrict__ flag, const int *__re
         int pre = 0;
         for (int k = 0; k < w; k++) pre += wcnt[k];
         pre += __popc(m & ((1u << lane) - 1u));
-        coll[sstart[stepi] + blkoff[blockIdx.x] + pre] = j;
+        const long long at = sstart[stepi] + blkoff[blockIdx.x] + pre;
+        if (at < cap) coll[at] = j;       /* cap is never reached (see lif_create) */
     }
 }
 
@@ -323,6 +334,7 @@ static double drive_coef(double tau_ms, double dt) {
 extern "C" {
 
 void lif_reset(lif *e);
+void lif_destroy(lif *e);
 long lif_run_collect(lif *e, int steps);
 
 lif *lif_create(int n, int nnz, const int32_t *indptr, const int32_t *indices,
@@ -365,32 +377,43 @@ lif *lif_create(int n, int nnz, const int32_t *indptr, const int32_t *indices,
      * kernel read the old data (seen when several processes share the GPU:
      * wrong silencing / Poisson rates / weights). A blocking stream is ordered
      * after all legacy default-stream work. */
-    CK(cudaStreamCreate(&e->st));
-    CK(cudaMalloc(&e->d_indptr, (size_t)(n + 1) * 4));
-    CK(cudaMemcpy(e->d_indptr, indptr, (size_t)(n + 1) * 4, cudaMemcpyHostToDevice));
-    CK(cudaMalloc(&e->d_pe, (size_t)nnz * 4));
-    CK(cudaMemcpy(e->d_pe, pe, (size_t)nnz * 4, cudaMemcpyHostToDevice));
-    free(pe);
-    CK(cudaMalloc(&e->d_wlut, (PE_MASK + 1) * sizeof(float)));
-    CK(cudaMemcpy(e->d_wlut, e->wlut, (PE_MASK + 1) * sizeof(float), cudaMemcpyHostToDevice));
-    CK(cudaMalloc(&e->d_v, (size_t)n * 4)); CK(cudaMalloc(&e->d_g, (size_t)n * 4));
-    CK(cudaMalloc(&e->d_rl, n)); CK(cudaMalloc(&e->d_rlen, n)); CK(cudaMalloc(&e->d_sil, n));
-    CK(cudaMalloc(&e->d_poi, n)); CK(cudaMalloc(&e->d_flag, n)); CK(cudaMalloc(&e->d_pinned, e->nblk16));
-    CK(cudaMalloc(&e->d_poi_q, (size_t)n * 4));
-    CK(cudaMalloc(&e->d_poi_p, (size_t)n * 8));
-    CK(cudaMalloc(&e->d_ring, (size_t)(e->D + 1) * n * 8));
-    CK(cudaMalloc(&e->d_blkcnt, (size_t)e->nb * 4)); CK(cudaMalloc(&e->d_blkoff, (size_t)e->nb * 4));
-    CK(cudaMalloc(&e->d_tot, 8));
-    CK(cudaMalloc(&e->d_st, sizeof(DevState)));
-    e->coll_cap = 4L * 1024 * 1024;
-    CK(cudaMalloc(&e->d_coll, (size_t)e->coll_cap * 4));
-    CK(cudaMalloc(&e->d_sstart, CHUNK * 8)); CK(cudaMalloc(&e->d_scount, CHUNK * 4));
-    CK(cudaMallocHost(&e->h_v, (size_t)n * 4)); CK(cudaMallocHost(&e->h_g, (size_t)n * 4));
+    CKC(cudaStreamCreate(&e->st));
+    CKC(cudaMalloc(&e->d_indptr, (size_t)(n + 1) * 4));
+    CKC(cudaMemcpy(e->d_indptr, indptr, (size_t)(n + 1) * 4, cudaMemcpyHostToDevice));
+    CKC(cudaMalloc(&e->d_pe, (size_t)nnz * 4));
+    CKC(cudaMemcpy(e->d_pe, pe, (size_t)nnz * 4, cudaMemcpyHostToDevice));
+    free(pe); pe = NULL;
+    CKC(cudaMalloc(&e->d_wlut, (PE_MASK + 1) * sizeof(float)));
+    CKC(cudaMemcpy(e->d_wlut, e->wlut, (PE_MASK + 1) * sizeof(float), cudaMemcpyHostToDevice));
+    CKC(cudaMalloc(&e->d_v, (size_t)n * 4)); CKC(cudaMalloc(&e->d_g, (size_t)n * 4));
+    CKC(cudaMalloc(&e->d_rl, n)); CKC(cudaMalloc(&e->d_rlen, n)); CKC(cudaMalloc(&e->d_sil, n));
+    CKC(cudaMalloc(&e->d_poi, n)); CKC(cudaMalloc(&e->d_flag, n)); CKC(cudaMalloc(&e->d_pinned, e->nblk16));
+    CKC(cudaMalloc(&e->d_poi_q, (size_t)n * 4));
+    CKC(cudaMalloc(&e->d_poi_p, (size_t)n * 8));
+    CKC(cudaMalloc(&e->d_ring, (size_t)(e->D + 1) * n * 8));
+    CKC(cudaMalloc(&e->d_blkcnt, (size_t)e->nb * 4)); CKC(cudaMalloc(&e->d_blkoff, (size_t)e->nb * 4));
+    CKC(cudaMalloc(&e->d_tot, 8));
+    CKC(cudaMalloc(&e->d_st, sizeof(DevState)));
+    /* Room for every spike a chunk can hold: after a spike a neuron is
+     * refractory for R steps, so it spikes at most CHUNK / R + 1 times in
+     * CHUNK steps. (A fixed 4M-spike buffer could overflow when the whole
+     * brain fires, e.g. at FLY_DT 0.2 or with the published model's latching;
+     * the kernels would have written past it before the host noticed.) */
+    e->coll_cap = (long)n * (CHUNK / e->R + 1);
+    CKC(cudaMalloc(&e->d_coll, (size_t)e->coll_cap * 4));
+    CKC(cudaMalloc(&e->d_sstart, CHUNK * 8)); CKC(cudaMalloc(&e->d_scount, CHUNK * 4));
+    CKC(cudaMallocHost(&e->h_v, (size_t)n * 4)); CKC(cudaMallocHost(&e->h_g, (size_t)n * 4));
     e->spike_counts = (int32_t *)calloc(n, 4);
     e->spikes = (int32_t *)malloc(4096 * 4);
     pthread_mutex_init(&e->mu, NULL); pthread_cond_init(&e->cv_go, NULL); pthread_cond_init(&e->cv_done, NULL);
+    e->hstart = (long long *)malloc(CHUNK * 8); e->hcount = (int *)malloc(CHUNK * 4);
+    e->done = 1;                       /* no job pending: lif_wait() returns at once */
     lif_reset(e);
     return e;
+fail:
+    free(pe);
+    lif_destroy(e);
+    return NULL;
 }
 
 static void *driver_main(void *arg);
@@ -414,7 +437,8 @@ void lif_destroy(lif *e) {
     if (e->h_std_d) cudaFreeHost(e->h_std_d);
     free(e->wlut); free(e->pmult); free(e->spike_counts); free(e->spikes); free(e->collected);
     free(e->poi_idx); free(e->poi_p);
-    cudaStreamDestroy(e->st);
+    free(e->hbuf); free(e->hstart); free(e->hcount);
+    if (e->st) cudaStreamDestroy(e->st);
     free(e);
 }
 
@@ -651,7 +675,8 @@ static void enqueue_step(lif *e, int stepi) {
                                        e->d_poi_q, e->d_poi_p, e->d_adapt, e->d_gs, e->d_xf, e->d_pinned,
                                        e->d_flag, e->d_blkcnt);
     k_scan<<<1, 1024, 0, e->st>>>(e->nb, e->d_blkcnt, e->d_blkoff, e->d_tot, e->d_sstart, e->d_scount, stepi);
-    k_write<<<e->nb, TPB, 0, e->st>>>(e->n, e->d_flag, e->d_blkoff, e->d_sstart, stepi, e->d_coll);
+    k_write<<<e->nb, TPB, 0, e->st>>>(e->n, e->d_flag, e->d_blkoff, e->d_sstart, stepi, e->d_coll,
+                                      (long long)e->coll_cap);
     k_spikes<<<128, 256, 0, e->st>>>(e->n, e->d_st, e->D, e->d_coll, e->d_sstart, e->d_scount, stepi, e->ext,
                                      e->vrst, e->d_v, e->d_g, e->d_adapt, e->d_adapt_b, e->d_xf, e->d_rl,
                                      e->d_rlen, e->d_sil, e->d_indptr, e->d_pe, e->d_wlut,
@@ -724,9 +749,6 @@ static long run_steps(lif *e, int steps, int collect) {
     if (e->state_dirty) { push_state(e); e->state_dirty = 0; }
     e->ncollected = 0;
     long total = 0;
-    static __thread int32_t *hbuf = NULL; static __thread long hcap = 0;
-    static __thread long long *hstart = NULL; static __thread int *hcount = NULL;
-    if (!hstart) { hstart = (long long *)malloc(CHUNK * 8); hcount = (int *)malloc(CHUNK * 4); }
     for (int s = 0; s < steps;) {
         const int c = steps - s < CHUNK ? steps - s : CHUNK;
         CK(cudaMemsetAsync(e->d_tot, 0, 8, e->st));
@@ -736,7 +758,8 @@ static long run_steps(lif *e, int steps, int collect) {
         CK(cudaMemcpyAsync(&tot, e->d_tot, 8, cudaMemcpyDeviceToHost, e->st));
         CK(cudaStreamSynchronize(e->st));
         if (tot > e->coll_cap) { fprintf(stderr, "lif_cuda: spike buffer overflow (%lld)\n", tot); abort(); }
-        if (tot > hcap) { hcap = tot * 2 + 4096; hbuf = (int32_t *)realloc(hbuf, (size_t)hcap * 4); }
+        if (tot > e->hcap) { e->hcap = tot * 2 + 4096; e->hbuf = (int32_t *)realloc(e->hbuf, (size_t)e->hcap * 4); }
+        int32_t *hbuf = e->hbuf; long long *hstart = e->hstart; int *hcount = e->hcount;
         if (tot) CK(cudaMemcpy(hbuf, e->d_coll, (size_t)tot * 4, cudaMemcpyDeviceToHost));
         CK(cudaMemcpy(hstart, e->d_sstart, (size_t)c * 8, cudaMemcpyDeviceToHost));
         CK(cudaMemcpy(hcount, e->d_scount, (size_t)c * 4, cudaMemcpyDeviceToHost));

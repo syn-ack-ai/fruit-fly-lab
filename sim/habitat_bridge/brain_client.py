@@ -158,8 +158,11 @@ def robot_command(body_state) -> tuple:
 
 
 def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
-                seed: int, video_dir: str | None, brain=None, home=None, cortex=None) -> dict:
+                seed: int, video_dir: str | None, brain=None, home=None, cortex=None,
+                safe_speed: bool = False, person=None, personality=None, face=None) -> dict:
     from fly.body.foraging_body import ForagingBody
+    from robot.safety import ProximityGovernor
+    governor = ProximityGovernor() if safe_speed else None
     obs = _call(conn, {"cmd": "reset", "episode": episode})
     n_env = int(round(period_ms / 1000.0 * 120.0))
     log = []
@@ -182,11 +185,20 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         home.reset(seed)
     if cortex is not None:
         cortex.reset(episode, home, conn)
+    if person is not None:
+        person.reset()
+    if personality is not None:
+        personality.reset(episode)
+    if face is not None:
+        face[0].reset()
+    said = []                                     # (t, personality output) when new
+    prev_events = {"pets": 0, "treats": 0, "bowl": False, "seen_t": -1e9}
     if mode == "body_only":
         body = ForagingBody(neural=False, seed=seed, spontaneous_takeoff_per_s=0.0)
     t_sim, k, wall0 = 0.0, 0, time.time()
     fr_prev = None
     found_t = None
+    bumps = []                                    # (t, person speed m/s, pet speed m/s, wanted company)
     while t_sim < seconds and not obs["over"]:
         dn = {}
         if home is not None:
@@ -197,6 +209,11 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             feed.update(obs, period_ms / 1000.0)
             if getattr(ses, "nav", None) is not None:
                 ses.body.state.heading_deg = float(obs["robot"][2]) % 360.0   # odometry yaw
+            if personality is not None and cortex is not None:
+                pout = personality.step(t_sim, _digest(cortex, ses, obs))
+                cortex.set_personality(pout["intent"], pout["feedback"] if pout["new"] else 0)
+                if pout["new"]:
+                    said.append((round(t_sim, 1), {k: pout[k] for k in ("intent", "sound", "say", "mood", "feedback")}))
             if cortex is not None:
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cortex.act(obs, home, t_sim, fr_prev))
             fr = fr_prev = ses.advance(period_ms)[-1]
@@ -211,8 +228,26 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             tb = 0.0
         else:
             v, w, tb = 0.0, 0.0, 0.0
+        if governor is not None:
+            governor.observe(obs["visible"], obs["half"], t_sim)
+            v = governor.limit(v, t_sim, period_ms / 1000.0)
+        prev_obs = obs
         obs = _call(conn, {"cmd": "step", "v": v, "w": w, "n": n_env,
                            "frame": bool(video_dir) and k % 5 == 0})
+        bumped = obs.get("collisions", 0) > prev_obs.get("collisions", 0)
+        if person is not None:
+            heard = person.step(t_sim, period_ms / 1000.0, obs, prev_obs, bumped, v)
+            if heard and personality is not None:
+                personality.event(t_sim, f'your person said: "{heard}"')
+        if personality is not None and mode == "brain":
+            _events(personality, t_sim, obs, home, fr_prev, prev_events)
+        if face is not None and mode == "brain":
+            _face(face, period_ms / 1000.0, obs, ses, fr_prev, home, cortex, personality)
+        if bumped:
+            hs = math.hypot(obs["human"][0] - prev_obs["human"][0],
+                            obs["human"][1] - prev_obs["human"][1]) / (period_ms / 1000.0)
+            wanted = None if cortex is None or not hasattr(cortex, "social") else bool(cortex.social >= 0.35)
+            bumps.append((round(t_sim, 1), round(hs, 2), round(v, 3), wanted))
         t_sim += period_ms / 1000.0
         k += 1
         if found_t is None and obs["visible"] and obs["dist"] < 2.0:
@@ -249,12 +284,79 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["events"] = home.events
     if cortex is not None:
         res["cortex"] = cortex.summary()
+    if person is not None:
+        res["speech"] = person.summary()
+    if personality is not None:
+        personality.wait(30.0)
+        res["personality"] = {"said": said, "stats": dict(personality.stats), "log": personality.log}
+        personality.save()
+    # bumps into the person, by kind (ground truth; for evaluation only)
+    res["bumps"] = {"n": len(bumps), "into_walking": sum(b[1] > 0.25 for b in bumps),
+                    "fast": sum(b[2] > 0.15 for b in bumps),
+                    "unwanted": sum(b[3] is False for b in bumps), "list": bumps,
+                    "speed_limited_s": round(governor.limited_s, 1) if governor is not None else None}
     if mode == "brain" and brain is not None and getattr(brain[0], "nav", None) is not None:
         res["navigation"] = brain[0].nav.state()
     if mode == "brain" and brain is not None and brain[0].mb is not None:
         res["learning"] = brain[0].mb.summary()
         res["learning"]["enabled"] = bool(brain[0].mb.learning)
     return res
+
+
+def _digest(cortex, ses, obs) -> dict:
+    """What the personality layer is told each call (cortex/personality.py)."""
+    from robot.safety import person_distance
+    d = person_distance(obs["half"]) if obs["visible"] else None
+    side = "ahead" if abs(obs["az"]) < 20 else ("to the right" if obs["az"] > 0 else "to the left")
+    goal = cortex.goal[1] if getattr(cortex, "goal", None) else "nothing in particular"
+    return {"hunger": cortex.hunger, "social": cortex.social,
+            "behaviour": ses.body.state.behaviour,
+            "person": f"{d:.1f} m {side}" if d is not None else "not in view",
+            "doing": f"heading for {goal}" + (f"; manners: {cortex.manner}" if getattr(cortex, "manner", None) else "")}
+
+
+def _events(pers, t, obs, home, fr, prev):
+    """Things worth a reaction, for the personality layer."""
+    if home is not None:
+        if home.stats["pets"] > prev["pets"]:
+            pers.event(t, "your person petted you")
+        if home.stats["treats"] > prev["treats"]:
+            pers.event(t, "your person gave you a treat")
+        prev["pets"], prev["treats"] = home.stats["pets"], home.stats["treats"]
+        at_bowl = home.taste == "sweet"
+        if at_bowl and not prev["bowl"]:
+            pers.event(t, "you found food and tasted it")
+        prev["bowl"] = at_bowl
+    if obs["visible"]:
+        if t - prev["seen_t"] > 20.0:
+            pers.event(t, "your person came into view")
+        prev["seen_t"] = t
+    if fr is not None and max(fr["channels"].get("escape_takeoff", 0.0), fr["channels"].get("escape_long_mode", 0.0)) > 0.5:
+        if t - prev.get("startle_t", -1e9) > 5.0:
+            pers.event(t, "something startled you")
+        prev["startle_t"] = t
+
+
+def _face(face, dt, obs, ses, fr, home, cortex, personality):
+    """The face (robot/face.py) from the brain, body and personality."""
+    from robot.safety import person_distance
+    from cortex.topdown import goal_azimuth
+    model, pub = face
+    ch = fr["channels"] if fr is not None else {}
+    fresh = personality.take_fresh() if personality is not None else None
+    goal = ses.topdown.last.get("goal_deg") if getattr(ses, "topdown", None) is not None else None
+    st = model.update(dt, {
+        "person_visible": obs["visible"], "person_az": obs["az"], "person_el": obs["el"],
+        "person_d": person_distance(obs["half"]) if obs["visible"] else None,
+        "goal_az": goal_azimuth(goal, float(obs["robot"][2])) if goal is not None else None,
+        "startle": max(ch.get("escape_takeoff", 0.0), ch.get("escape_long_mode", 0.0)),
+        "speed": ses.body.state.speed_mm_s * SPEED_SCALE, "behaviour": ses.body.state.behaviour,
+        "eating": ses.body.state.proboscis_extension > 0.5, "grooming": ch.get("groom", 0.0) > 0.5,
+        "petting": bool(home.petting) if home is not None else False,
+        "mood": personality.current["mood"] if personality is not None else "calm",
+        "say": fresh["say"] if fresh else None, "sound": fresh["sound"] if fresh else None,
+        "hunger": getattr(cortex, "hunger", 0.0), "social": getattr(cortex, "social", 0.0)})
+    pub.send(st)
 
 
 def _call(conn, msg):
@@ -281,11 +383,21 @@ def main():
     ap.add_argument("--weights", default=None, help="keep mushroom-body weights here across episodes")
     ap.add_argument("--nav", action="store_true", help="learned valence gates a central-complex goal")
     ap.add_argument("--topdown", default=None, help="save the house's top-down map here (npz)")
-    ap.add_argument("--cortex", choices=("none", "oracle", "v0", "v0_amnesic"), default="none",
+    ap.add_argument("--cortex", choices=("none", "oracle", "v0", "v0_amnesic", "v0_manners"), default="none",
                     help="neocortex driving the fly brain top-down (cortex/)")
-    ap.add_argument("--channels", default="goal,attend,dopamine",
+    ap.add_argument("--channels", default="goal,attend,dopamine,arousal",
                     help="top-down channels the cortex may use (cortex/topdown.py)")
     ap.add_argument("--cortex-state", default=None, help="keep the cortex's memory here across episodes")
+    ap.add_argument("--speech", action="store_true",
+                    help="a scripted person calls, praises and scolds the pet (sim/habitat_bridge/speech.py)")
+    ap.add_argument("--personality", default=None, metavar="URL",
+                    help="LLM personality layer (cortex/personality.py), e.g. http://127.0.0.1:1236/v1/chat/completions (PAIR)")
+    ap.add_argument("--llm-model", default="qwen/qwen3.8-27b")
+    ap.add_argument("--pet-name", default="Mote")
+    ap.add_argument("--face", default=None, metavar="URL",
+                    help="send the face to robot/face_server.py, e.g. http://127.0.0.1:8010/state")
+    ap.add_argument("--safe-speed", action="store_true",
+                    help="robot safety layer: slow down near the person (robot/safety.py)")
     a = ap.parse_args()
     os.environ.setdefault("FLY_DYNAMICS", "calibrated")
     home = None
@@ -307,13 +419,27 @@ def main():
         getattr(mb.e, "commit_plastic", lambda *_: None)(mb.edge_pos)
         print("loaded mushroom-body weights from", a.weights, flush=True)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    person = personality = face = None
+    if a.speech:
+        from sim.habitat_bridge.speech import ScriptedPerson
+        person = ScriptedPerson(name=a.pet_name, seed=a.seed)
+    if a.personality:
+        if cortex is None or not hasattr(cortex, "set_personality"):
+            raise SystemExit("--personality needs --cortex v0 / v0_manners")
+        from cortex.personality import Personality
+        personality = Personality(url=a.personality, model=a.llm_model, name=a.pet_name,
+                                  state_path=a.cortex_state)
+    if a.face:
+        from robot.face import FaceModel, FacePublisher
+        face = (FaceModel(), FacePublisher(a.face))
     from sim.habitat_bridge.authkey import authkey
     with Client(("127.0.0.1", a.port), authkey=authkey()) as conn:
         if a.topdown:
             print("top-down map:", _call(conn, {"cmd": "topdown", "path": a.topdown}), flush=True)
         for day, ep in enumerate(a.episodes):
             r = run_episode(conn, a.mode, ep, a.seconds, a.period_ms, a.seed + ep,
-                            a.video_dir, brain, home, cortex)
+                            a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,
+                            person=person, personality=personality, face=face)
             r["day"] = day
             (out / f"{a.mode}_day{day}_ep{ep}.json" if a.home else out / f"{a.mode}_ep{ep}.json").write_text(json.dumps(r))
             if mb is not None and a.weights:
@@ -325,8 +451,12 @@ def main():
                 print(f"day {day} (ep {ep}): bowl first {h['first_bowl_s']} s, near {h['near_bowl_s']:.1f} s, "
                       f"eating {h['eating_s']:.1f} s, mean bowl dist {h['mean_bowl_dist']} m | plant {h['at_plant_s']:.1f} s "
                       f"| pets {h['pets']} treats {h['treats']} near person {h['near_person_s']:.1f} s "
-                      f"| bumps {r['collisions']} | MB depressed {L.get('depressed_synapses')} {L.get('changed_mbons')}"
-                      + (f" | cortex {r['cortex']}" if cortex is not None else ""),
+                      f"| bumps {r['collisions']} (walking {r['bumps']['into_walking']}, fast {r['bumps']['fast']}, "
+                      f"unwanted {r['bumps']['unwanted']}) | MB depressed {L.get('depressed_synapses')} {L.get('changed_mbons')}"
+                      + (f" | cortex {r['cortex']}" if cortex is not None else "")
+                      + (f" | calls answered {r['speech']['answered']}/{r['speech']['calls']}, scolds {r['speech']['scolds']}"
+                         if person is not None else "")
+                      + (f" | LLM {r['personality']['stats']}" if personality is not None else ""),
                       flush=True)
                 continue
             st = r["habitat_stats"] or {}

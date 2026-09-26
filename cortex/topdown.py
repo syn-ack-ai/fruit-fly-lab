@@ -17,6 +17,10 @@ Channels (each a Session stimulus; overlapping drives take the maximum):
   dopamine  the cortex critic's reward-prediction error into the mushroom
             body's teaching neurons: positive -> reward PAM05-08, negative ->
             punishment PPL101/103 (the same DANs taste drives in the home).
+  arousal   interest in the person: a gain (0..1) on the camera's LC10a drive
+            for the person (robot.head.ObjectEncoder.arousal). Pursuit is
+            state-gated in flies (P1 arousal gates the LC10a pathway in courting
+            males; Hindmarsh Sten et al. 2021); the cortex sets the state.
 
 PROVENANCE
 ----------
@@ -108,6 +112,7 @@ class TopDown:
         self.goal.gain = 0.0
         self.attend = AttendEncoder(obj_encoder)
         self.dopamine = DopamineEncoder(connectome)
+        self.obj = obj_encoder
         self.last = {}
 
     def attach(self, ses) -> None:
@@ -136,9 +141,11 @@ class TopDown:
             az, again = 0.0, 0.0
         self.attend.set(az, again if "attend" in self.channels else 0.0)
         self.dopamine.set(cmd.get("rpe", 0.0) if "dopamine" in self.channels else 0.0)
+        arousal = float(np.clip(cmd.get("arousal", 1.0), 0.0, 1.0)) if "arousal" in self.channels else 1.0
+        self.obj.arousal = arousal
         self.last = {"goal_deg": None if g is None else round(g % 360.0, 1), "goal_gain": round(gain, 2),
                      "attend_az": round(self.attend.az, 1), "attend_gain": round(self.attend.gain, 2),
-                     "rpe": round(self.dopamine.rpe, 3)}
+                     "rpe": round(self.dopamine.rpe, 3), "arousal": round(arousal, 2)}
 
 
 def goal_azimuth(goal_deg: float, heading_deg: float) -> float:

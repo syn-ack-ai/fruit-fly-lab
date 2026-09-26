@@ -12,3 +12,16 @@ for c in dirs:
     for x in rows: print("  ", x)
     fb = [x[2] for x in rows]
     print("   reached bowl %d/%d, mean near %.1f s, eating %.1f s, bumps %d" % (sum(v is not None for v in fb), len(rows), np.mean([x[3] for x in rows]), np.mean([x[4] for x in rows]), sum(x[10] for x in rows)))
+    B = [json.load(open(f)).get("bumps") for f in fs]
+    if all(b is not None for b in B):
+        pets = sum(x[7] for x in rows)
+        print("   bumps: into walking person %d, fast (>0.15 m/s) %d, when it did not want company %d | pets %d | near person %.1f s/day"
+              % (sum(b["into_walking"] for b in B), sum(b["fast"] for b in B), sum(b["unwanted"] for b in B),
+                 pets, np.mean([x[9] for x in rows])))
+    M = [json.load(open(f)).get("cortex", {}).get("manners_s") for f in fs]
+    if any(M):
+        tot = {}
+        for m in M:
+            for k, v in (m or {}).items():
+                tot[k] = tot.get(k, 0.0) + v
+        print("   manners (s over the lifetime):", {k: round(v) for k, v in sorted(tot.items())})

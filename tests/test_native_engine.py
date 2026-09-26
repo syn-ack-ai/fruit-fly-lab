@@ -126,3 +126,10 @@ def test_native_session_escape_needs_lc4_lplc2(c):
     cut, _ = _session_run(c, pipelined=True, silence=True)
     assert s.engine.spike_counts[gf].sum() > 0
     assert cut.engine.spike_counts[gf].sum() == 0
+
+
+def test_wait_without_start_raises(c):
+    e = lif_native.NativeLIFEngine.from_connectome(c, seed=1, threads=1)
+    with pytest.raises(RuntimeError):
+        e.wait()
+    e.close()

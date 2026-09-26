@@ -12,6 +12,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 # --- Source dataset (read-only, never modified by this project) -------------
 # FlyWire FAFB v783 public release, downloaded from https://codex.flywire.ai/api/download
 DEFAULT_FLYWIRE_DIR = Path(r"D:\Fruitfly\FlyWire Brain Dataset (FAFB v783)")
+# A `flywire_v783/` directory next to the repository is used when present.
+_SIBLING_DIR = Path(__file__).resolve().parent.parent / "flywire_v783"
+if _SIBLING_DIR.is_dir():
+    DEFAULT_FLYWIRE_DIR = _SIBLING_DIR
 FLYWIRE_DIR = Path(os.environ.get("FLYWIRE_V783_DIR", DEFAULT_FLYWIRE_DIR))
 
 # Canonical identity of the dataset this project is built against.
@@ -49,6 +53,18 @@ OUTPUT_DIR    = PROJECT_ROOT / "simulation" / "outputs"
 CONNECTOME_NPZ = DERIVED_DIR / "connectome_v783.npz"
 NEURON_INDEX   = DERIVED_DIR / "neuron_index_v783.csv.gz"
 BUILD_MANIFEST = METADATA_DIR / "build_manifest.json"
+
+# --- Alternative dataset: Janelia MaleCNS v1.0 (brain + nerve cord) --------
+# FLY_DATASET=malecns loads the build of brain/connectivity/build_malecns.py
+# instead. FlyWire-specific checks (root-ID prefix, neuron count, FlyWire
+# source files) apply to the default FAFB dataset only.
+DATASET_KEY = os.environ.get("FLY_DATASET", "fafb")
+if DATASET_KEY == "malecns":
+    CONNECTOME_NPZ = DERIVED_DIR / "malecns" / "connectome_malecns_v1.0.npz"
+    NEURON_INDEX   = DERIVED_DIR / "malecns" / "neuron_index_malecns_v1.0.csv.gz"
+    BUILD_MANIFEST = METADATA_DIR / "build_manifest_malecns.json"
+elif DATASET_KEY != "fafb":
+    raise ValueError("FLY_DATASET must be 'fafb' or 'malecns', not %r" % DATASET_KEY)
 CHECKSUM_FILE  = METADATA_DIR / "flywire_v783_checksums.txt"
 
 for _d in (DERIVED_DIR, METADATA_DIR, OUTPUT_DIR):

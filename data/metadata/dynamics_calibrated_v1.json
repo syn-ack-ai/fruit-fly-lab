@@ -1,0 +1,43 @@
+{
+  "name": "calibrated_v1",
+  "dataset": "FlyWire FAFB v783",
+  "summary": "Optional dynamics beyond Shiu et al. 2024 that keep odour coding sparse and specific and stop latching, without changing the published sugar->MN9, bitter->MN9 and looming->Giant Fibre results.",
+  "adaptation": {
+    "scope": "all neurons",
+    "adapt_mV_per_spike": 0.2,
+    "tau_ms": 1000.0,
+    "rationale": "spike-frequency adaptation; removes self-sustained (latched) activity"
+  },
+  "slow_inhibition": {
+    "scope": "antennal-lobe local neurons (class ALLN) with inhibitory sign",
+    "slow_ratio": 0.5,
+    "tau_ms": 300.0,
+    "rationale": "GABA-B-like slow inhibition in the antennal lobe (e.g. Wilson & Laurent 2005; Olsen & Wilson 2008); restores glomerulus-specific projection-neuron responses"
+  },
+  "calibration": "cognition/calibrate_dynamics.py grids default, al_slow, refine, adapt_fine (Mac, 2026-09-24)",
+  "results_fit_set": {
+    "kc_active": 0.044,
+    "kc_overlap": 0.32,
+    "pn_off_target": 0.38,
+    "latch": 0.0,
+    "mn9_sugar_hz": 142,
+    "mn9_bitter_hz": 0,
+    "gf_looming_hz": 353,
+    "rest_spikes": 0
+  },
+  "results_published_model": {
+    "kc_active": 0.45,
+    "kc_overlap": 0.94,
+    "pn_off_target": 0.7,
+    "latch": 0.62,
+    "mn9_sugar_hz": 138,
+    "mn9_bitter_hz": 0,
+    "gf_looming_hz": 353,
+    "rest_spikes": 0
+  },
+  "results_held_out": "8 other ORN types + vinegar/CO2/cVA, seeds 1-2: KC 3.5-4.0% (0-8.3%), overlap 0.16-0.24, PN off-target 0.24-0.33, latching 0",
+  "not_calibrated_for": [
+    "Janelia MaleCNS (apply at your own risk; calibrate separately)"
+  ],
+  "superseded_by": "dynamics_calibrated.json (2026-09-25): v1 kept PNs only 9% glomerulus-specific"
+}

@@ -24,6 +24,13 @@
     <button id="btn-play" class="primary">▶ Run</button>
     <button id="btn-pause">⏸ Pause</button>
     <button id="btn-reset">⟲ Reset</button>
+    <select id="pace" title="Simulated time per real second">
+      <option value="0.25">¼× (slow motion)</option>
+      <option value="0.5">½×</option>
+      <option value="1" selected>1× real time</option>
+      <option value="2">2×</option>
+      <option value="0">max</option>
+    </select>
     <button id="btn-prov" class="ghost">Provenance</button>
   </div>
 </header>
@@ -31,6 +38,30 @@
 <main>
   <!-- ── LEFT: stimulus controls ─────────────────────────────────────── -->
   <aside class="panel left">
+    <h2>World</h2>
+    <div class="world-box">
+      <button id="btn-world" class="btn-world">🌍 ENTER THE WORLD</button>
+      <p class="hint tight">Closed loop: fruit that smells (wind-blown vinegar plume)
+        and tastes (fermenting, ripe, mouldy), a garden's leafy background smell
+        and wind. Every receptor neuron fires at its measured resting rate.
+        Tasting sugar or bitter teaches the mushroom body. The senses
+        drive real FlyWire neurons; the body moves only by descending-neuron
+        output plus a simple walking/flight rhythm (the nerve cord is not in the
+        connectome).</p>
+      <div class="opts">
+        <label><input type="checkbox" id="w-neural" checked> brain controls body</label>
+        <label><input type="checkbox" id="w-learning" checked> learning</label>
+        <label><input type="checkbox" id="w-smell" checked> smell</label>
+        <label><input type="checkbox" id="w-taste" checked> taste</label>
+        <label><input type="checkbox" id="w-wind" checked> wind sense</label>
+        <label><input type="checkbox" id="w-vision" checked> vision</label>
+        <label>fruit <select id="w-fruits"><option>3</option><option selected>4</option><option>6</option></select></label>
+        <label>wind <select id="w-windspeed"><option value="0">still</option><option value="150" selected>breeze</option><option value="400">windy</option></select></label>
+      </div>
+      <div id="world-stats" class="world-stats" hidden></div>
+      <div id="world-events" class="world-events"></div>
+    </div>
+
     <h2>Stimuli</h2>
     <p class="hint">Each stimulus drives <em>real</em> FlyWire sensory neurons.
        Nothing here tells the fly what to do.</p>
@@ -58,6 +89,24 @@
     </div>
 
     <div class="hero">
+      <button id="btn-camera" class="camera">📷 LIVE CAMERA: off</button>
+      <img id="camera-preview" alt="camera view" hidden>
+      <p class="hint tight" id="camera-info">Move something toward the camera.
+        Its measured size and expansion drive the same real LC4 + LPLC2 neurons
+        as the rock. Sideways motion should not.</p>
+    </div>
+
+    <div class="hero">
+      <button id="btn-head" class="camera">🤖 ROBOT HEAD: off</button>
+      <img id="head-preview" alt="head camera view" hidden>
+      <p class="hint tight" id="head-info">The pan/tilt camera becomes the fly's head.
+        Moving things and people (detected on the AI HAT) drive the real looming
+        (LC4, LPLC2) and pursuit (LC10a) neurons; the brain's steering neurons
+        (DNa01/DNa02, DNp09) turn the camera. Vision is blanked while it turns,
+        as flies do with an efference copy.</p>
+    </div>
+
+    <div class="hero">
       <button id="btn-food" class="food">🍎 PLACE FOOD</button>
       <p class="hint tight">Drives food odour (266 ORNs), tarsal contact
         chemosensation (71 GRNs) and proboscis sugar (23 GRNs) together —
@@ -77,10 +126,15 @@
   <section class="centre">
     <div class="card arena-card">
       <div class="card-head">
-        <h3>Arena</h3>
+        <h3>Fly</h3>
+        <div class="tabs">
+          <button class="tab active" data-arena="3d">3D body</button>
+          <button class="tab" data-arena="top">Top-down</button>
+        </div>
         <span class="behaviour" id="behaviour">resting</span>
       </div>
-      <canvas id="arena"></canvas>
+      <div id="fly3d" class="fly3d"></div>
+      <canvas id="arena" hidden></canvas>
       <div class="replay-bar" id="replay-bar">
         <button id="btn-replay" class="ghost">⟲ Replay experiment</button>
         <input type="range" id="replay-scrub" min="0" max="0" value="0" disabled>
@@ -142,6 +196,10 @@
 
 <div id="toast" class="toast" hidden></div>
 
+<script type="importmap">
+  { "imports": { "three": "/static/vendor/three/three.module.min.js" } }
+</script>
 <script src="/static/app.js"></script>
+<script type="module" src="/static/fly3d.js"></script>
 </body>
 </html>

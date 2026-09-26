@@ -1,5 +1,29 @@
 # Fruit Fly Laboratory
 
+> ## About this fork (syn-ack-ai)
+> This fork extends the original Fruit Fly Laboratory toward a **robot "pet" whose
+> lower brain is the fly connectome** and whose higher functions are a small learned
+> "neocortex". Additions (MIT licence, see LICENSE; upstream code keeps its author's
+> copyright):
+> - `native/` - C engine (NEON / plain C, multi-threaded) and a CUDA engine,
+>   bit-exact with the published Python model; ~5x real time on an RTX 3080 Ti.
+> - Calibrated dynamics (`data/metadata/dynamics_calibrated.json`, applied in
+>   `simulation/engine/session.py`): resting ORN input (Hallem & Carlson 2006),
+>   ORN->PN compensation, excitatory-LN and Giant Fibre corrections, adaptation;
+>   every change cites its source.
+> - `cognition/exam/` - a 31-test validation battery ("fly exam") with shuffled-wiring
+>   controls and robustness curves.
+> - `brain/plasticity/` (dopamine-gated mushroom-body learning), `brain/navigation/`
+>   (E-PG compass, FC2 -> PFL3 goal steering), `fly/world/` (closed-loop foraging world).
+> - `robot/` (pan/tilt camera head, person detection, microphone hearing),
+>   `sim/habitat_bridge/` (the brain driving a robot in Meta Habitat 3.0 homes),
+>   `cortex/` (the prototype neocortex that biases the fly brain top-down).
+>
+> At run time no language model is involved (connectome -> differential equations ->
+> spikes; the cortex is a small learned map, drives and a TD critic). The code in this
+> fork was written with AI coding assistance (Anthropic's Claude) under human direction.
+
+
 An interactive simulation of an adult female *Drosophila melanogaster* built on
 the **real FlyWire FAFB v783 connectome** — 139,255 neurons, 3,732,460
 connections, 50,666,648 synapses — running the **published whole-brain

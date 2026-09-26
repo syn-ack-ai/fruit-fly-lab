@@ -1,0 +1,188 @@
+"""
+Rewards in the Habitat home: a food bowl, a bitter plant, and an owner who pets
+the pet and gives it treats -- so the fly's mushroom body has something to learn.
+
+The world only provides senses and rewards; what the pet does is decided by the
+connectome (through fly/body/foraging_body.ForagingBody's readout).
+
+A. REAL DATA : the neurons driven (every ORN by glomerulus and side, sugar and
+   bitter GRNs, head-bristle mechanosensory neurons, the PAM/PPL1 dopamine
+   neurons) and everything downstream.
+B. PUBLISHED :
+   - Odours drive ORNs by their measured spontaneous rates and responses
+     (Hallem & Carlson 2006; brain/sensory/olfaction.py). The bowl smells like
+     fermenting fruit; the plant like green leaves.
+   - Tasting sugar activates reward dopamine neurons (PAM beta'2/gamma4 =
+     PAM05-08) and bitter the punishment ones (PPL101/103) (Kirkhart & Scott
+     2015; Yamagata et al. 2015) -- driven directly, as in fly/world/senses.py,
+     because the model does not recover the taste -> DAN route.
+   - Touch to the head bristles drives the antennal/head grooming command aDN
+     (DNge078) in the connectome (Hampel et al. 2015).
+C. OUR APPROXIMATIONS :
+   - Odour = a still-air halo around each source, c = strength * exp(-d/L),
+     L = 1.2 m (room scale), sampled at two "antennae" 0.10 m left and right
+     of a point 0.45 m ahead of the robot base (Spot is ~1 m long). No walls
+     block the odour (indoor air mixes around furniture).
+   - Taste = contact: the robot base within EAT_R_M (0.6 m) of the bowl/plant.
+     "Eating" is counted while the proboscis channel (MN9 motor neurons) holds
+     the proboscis extended, which also stops the body (ForagingBody).
+   - The owner: when the pet is within 1.5 m and sees them, each second there
+     is a PET_RATE chance of a 1.5 s pat on the head (head-bristle neurons at
+     80 Hz) and a TREAT_RATE chance of a 1 s treat (sugar taste + reward DANs).
+"""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+
+BOWL_XZ = (-5.29, -4.49)        # a navigable spot in the small HSSD house
+PLANT_XZ = (-0.40, -6.17)
+ODOUR_L_M = 1.2
+ANTENNA_AHEAD_M, ANTENNA_HALF_SEP_M = 0.45, 0.10
+EAT_R_M = 0.6
+TASTE_HZ, REINFORCE_HZ, TOUCH_HZ = 120.0, 100.0, 80.0
+OWNER_R_M = 1.5
+PET_S, TREAT_S = 1.5, 1.0
+REWARD_DANS = ("PAM05", "PAM06", "PAM07", "PAM08")
+PUNISH_DANS = ("PPL101", "PPL103")
+
+
+class HomeWorld:
+    def __init__(self, pet_rate: float = 0.15, treat_rate: float = 0.05, plant: bool = True,
+                 seed: int = 0):
+        self.pet_rate, self.treat_rate = pet_rate, treat_rate
+        self.sources = [("bowl", BOWL_XZ, "fermenting_fruit", 1.0, "sweet")]
+        if plant:
+            self.sources.append(("plant", PLANT_XZ, "leaves", 1.0, "bitter"))
+        self.rng = np.random.default_rng(seed)
+        self.reset(seed)
+
+    def reset(self, seed: int) -> None:
+        self.rng = np.random.default_rng(seed)
+        self.pet_until = self.treat_until = -1.0
+        self.t = 0.0
+        self.conc = {"L": np.zeros(len(self.sources)), "R": np.zeros(len(self.sources))}
+        self.taste = None
+        self.events = []
+        self.stats = {"first_bowl_s": None, "near_bowl_s": 0.0, "at_bowl_s": 0.0, "eating_s": 0.0,
+                      "at_plant_s": 0.0, "pets": 0, "treats": 0, "near_person_s": 0.0}
+
+    def step(self, obs: dict, dt: float, proboscis: float) -> None:
+        x, z, yaw = obs["robot"]
+        a = math.radians(yaw)
+        # yaw is measured in the (x, -z) plane, CCW seen from above
+        # (habitat_server.summary): forward = (cos a, sin a) and left =
+        # (-sin a, cos a) in (x, -z), i.e. in (x, z):
+        fx, fz = math.cos(a), -math.sin(a)
+        lx, lz = -math.sin(a), -math.cos(a)
+        hx, hz = x + ANTENNA_AHEAD_M * fx, z + ANTENNA_AHEAD_M * fz
+        for side, s in (("L", 1.0), ("R", -1.0)):
+            ax, az_ = hx + s * ANTENNA_HALF_SEP_M * lx, hz + s * ANTENNA_HALF_SEP_M * lz
+            self.conc[side] = np.array([st * math.exp(-math.hypot(ax - p[0], az_ - p[1]) / ODOUR_L_M)
+                                        for _, p, _, st, _ in self.sources])
+        self.taste = None
+        st = self.stats
+        for name, p, _, _, taste in self.sources:
+            d = math.hypot(x - p[0], z - p[1])
+            if name == "bowl":
+                if d < 1.0:
+                    st["near_bowl_s"] += dt
+                if d < EAT_R_M:
+                    if st["first_bowl_s"] is None:
+                        st["first_bowl_s"] = round(self.t, 1)
+                        self.events.append((round(self.t, 1), "reached bowl"))
+                    st["at_bowl_s"] += dt
+                    if proboscis > 0.5:
+                        st["eating_s"] += dt
+            elif d < EAT_R_M:
+                st["at_plant_s"] += dt
+            if d < EAT_R_M:
+                self.taste = taste
+        # the owner
+        if obs["dist"] < OWNER_R_M:
+            st["near_person_s"] += dt
+            if obs["visible"]:
+                if self.t >= self.pet_until and self.rng.random() < self.pet_rate * dt:
+                    self.pet_until = self.t + PET_S
+                    st["pets"] += 1
+                    self.events.append((round(self.t, 1), "petted"))
+                if self.t >= self.treat_until and self.rng.random() < self.treat_rate * dt:
+                    self.treat_until = self.t + TREAT_S
+                    st["treats"] += 1
+                    self.events.append((round(self.t, 1), "treat"))
+        self.t += dt
+
+    @property
+    def petting(self) -> bool:
+        return self.t < self.pet_until
+
+    @property
+    def treating(self) -> bool:
+        return self.t < self.treat_until
+
+
+class HomeSenses:
+    """Session encoder: ORNs (with spontaneous rates), taste, head touch and
+    reinforcement DANs from HomeWorld."""
+
+    def __init__(self, connectome, world: HomeWorld):
+        from brain.sensory.modalities import BY_KEY, resolve_neurons
+        from brain.sensory.olfaction import OlfactorySpace
+        self.world = world
+        n = connectome.neurons
+        t = n["primary_type"].fillna("").astype(str).to_numpy()
+        side = n["side"].fillna("").astype(str).to_numpy()
+        orn_types = sorted({x for x in t if x.startswith("ORN_")})
+        self.olf = OlfactorySpace([x[4:] for x in orn_types])
+        groups, self._orn = {}, {"L": [], "R": []}
+        for gi, ty in enumerate(orn_types):
+            for sd, k in (("left", "L"), ("right", "R")):
+                idx = np.flatnonzero((t == ty) & (side == sd))
+                if len(idx):
+                    groups["orn_%s_%s" % (ty, k)] = idx
+                    self._orn[k].append(("orn_%s_%s" % (ty, k), gi))
+        groups["sugar"] = np.asarray(resolve_neurons(BY_KEY["taste_sugar"], connectome), np.int64)
+        groups["bitter"] = np.asarray(resolve_neurons(BY_KEY["taste_bitter"], connectome), np.int64)
+        groups["touch"] = np.asarray(resolve_neurons(BY_KEY["touch_head"], connectome), np.int64)
+        groups["reward_dan"] = np.flatnonzero(np.isin(t, REWARD_DANS))
+        groups["punish_dan"] = np.flatnonzero(np.isin(t, PUNISH_DANS))
+        names = list(groups)
+        idx = np.concatenate([groups[k] for k in names])
+        gid = np.concatenate([np.full(len(groups[k]), i) for i, k in enumerate(names)])
+        if np.unique(idx).size != idx.size:
+            raise ValueError("sensory groups overlap")
+        order = np.argsort(idx, kind="stable")
+        self.indices, self._gid = idx[order], gid[order]
+        self._ascending = np.arange(len(self.indices))
+        self._npos = {k: i for i, k in enumerate(names)}
+        self._opos = {k: np.array([self._npos[nm] for nm, _ in v]) for k, v in self._orn.items()}
+        self._ogi = {k: np.array([gi for _, gi in v]) for k, v in self._orn.items()}
+        self._blend = np.array([self.olf.sources[src] for _, _, src, _, _ in world.sources])
+        self.reinforcement = True
+        self.group_sizes = {k: int(len(v)) for k, v in groups.items()}
+
+    def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
+        w = self.world
+        G = np.zeros(len(self._npos))
+        for k in ("L", "R"):
+            r = self.olf.rates(w.conc[k] @ self._blend)
+            G[self._opos[k]] = r[self._ogi[k]]
+        sweet = w.taste == "sweet" or w.treating
+        if sweet:
+            G[self._npos["sugar"]] = TASTE_HZ
+            if self.reinforcement:
+                G[self._npos["reward_dan"]] = REINFORCE_HZ
+        elif w.taste == "bitter":
+            G[self._npos["bitter"]] = TASTE_HZ
+            if self.reinforcement:
+                G[self._npos["punish_dan"]] = REINFORCE_HZ
+        if w.petting:
+            G[self._npos["touch"]] = TOUCH_HZ
+        return G[self._gid]
+
+    def state(self, t_ms: float) -> dict:
+        w = self.world
+        return {"kind": "home", "active": True, "odour_L": round(float(w.conc["L"].sum()), 3),
+                "odour_R": round(float(w.conc["R"].sum()), 3), "taste": w.taste,
+                "petting": w.petting, "treat": w.treating}

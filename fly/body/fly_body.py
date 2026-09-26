@@ -33,6 +33,7 @@ ESCAPE_THRESHOLD = 0.35        # channel activation triggering takeoff
 LONG_MODE_THRESHOLD = 0.30
 FREEZE_THRESHOLD = 0.30
 BACKWARD_THRESHOLD = 0.30
+FORWARD_THRESHOLD = 0.30
 PROBOSCIS_THRESHOLD = 0.15
 
 # --- B: published escape kinematics ----------------------------------------
@@ -44,6 +45,7 @@ JUMP_SPEED_MM_S = 750.0
 MAX_WALK_SPEED_MM_S = 25.0
 MAX_TURN_RATE_DEG_S = 400.0
 BACKWARD_SPEED_MM_S = 8.0
+P9_TURN_DEG_S = 150.0          # DNp09's ipsilateral turning component (Bidaye et al. 2020)
 
 
 @dataclass
@@ -102,7 +104,8 @@ class FlyBody:
 
         takeoff = channels.get("escape_takeoff", 0.0)     # DNp01, Giant Fibre
         long_mode = channels.get("escape_long_mode", 0.0)  # DNp02/04/11
-        freeze = channels.get("stop_freeze", 0.0)          # DNp09
+        freeze = channels.get("stop_freeze", 0.0)          # no DN assigned at present
+        forward = channels.get("forward_walk", 0.0)        # DNp09 (P9)
         backward = channels.get("backward_walk", 0.0)      # MDN
         turn_bias = channels.get("turn_bias", 0.0)         # DNa01/DNa02
 
@@ -162,7 +165,12 @@ class FlyBody:
             if freeze >= FREEZE_THRESHOLD:
                 s.speed_mm_s = 0.0
                 s.turn_rate_deg_s = 0.0
-                s.behaviour = "freezing (DNp09)"
+                s.behaviour = "freezing"
+            elif forward >= FORWARD_THRESHOLD:
+                s.speed_mm_s = MAX_WALK_SPEED_MM_S * forward
+                s.turn_rate_deg_s = (-MAX_TURN_RATE_DEG_S * turn_bias
+                                     - P9_TURN_DEG_S * channels.get("forward_walk_lr", 0.0))
+                s.behaviour = "walking forward (DNp09)"
             elif backward >= BACKWARD_THRESHOLD:
                 s.speed_mm_s = -BACKWARD_SPEED_MM_S * backward
                 s.behaviour = "walking backward (MDN)"

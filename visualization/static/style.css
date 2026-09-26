@@ -30,6 +30,8 @@ body{
 .stat label{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--dimmer)}
 .stat b{font-family:var(--mono);font-size:14px;color:var(--accent);font-weight:600}
 .transport{display:flex;gap:7px}
+.transport select{background:var(--bg3);color:var(--fg);border:1px solid var(--line);
+  border-radius:6px;padding:0 8px;font:inherit;font-size:12px;cursor:pointer}
 
 button{
   background:var(--bg3);color:var(--fg);border:1px solid var(--line);
@@ -60,7 +62,7 @@ h3{font-size:13px;margin:0;font-weight:600}
 /* ── cards / canvases ────────────────────────────────────── */
 .card{background:var(--bg2);border:1px solid var(--line);border-radius:10px;
       display:flex;flex-direction:column;min-height:0;overflow:hidden}
-.arena-card{flex:0 0 40%}
+.arena-card{flex:0 0 52%}
 .card:last-child{flex:1}
 .card-head{display:flex;align-items:center;justify-content:space-between;
            padding:9px 13px;border-bottom:1px solid var(--line)}
@@ -184,3 +186,40 @@ button.food:hover{background:linear-gradient(180deg,#93e5a2,#4cbe70)}
   min-width:74px;text-align:right}
 .replay-t.on{color:var(--violet)}
 .arena-card.replaying{outline:1px solid var(--violet);outline-offset:-1px}
+
+button.camera{width:100%;background:linear-gradient(180deg,#8fb3ff,#4f7fe0);
+  color:#06122b;border:0;font-weight:700;letter-spacing:.4px;padding:10px}
+button.camera:hover{background:linear-gradient(180deg,#a3c1ff,#608ef0)}
+button.camera.on{background:linear-gradient(180deg,#ff9fb0,#e0566e);color:#2b0610}
+#camera-preview,#head-preview{display:block;width:100%;margin-top:9px;border-radius:6px;
+  border:1px solid var(--line);background:#000;aspect-ratio:16/9}
+
+/* ── 3D fly ──────────────────────────────────────────────── */
+.fly3d{position:relative;flex:1;min-height:0;overflow:hidden}
+.fly3d canvas{position:absolute;inset:0;width:100%;height:100%}
+.fly3d-bar{position:absolute;top:8px;right:8px;display:flex;gap:5px;z-index:2}
+.fly3d-bar button{padding:4px 9px;font-size:11px;background:rgba(18,23,34,.78);
+  backdrop-filter:blur(4px)}
+.fly3d-bar button.on{border-color:var(--accent);color:var(--accent)}
+.fly3d-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:2;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.6px;color:#ffd7de;
+  background:rgba(224,86,110,.85);padding:4px 12px;border-radius:14px}
+.fly3d-clock{position:absolute;left:10px;top:10px;z-index:2;font-family:var(--mono);
+  font-size:11px;color:var(--dim);background:rgba(18,23,34,.6);padding:3px 8px;border-radius:5px}
+.fly3d-note{position:absolute;left:10px;bottom:8px;z-index:2;font-size:10px;color:var(--dimmer)}
+.fly3d[hidden],#arena[hidden],.fly3d-banner[hidden]{display:none}   /* hidden must win */
+#camera-preview[hidden],#head-preview[hidden]{display:none}
+.fly3d canvas.fly3d-minimap{position:absolute;inset:auto;right:10px;top:44px;z-index:2;width:180px;height:180px;
+  border-radius:8px;background:rgba(10,14,20,.55);pointer-events:none}
+.world-box{border:1px solid rgba(120,200,120,.35);border-radius:10px;padding:10px;margin-bottom:12px;
+  background:rgba(60,110,60,.08)}
+.world-box .btn-world{width:100%;font-weight:700;padding:10px;border-radius:8px;border:0;cursor:pointer;
+  background:#3f7d2c;color:#fff;font-size:14px}
+.world-box .btn-world.on{background:#8a3b2c}
+.world-box .opts{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin:8px 0;font-size:12px}
+.world-box .opts label{display:flex;align-items:center;gap:5px}
+.world-box select{font-size:12px}
+.world-stats{font-family:var(--mono);font-size:12px;line-height:1.55;margin-top:6px}
+.world-stats b{color:#e8f0ff}
+.world-events{font-size:11px;opacity:.8;margin-top:4px;max-height:110px;overflow:auto}
+#head-preview{aspect-ratio:4/3}

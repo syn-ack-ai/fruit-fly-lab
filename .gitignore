@@ -28,3 +28,10 @@ Thumbs.db
 # keeping this too would ship the identical graph twice.
 data/derived/
 simulation/outputs/
+
+# ---- Native builds (rebuild with `make -C native`, `make -C native cuda`) ----
+native/*.so
+native/*.dylib
+*.o
+hailort.log
+data/metadata/calibration_malecns_scan.json

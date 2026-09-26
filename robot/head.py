@@ -1,0 +1,614 @@
+"""
+The robot's head: a pan/tilt USB camera (Logitech QuickCam Orbit/Sphere AF)
+that the simulated fly's brain looks through and turns.
+
+    camera --> visual features --> real FlyWire visual neurons --> connectome
+      ^                                                                |
+      |                         descending steering neurons (DNa01/DNa02, DNp09)
+      +---------------- pan motor <----- HeadController <--------------+
+
+PROVENANCE
+----------
+A. REAL DATA : the neurons driven (LC4, LPLC2, LC10a) and their receptive fields
+   (brain/sensory/retinotopy.py); every step from them to the descending
+   neurons is the connectome.
+B. PUBLISHED :
+   - LC4 / LPLC2 encode looming (brain/sensory/encoders.LoomingEncoder).
+   - LC10a responds to small moving objects and drives visually guided
+     pursuit through AOTU019/AOTU025 -> DNa02 steering (Ribeiro et al. 2018,
+     Cell 174:607; Hindmarsh Sten et al. 2021, Nature 595:549).
+   - Flies steer toward the side with more DNa01/DNa02 activity (Rayshubskiy
+     et al. 2024); DNp09 (P9) adds ipsilateral turning (Bidaye et al. 2020).
+   - During self-generated turns the fly's visual motion responses are
+     cancelled by an efference copy of the motor command (Kim, Fitzgerald &
+     Maimon 2015, Nat Neurosci 18:1247). Here vision is blanked while the
+     motor moves and briefly after.
+C. OUR APPROXIMATIONS :
+   - One moving object at a time (the largest moving region, as in
+     brain/sensory/camera.py), or the largest person found by the AI HAT's
+     YOLOv8 detector (Hailo-10H), which takes priority. For a person the
+     target is their head and shoulders (top third of the detection box):
+     a robot-design choice of what the pet attends to, sized near LC10a's
+     preferred ~15 deg at room distance.
+   - LC10a drive = size tuning (log-Gaussian, peak ~15 deg, on the target's
+     angular size) x receptive-field overlap, weaker for a still object than a
+     moving one (a person counts as moving when their bearing changes > 5 deg/s).
+   - Head controller (robot engineering, not biology): the fly's resting
+     steering bias ("handedness": left DNa02 fires more at rest in this
+     connectome) is learned while no target is in view and subtracted, so the
+     head does not drift; target-evoked steering is used as is.
+   - Head turn rate = gain x (right - left DN steering activity); the camera
+     turns in steps every ~200 ms because the motor is slow (~0.3-0.5 s/move).
+   - Startle (expressive mapping, robot engineering): when the long-mode
+     escape command (DNp02/04/11) crosses 0.5 -- e.g. after a sudden sound via
+     JO-B -> DNp11 (robot/hearing.py) -- the head flinches up 8 deg and returns
+     after ~1 s. In the connectome the same sound also stops walking (DNg100
+     -> ~0 Hz), which the wheeled body will use.
+   - Orbit optics: ~53 deg horizontal field of view (measured: 10 deg of pan
+     shifts the 320-px image by 60 px); 1/64 deg per pan unit.
+
+Run standalone to test the sensor process:  python -m robot.head --test
+"""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import glob
+import os
+import struct
+import subprocess
+import sys
+import time
+from multiprocessing import shared_memory
+
+import numpy as np
+
+# ------------------------------------------------------------------ hardware
+ORBIT_GLOB = "/dev/v4l/by-id/usb-046d_0994_*-video-index0"
+VIDIOC_S_CTRL = 0xC008561C
+CTRL_PAN_REL, CTRL_TILT_REL = 0x009A0904, 0x009A0905
+CTRL_PAN_RESET, CTRL_TILT_RESET = 0x009A0906, 0x009A0907
+CTRL_EXPOSURE_DYN_FPS = 0x009A0903          # off: keep 30 fps in dim light
+UNITS_PER_DEG = 64.0
+PAN_LIMIT_DEG, TILT_LIMIT_DEG = 68.0, 28.0
+HFOV_DEG = 53.0
+CAP_W, CAP_H = 320, 240
+# processing image: the central 320x180 band (16:9, like brain/sensory/camera.py)
+PROC_W, PROC_H = 160, 90
+VFOV_DEG = HFOV_DEG * 180.0 / 320.0          # ~30 deg for the band
+HAILO_HEF = "/usr/share/hailo-models/yolov8m_h10.hef"
+PERSON_EVERY = 3                             # run the detector every 3rd frame (~10 Hz)
+SETTLE_S = 0.25                              # vision blanked after a move ends
+
+
+def find_orbit() -> str | None:
+    devs = sorted(glob.glob(ORBIT_GLOB))
+    return devs[0] if devs else None
+
+
+class PanTilt:
+    """Relative pan/tilt through the UVC motor controls. The camera cannot
+    report its angle, so it is tracked here from a reset (centred) position."""
+
+    def __init__(self, dev: str):
+        self.fd = os.open(dev, os.O_RDWR)
+        self.pan_deg = 0.0
+        self.tilt_deg = 0.0
+        self.busy_until = 0.0
+
+    def _ctrl(self, cid: int, val: int) -> None:
+        fcntl.ioctl(self.fd, VIDIOC_S_CTRL, struct.pack("Ii", cid, int(val)))
+
+    def fixed_framerate(self) -> None:
+        try:
+            self._ctrl(CTRL_EXPOSURE_DYN_FPS, 0)
+        except OSError:
+            pass
+
+    def reset(self) -> None:
+        self._ctrl(CTRL_PAN_RESET, 1)
+        time.sleep(2.5)
+        self._ctrl(CTRL_TILT_RESET, 1)
+        time.sleep(2.0)
+        self.pan_deg = self.tilt_deg = 0.0
+        self.busy_until = time.monotonic() + SETTLE_S
+
+    def move(self, dpan_deg: float, dtilt_deg: float = 0.0) -> float:
+        """Turn by (dpan, dtilt) degrees; + pan = right, + tilt = up. Returns
+        the time (s) the move should take."""
+        dp = float(np.clip(self.pan_deg + dpan_deg, -PAN_LIMIT_DEG, PAN_LIMIT_DEG) - self.pan_deg)
+        dt = float(np.clip(self.tilt_deg + dtilt_deg, -TILT_LIMIT_DEG, TILT_LIMIT_DEG) - self.tilt_deg)
+        dur = 0.0
+        if abs(dp) >= 0.5:
+            self._ctrl(CTRL_PAN_REL, -round(dp * UNITS_PER_DEG))     # + units turn left
+            self.pan_deg += dp
+            dur = max(dur, 0.15 + abs(dp) / 80.0)
+        if abs(dt) >= 0.5:
+            self._ctrl(CTRL_TILT_REL, -round(dt * UNITS_PER_DEG))    # + units tilt down
+            self.tilt_deg += dt
+            dur = max(dur, 0.15 + abs(dt) / 60.0)
+        if dur:
+            self.busy_until = time.monotonic() + dur + SETTLE_S
+        return dur
+
+    @property
+    def moving(self) -> bool:
+        return time.monotonic() < self.busy_until
+
+    def close(self) -> None:
+        os.close(self.fd)
+
+
+class PersonDetector:
+    """Largest person in the frame, from YOLOv8m on the Hailo-10H (AI HAT+ 2)."""
+
+    def __init__(self, hef: str = HAILO_HEF):
+        from hailo_platform import FormatType, VDevice
+        self.vd = VDevice()
+        self.im = self.vd.create_infer_model(hef)
+        self.im.input().set_format_type(FormatType.UINT8)
+        self.cm = self.im.configure().__enter__()
+        self.b = self.cm.create_bindings()
+        self.out = np.empty(self.im.output().shape, dtype=np.float32)
+        self.lb = np.zeros((640, 640, 3), np.uint8)
+
+    def detect(self, rgb: np.ndarray) -> dict | None:
+        """rgb: (240, 320, 3). Returns the largest person as fractions of the
+        full frame {cx, cy, w, h, score}, or None."""
+        import cv2
+        big = cv2.resize(rgb, (640, 480), interpolation=cv2.INTER_LINEAR)
+        self.lb[80:560] = big
+        self.b.input().set_buffer(self.lb)
+        self.b.output().set_buffer(self.out)
+        self.cm.run([self.b], 1000)
+        res = self.b.output().get_buffer()
+        persons = res[0] if isinstance(res, list) else []
+        best = None
+        for y0, x0, y1, x1, sc in np.asarray(persons).reshape(-1, 5):
+            if sc < 0.5:
+                continue
+            # letterbox rows 80..560 of 640 hold the image
+            fy0, fy1 = (y0 * 640 - 80) / 480, (y1 * 640 - 80) / 480
+            area = (x1 - x0) * (fy1 - fy0)
+            if best is None or area > best["area"]:
+                best = {"cx": (x0 + x1) / 2, "cy": (fy0 + fy1) / 2, "w": x1 - x0,
+                        "h": fy1 - fy0, "score": float(sc), "area": area}
+        return best
+
+    def close(self) -> None:
+        try:
+            self.cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------- shared memory
+_F = ["seq", "t_wall", "fps", "frames", "pan_deg", "tilt_deg", "moving",
+      # moving object / looming (brain/sensory/camera.LoomingExtractor, head-centred)
+      "obj_active", "obj_az", "obj_el", "obj_half_deg", "obj_exp_deg_s",
+      # person (Hailo)
+      "person_active", "person_az", "person_el", "person_half_deg", "person_score",
+      "person_t",
+      # commands from the simulation
+      "cmd_seq", "cmd_dpan", "cmd_dtilt", "cmd_reset", "cmd_done",
+      "preview_seq", "preview_len"]
+_I = {k: i for i, k in enumerate(_F)}
+_HEADER = 512
+_PREVIEW_MAX = 256 * 1024
+SHM_SIZE = _HEADER + _PREVIEW_MAX
+
+
+def _seq_write(buf, i, fn):
+    buf[i] += 1
+    fn()
+    buf[i] += 1
+
+
+def _preview(rgb, mask, est, person, pan, tilt, moving, fps) -> bytes:
+    import cv2
+    img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    img = cv2.resize(img, (640, 480), interpolation=cv2.INTER_LINEAR)
+    top = int((240 - 180) / 2 * 2)                        # band offset in preview px
+    if mask is not None and mask.any():
+        m = cv2.resize(mask, (640, 360), interpolation=cv2.INTER_NEAREST) > 0
+        band = img[top:top + 360]
+        band[m] = (0.55 * band[m] + 0.45 * np.array([172, 212, 77])).astype(np.uint8)
+    cv2.rectangle(img, (0, top), (639, top + 359), (90, 90, 90), 1)
+    if est["active"]:
+        cx = int((est["azimuth_deg"] / HFOV_DEG + 0.5) * 640)
+        cy = top + int((0.5 - est["elevation_deg"] / VFOV_DEG) * 360)
+        r = int(est["half_angle_deg"] / HFOV_DEG * 640)
+        col = (129, 107, 255) if est["expansion_rate_deg_s"] > 0 else (220, 220, 220)
+        cv2.circle(img, (cx, cy), max(r, 3), col, 2)
+    if person:
+        x0 = int((person["cx"] - person["w"] / 2) * 640); x1 = int((person["cx"] + person["w"] / 2) * 640)
+        y0 = int((person["cy"] - person["h"] / 2) * 480); y1 = int((person["cy"] + person["h"] / 2) * 480)
+        cv2.rectangle(img, (x0, y0), (x1, y1), (255, 180, 60), 2)
+        cv2.putText(img, "person %.0f%%" % (100 * person["score"]), (x0 + 4, max(14, y0 - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 180, 60), 1, cv2.LINE_AA)
+    txt = "%.0f fps  pan %+.0f  tilt %+.0f%s" % (fps, pan, tilt, "  [moving: vision blanked]" if moving else "")
+    cv2.putText(img, txt, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    return jpg.tobytes() if ok else b""
+
+
+def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
+    import cv2
+    from brain.sensory.camera import LoomingExtractor
+
+    shm = shared_memory.SharedMemory(name=shm_name, track=False)
+    hdr = np.ndarray((len(_F),), dtype=np.float64, buffer=shm.buf)
+    pt = PanTilt(dev)
+    pt.reset()
+    cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAP_W)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAP_H)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    pt.fixed_framerate()
+    ext = LoomingExtractor(HFOV_DEG, VFOV_DEG)
+    det = None
+    if use_person:
+        try:
+            det = PersonDetector()
+        except Exception as ex:                          # no HAT / driver: carry on without
+            print("person detector unavailable:", ex, file=sys.stderr)
+    parent = os.getppid()
+    last_cmd = 0
+    person, person_t = None, 0.0
+    t_last, frames, rate, n = time.monotonic(), 0, 0.0, 0
+    try:
+        while os.getppid() == parent:
+            # commands from the simulation (efference: executed here, vision gated)
+            cs = int(hdr[_I["cmd_seq"]])
+            if cs != last_cmd and cs % 2 == 0:
+                last_cmd = cs
+                if hdr[_I["cmd_reset"]]:
+                    pt.reset()
+                else:
+                    pt.move(float(hdr[_I["cmd_dpan"]]), float(hdr[_I["cmd_dtilt"]]))
+                hdr[_I["cmd_done"]] = cs
+            ok, frame = cap.read()
+            if not ok:
+                time.sleep(0.01)
+                continue
+            t = time.monotonic()
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            band = frame[30:210]                           # central 320x180
+            gray = cv2.resize(cv2.cvtColor(band, cv2.COLOR_BGR2GRAY), (PROC_W, PROC_H),
+                              interpolation=cv2.INTER_AREA)
+            moving = pt.moving
+            if moving:
+                ext._prev = None                           # efference copy: no motion signal
+                est = ext._inactive(); ext.est = est; ext.mask[:] = 0
+            else:
+                est = ext.update(gray, t)
+            n += 1
+            if det is not None and not moving and n % PERSON_EVERY == 0:
+                try:
+                    person = det.detect(rgb)
+                    person_t = time.time()
+                except Exception as ex:
+                    print("detector error:", ex, file=sys.stderr)
+                    det = None
+            if moving:
+                person = None
+            frames += 1
+            if t - t_last >= 1.0:
+                rate, frames, t_last = frames / (t - t_last), 0, t
+
+            def write():
+                hdr[_I["t_wall"]] = time.time()
+                hdr[_I["fps"]] = rate
+                hdr[_I["frames"]] += 1
+                hdr[_I["pan_deg"]], hdr[_I["tilt_deg"]] = pt.pan_deg, pt.tilt_deg
+                hdr[_I["moving"]] = float(moving)
+                hdr[_I["obj_active"]] = float(est["active"])
+                hdr[_I["obj_az"]], hdr[_I["obj_el"]] = est["azimuth_deg"], est["elevation_deg"]
+                hdr[_I["obj_half_deg"]] = est["half_angle_deg"]
+                hdr[_I["obj_exp_deg_s"]] = est["expansion_rate_deg_s"]
+                if person is not None:
+                    # the target is the person's head and shoulders (the part the
+                    # pet attends to; ~15 deg at room distance, LC10a's preferred
+                    # size): width ~ box width, height ~ box height / 3, at the top
+                    w_deg = person["w"] * HFOV_DEG
+                    h_deg = person["h"] * HFOV_DEG * CAP_H / CAP_W
+                    head = min(0.9 * w_deg, h_deg / 3.0)
+                    top_deg = (0.5 - (person["cy"] - person["h"] / 2)) * HFOV_DEG * CAP_H / CAP_W
+                    hdr[_I["person_active"]] = 1.0
+                    hdr[_I["person_az"]] = (person["cx"] - 0.5) * HFOV_DEG
+                    hdr[_I["person_el"]] = top_deg - head / 2
+                    hdr[_I["person_half_deg"]] = head / 2
+                    hdr[_I["person_score"]] = person["score"]
+                    hdr[_I["person_t"]] = person_t
+                else:
+                    hdr[_I["person_active"]] = 0.0
+            _seq_write(hdr, _I["seq"], write)
+            if int(hdr[_I["frames"]]) % 3 == 0:
+                jpg = _preview(rgb, ext.mask, est, person, pt.pan_deg, pt.tilt_deg, moving, rate)
+                if 0 < len(jpg) <= _PREVIEW_MAX:
+                    def wp():
+                        shm.buf[_HEADER:_HEADER + len(jpg)] = jpg
+                        hdr[_I["preview_len"]] = len(jpg)
+                    _seq_write(hdr, _I["preview_seq"], wp)
+    finally:
+        cap.release()
+        if det is not None:
+            det.close()
+        try:
+            pt.move(-pt.pan_deg, -pt.tilt_deg)             # leave the head centred
+        except Exception:
+            pass
+        pt.close()
+        del hdr
+        shm.close()
+
+
+# ------------------------------------------------------------ simulation side
+class HeadFeed:
+    """Starts the head's sensor process; reads its state, sends motor commands."""
+
+    STALE_S = 0.5
+
+    def __init__(self, dev: str | None = None, person: bool = True):
+        dev = dev or find_orbit()
+        if dev is None:
+            raise RuntimeError("pan/tilt camera (Logitech Orbit) not found")
+        self.shm = shared_memory.SharedMemory(create=True, size=SHM_SIZE)
+        self.shm.buf[:SHM_SIZE] = bytes(SHM_SIZE)
+        self._h = np.ndarray((len(_F),), dtype=np.float64, buffer=self.shm.buf)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        args = [sys.executable, "-m", "robot.head", "--shm", self.shm.name, "--dev", dev]
+        if not person:
+            args.append("--no-person")
+        self.proc = subprocess.Popen(args, cwd=root, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.PIPE)
+
+    @property
+    def alive(self) -> bool:
+        return self.proc.poll() is None
+
+    def error(self) -> str:
+        return "" if self.alive else (self.proc.stderr.read() or b"").decode(errors="replace")[-2000:]
+
+    def _read(self, i, fn):
+        for _ in range(1000):
+            s1 = self._h[i]
+            if int(s1) % 2:
+                continue
+            out = fn()
+            if self._h[i] == s1:
+                return out
+        return None
+
+    def state(self) -> dict:
+        v = self._read(_I["seq"], lambda: self._h.copy())
+        if v is None or v[_I["frames"]] == 0:
+            return {"ready": False, "frames": 0}
+        d = {k: float(v[_I[k]]) for k in _F}
+        d["ready"] = True
+        d["stale"] = time.time() - d["t_wall"] > self.STALE_S
+        d["person_stale"] = time.time() - d["person_t"] > 0.5
+        return d
+
+    def command(self, dpan_deg: float, dtilt_deg: float = 0.0, reset: bool = False) -> None:
+        h = self._h
+        h[_I["cmd_seq"]] += 1                           # odd: writing
+        h[_I["cmd_dpan"]], h[_I["cmd_dtilt"]] = dpan_deg, dtilt_deg
+        h[_I["cmd_reset"]] = 1.0 if reset else 0.0
+        h[_I["cmd_seq"]] += 1                           # even: ready
+
+    def preview_jpeg(self) -> bytes | None:
+        def grab():
+            n = int(self._h[_I["preview_len"]])
+            return bytes(self.shm.buf[_HEADER:_HEADER + n]) if n else None
+        return self._read(_I["preview_seq"], grab)
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        del self._h
+        self.shm.close()
+        try:
+            self.shm.unlink()
+        except FileNotFoundError:
+            pass
+
+
+class HeadLoomingStimulus:
+    """The head camera's moving object as a looming stimulus (LoomingEncoder)."""
+
+    def __init__(self, feed: HeadFeed):
+        self.feed = feed
+
+    def state(self, t_ms: float) -> dict:
+        s = self.feed.state()
+        on = s.get("ready") and not s.get("stale") and s.get("obj_active", 0) > 0
+        return {"t_ms": t_ms, "source": "head", "active": bool(on),
+                "azimuth_deg": s.get("obj_az", 0.0), "elevation_deg": s.get("obj_el", 0.0),
+                "half_angle_deg": s.get("obj_half_deg", 0.0) if on else 0.0,
+                "expansion_rate_deg_s": s.get("obj_exp_deg_s", 0.0) if on else 0.0,
+                "camera_fps": round(s.get("fps", 0.0), 1)}
+
+
+class ObjectEncoder:
+    """Drives the real LC10a neurons (small-object detectors of the pursuit
+    pathway) from the head camera: the detected person if any, otherwise the
+    largest moving object. See the module docstring (B, C)."""
+
+    CELL_TYPES = ("LC10a",)
+    MAX_HZ = 150.0           # the model's standard activation rate (LIFParams.r_poi)
+    PEAK_DEG = 15.0          # preferred angular (full) size
+    STILL_FRACTION = 0.4     # a still object drives LC10a less than a moving one
+
+    def __init__(self, connectome, feed: HeadFeed):
+        from brain.sensory.retinotopy import load_retinotopy, receptive_fields_2hop
+        self.feed = feed
+        # LC10a's inputs are mostly not column-assigned: two-synapse RF estimate
+        rf = receptive_fields_2hop(load_retinotopy(connectome), "LC10a").dropna(subset=["azimuth_deg"])
+        self.indices = rf["idx"].to_numpy(np.int64)
+        order = np.argsort(self.indices)
+        self.indices = self.indices[order]
+        self._az = rf["azimuth_deg"].to_numpy(float)[order]
+        self._el = rf["elevation_deg"].to_numpy(float)[order]
+        self._sigma = np.clip(rf["rf_radius_deg"].to_numpy(float)[order], 8.0, 40.0)
+        self.last = {}
+
+    def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
+        from simulation.stimuli.looming import angular_distance_deg
+        s = self.feed.state()
+        rates = np.zeros(len(self.indices))
+        self.last = {"target": None}
+        if not s.get("ready") or s.get("stale") or s.get("moving", 0) > 0:
+            return rates
+        if s.get("person_active", 0) > 0 and not s.get("person_stale"):
+            az, el, half, kind = s["person_az"], s["person_el"], s["person_half_deg"], "person"
+            now = time.monotonic()
+            prev = getattr(self, "_prev_person", None)
+            speed = abs(az - prev[1]) / max(now - prev[0], 1e-3) if prev and now - prev[0] < 1.0 else 0.0
+            if prev is None or now - prev[0] > 0.08:
+                self._prev_person = (now, az)
+            self._pmove = 0.8 * getattr(self, "_pmove", 0.0) + 0.2 * (1.0 if speed > 5.0 else 0.0)
+            moving = self._pmove
+        elif s.get("obj_active", 0) > 0:
+            az, el, half, moving, kind = s["obj_az"], s["obj_el"], s["obj_half_deg"], 1.0, "object"
+        else:
+            return rates
+        size = max(2 * half, 1.0)
+        tuning = np.exp(-0.5 * (np.log(size / self.PEAK_DEG) / 0.8) ** 2)
+        gain = self.STILL_FRACTION + (1 - self.STILL_FRACTION) * moving
+        d = angular_distance_deg(az, el, self._az, self._el)
+        edge = np.maximum(0.0, d - half)
+        rates = self.MAX_HZ * tuning * gain * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
+        self.last = {"target": kind, "azimuth_deg": round(az, 1), "size_deg": round(size, 1),
+                     "drive_hz": round(float(rates.max()), 1)}
+        return rates
+
+    def state(self, t_ms: float) -> dict:
+        return {"kind": "head_object", "active": self.last.get("target") is not None, **self.last}
+
+    @property
+    def provenance(self) -> dict:
+        return {"drives": {"LC10a": int(len(self.indices))},
+                "tuning": {"max_hz": self.MAX_HZ, "peak_size_deg": self.PEAK_DEG,
+                           "still_fraction": self.STILL_FRACTION},
+                "source": "Ribeiro et al. 2018 Cell 174:607; Hindmarsh Sten et al. 2021 Nature 595:549"}
+
+
+class HeadController:
+    """Turns the head from the brain's steering output (see module docstring)."""
+
+    GAIN_DEG_S = 200.0       # deg/s per unit turn_bias; measured: a 13-deg target at
+                             # +-30 deg gives turn_bias ~+0.20 / -0.27 (LC10a at 150 Hz)
+    P9_GAIN_DEG_S = 60.0
+    PERIOD_S = 0.3
+    MIN_STEP_DEG = 3.0
+    SMOOTH_TAU_S = 0.5       # DN readout has few spikes per 50 ms window: smooth it
+    BASELINE_TAU_S = 5.0     # learning the resting steering bias (no target in view)
+
+    def __init__(self, feed: HeadFeed, target_fn=None):
+        self.feed = feed
+        self.target_fn = target_fn or (lambda: False)
+        self.pending = 0.0
+        self.t_last = None
+        self._since = 0.0
+        self.baseline = 0.0
+        self.log = []
+
+    def update(self, channels: dict, now_s: float | None = None) -> None:
+        now_s = time.monotonic() if now_s is None else now_s
+        if self.t_last is None:
+            self.t_last = now_s
+            return
+        dt = now_s - self.t_last
+        self.t_last = now_s
+        # right-minus-left steering activity; + = turn right (Rayshubskiy et al. 2024)
+        raw = (self.GAIN_DEG_S * channels.get("turn_bias", 0.0)
+               + self.P9_GAIN_DEG_S * channels.get("forward_walk_lr", 0.0))
+        self.smooth = getattr(self, "smooth", 0.0)
+        self.smooth += (raw - self.smooth) * min(1.0, dt / self.SMOOTH_TAU_S)
+        steer = self.smooth
+        if not self.target_fn():
+            self.baseline += (steer - self.baseline) * min(1.0, dt / self.BASELINE_TAU_S)
+        rate = steer - self.baseline
+        self.pending += rate * dt
+        self._since += dt
+        s = self.feed.state()
+        esc = channels.get("escape_long_mode", 0.0)
+        flinch_until = getattr(self, "flinch_until", 0.0)
+        if esc >= 0.5 and now_s > flinch_until + 2.0 and not s.get("moving", 0):
+            self.feed.command(0.0, 8.0)              # startle: head up
+            self.flinch_until = now_s + 1.0
+            self.log.append((round(now_s, 2), "startle"))
+            return
+        if flinch_until and now_s >= flinch_until and not s.get("moving", 0):
+            self.feed.command(0.0, -8.0)             # settle back
+            self.flinch_until = 0.0
+            return
+        if s.get("moving", 0):
+            self.pending = 0.0                       # the turn is already under way
+        elif self._since >= self.PERIOD_S and abs(self.pending) >= self.MIN_STEP_DEG:
+            self.feed.command(self.pending, 0.0)
+            self.log.append((round(now_s, 2), round(self.pending, 1)))
+            self.log = self.log[-50:]
+            self.pending = 0.0
+            self._since = 0.0
+
+
+def main():
+    ap = argparse.ArgumentParser(description="robot head sensor process")
+    ap.add_argument("--shm")
+    ap.add_argument("--dev")
+    ap.add_argument("--no-person", action="store_true")
+    ap.add_argument("--test", action="store_true", help="run the sensor for 10 s and print")
+    a = ap.parse_args()
+    if a.test:
+        feed = HeadFeed(person=not a.no_person)
+        t0 = time.time()
+        while time.time() - t0 < 12:
+            time.sleep(1)
+            s = feed.state()
+            print({k: round(v, 1) for k, v in s.items() if isinstance(v, float) and k in
+                   ("fps", "pan_deg", "moving", "obj_active", "obj_az", "obj_half_deg",
+                    "person_active", "person_az", "person_half_deg", "person_score")},
+                  feed.error())
+            if 5 < time.time() - t0 < 6.2:
+                feed.command(15.0)
+        feed.close()
+        return
+    run_worker(a.shm, a.dev or find_orbit(), use_person=not a.no_person)
+
+
+if __name__ == "__main__":
+    main()
+
+
+class RestingOlfaction:
+    """Every olfactory receptor neuron at its measured spontaneous rate
+    (Hallem & Carlson 2006, brain/sensory/olfaction.py): the brain's resting
+    background while the head looks around the (odourless) room."""
+
+    def __init__(self, connectome):
+        from brain.sensory.olfaction import OlfactorySpace
+        t = connectome.neurons["primary_type"].fillna("").astype(str).to_numpy()
+        self.indices = np.flatnonzero(np.char.startswith(t.astype(str), "ORN_"))
+        types = sorted(set(t[self.indices]))
+        osp = OlfactorySpace([ty[4:] for ty in types])
+        gi = {ty: i for i, ty in enumerate(types)}
+        self._rates = np.array([osp.spont[gi[t[i]]] for i in self.indices])
+
+    def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
+        return self._rates
+
+    def state(self, t_ms: float) -> dict:
+        return {"kind": "resting_olfaction", "active": True}
+
+    @property
+    def provenance(self) -> dict:
+        return {"drives": {"ORN (all)": int(len(self.indices))},
+                "source": "Hallem & Carlson 2006, Cell 125:143 (spontaneous rates)"}

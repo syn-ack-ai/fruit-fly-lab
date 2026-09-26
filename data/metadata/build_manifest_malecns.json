@@ -1,0 +1,72 @@
+{
+  "dataset": "Janelia MaleCNS",
+  "version": "1.0",
+  "source_url": "https://male-cns.janelia.org/download/",
+  "license": "CC-BY 4.0",
+  "source_dir": "<MaleCNS v1.0 download dir>",
+  "built_utc": "2026-09-25T00:17:32.021394+00:00",
+  "n_neurons": 165122,
+  "n_neuron_pairs": 6169278,
+  "n_synapses": 88816375,
+  "min_synapses": 5,
+  "neuron_filter": "status == Traced",
+  "neuron_order": "pseudo-random permutation, seed 783 (for thread load balance)",
+  "excitatory_neurons": 104586,
+  "inhibitory_neurons": 57261,
+  "unknown_sign_neurons": 3275,
+  "nt_sign_convention": {
+    "excitatory": [
+      "ACH",
+      "DA",
+      "OCT",
+      "SER"
+    ],
+    "inhibitory": [
+      "GABA",
+      "GLUT",
+      "HIST"
+    ]
+  },
+  "super_class_counts": {
+    "ol_intrinsic": 89390,
+    "cb_intrinsic": 32160,
+    "vnc_intrinsic": 13151,
+    "visual_projection": 9201,
+    "vnc_sensory": 6365,
+    "cb_sensory": 4868,
+    "ol_sensory": 4114,
+    "ascending_neuron": 1846,
+    "descending_neuron": 1314,
+    "vnc_motor": 708,
+    "visual_centrifugal": 563,
+    "sensory_ascending": 537,
+    "cb_motor": 107,
+    "vnc_efferent": 94,
+    "cb_endocrine": 72,
+    "ENS": 47,
+    "vnc_endocrine": 22,
+    "sensory_descending": 12,
+    "vnc_sensory_tbc": 9,
+    "efferent_ascending": 8,
+    "cb_sensory_tbc": 5,
+    "cb_efferent": 4,
+    "efferent_descending": 4,
+    "visual_projection_tbc": 2,
+    "sensory_ascending_tbc": 2,
+    "vnc_tbc": 1
+  },
+  "model_reference": "Shiu et al. 2024, Nature 634:210-219 (LIF parameters reused unchanged)",
+  "source_md5": {
+    "body-annotations-male-cns-v1.0-minconf-0.5.feather": "UKdxh3DFciDxYLpPQxq4ng==",
+    "body-neurotransmitters-male-cns-v1.0.feather": "PYQrEv5cSe763lKNfdJKHw==",
+    "body-stats-male-cns-v1.0-minconf-0.5.feather": "QEwzScKFgBSOFoFeuZ84Kg==",
+    "connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather": "CfL4M/cWGkatM81vnJBy9g==",
+    "connectome-weights-male-cns-v1.0-minconf-0.5-traced-only.feather": "ZgHUrQr6mf0D6wh5Ze8kIw==",
+    "connectome-weights-male-cns-v1.0-minconf-0.5.feather": "8w6dzKJc/QIb8eez2XVZng==",
+    "syn-partners-male-cns-v1.0-minconf-0.5-significant-only.feather": "pbz0bYqLglq4yjJzxHeV4w==",
+    "syn-partners-male-cns-v1.0-minconf-0.5-traced-only.feather": "9bwcXONKAbaJVkFLUw7dqA==",
+    "syn-partners-male-cns-v1.0-minconf-0.5.feather": "WO/PcS+MTU3l8q1R6X3vdg==",
+    "syn-points-male-cns-v1.0-minconf-0.5.feather": "xp0IdY3gdYIDXMiENXRJOg==",
+    "tbar-neurotransmitters-male-cns-v1.0.feather": "UbAsEWkGYq7e8o+G05T/DQ=="
+  }
+}

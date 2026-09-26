@@ -113,6 +113,17 @@ function buildLesions() {
 function wireControls() {
   $('#btn-play').onclick = () => setPlaying(true);
   $('#btn-pause').onclick = () => setPlaying(false);
+  $('#pace').onchange = (e) => post(`/api/pace/${e.target.value}`);
+  $('#btn-camera').onclick = toggleCamera;
+  $('#btn-world').onclick = toggleWorld;
+  $('#btn-head').onclick = toggleHead;
+  api('/api/head/state').then((h) => { if (h && h.on) headShown(true); });
+  api('/api/world/state').then((w) => worldShown(!!(w && w.on)));
+  api('/api/camera/state').then((c) => { if (c.on) cameraShown(true); });
+  api('/api/state').then((st) => {
+    const opt = [...$('#pace').options].find((o) => +o.value === st.pace);
+    if (opt) $('#pace').value = opt.value;
+  });
   $('#btn-reset').onclick = async () => {
     await post('/api/reset');
     state.active.clear(); state.latest = null;
@@ -137,9 +148,19 @@ function wireControls() {
   $('#circuit-go').onclick = () => loadCircuit($('#circuit-q').value.trim());
   $('#circuit-q').onkeydown = (e) => { if (e.key === 'Enter') $('#circuit-go').click(); };
 
-  document.querySelectorAll('.tab').forEach(t => {
+  document.querySelectorAll('.tab[data-arena]').forEach(t => {
     t.onclick = () => {
-      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.tab[data-arena]').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const three = t.dataset.arena === '3d';
+      $('#fly3d').hidden = !three;
+      $('#arena').hidden = three;
+    };
+  });
+
+  document.querySelectorAll('.tab[data-view]').forEach(t => {
+    t.onclick = () => {
+      document.querySelectorAll('.tab[data-view]').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
       state.view = t.dataset.view;
     };
@@ -173,6 +194,149 @@ async function throwRock() {
   }
 }
 
+/* ───────────────────────── robot head (pan/tilt camera) ──────────────────────── */
+async function toggleHead() {
+  const on = !state.head;
+  const btn = $('#btn-head');
+  btn.disabled = true;
+  btn.textContent = on ? '🤖 starting head (centring camera)…' : '🤖 stopping…';
+  const r = await post(`/api/head/${on ? 1 : 0}`);
+  btn.disabled = false;
+  if (!r || !r.ok) {
+    $('#head-info').textContent = 'Head failed: ' + ((r && r.error) || 'unknown error');
+    headShown(false); return;
+  }
+  headShown(on);
+  if (on) setPlaying(true);
+}
+
+function headShown(on) {
+  state.head = on;
+  const btn = $('#btn-head'), img = $('#head-preview');
+  btn.textContent = on ? '🤖 ROBOT HEAD: on' : '🤖 ROBOT HEAD: off';
+  btn.classList.toggle('on', on);
+  img.hidden = !on;
+  clearTimeout(state.headTimer);
+  if (!on) return;
+  const tick = () => {
+    if (!state.head) return;
+    const next = new Image();
+    next.onload = () => { img.src = next.src; state.headTimer = setTimeout(tick, 100); };
+    next.onerror = () => { state.headTimer = setTimeout(tick, 500); };
+    next.src = `/api/head/preview.jpg?t=${Date.now()}`;
+  };
+  tick();
+  const info = async () => {
+    if (!state.head) return;
+    const h = await api('/api/head/state').catch(() => null);
+    if (h && h.on) {
+      const s = h.state || {}, t = h.lc10a_target || {};
+      const dn = h.dn || {};
+      const f = (k) => (dn[k] ?? 0).toFixed(0);
+      $('#head-info').innerHTML =
+        `pan <b>${(s.pan_deg ?? 0).toFixed(0)}°</b> · ${(s.fps ?? 0).toFixed(0)} fps` +
+        (s.moving ? ' · <b>turning (vision blanked)</b>' : '') +
+        `<br>target → LC10a: <b>${t.target ? t.target + ' at ' + t.azimuth_deg + '°, ' + t.size_deg + '°' : 'none'}</b>` +
+        `<br>steering DNa02 L/R <b>${f('DNa02_left')}/${f('DNa02_right')} Hz</b> · DNa01 L/R <b>${f('DNa01_left')}/${f('DNa01_right')}</b>` +
+        ` · DNp09 L/R <b>${f('DNp09_left')}/${f('DNp09_right')}</b>` +
+        (h.hearing ? `<br>hearing JO-B <b>${h.hearing.B.toFixed(0)} Hz</b> · JO-A <b>${h.hearing.A.toFixed(0)} Hz</b>` : '') +
+        `<br>last turns: ${(h.moves || []).slice(-5).map(m => typeof m[1] === 'string' ? m[1] : (m[1] > 0 ? '+' : '') + m[1] + '°').join(' ') || '—'}`;
+    }
+    state.headInfoTimer = setTimeout(info, 400);
+  };
+  info();
+}
+
+/* ───────────────────────── world (closed loop) ──────────────────────── */
+async function toggleWorld() {
+  const on = !state.world;
+  const btn = $('#btn-world');
+  btn.disabled = true;
+  btn.textContent = on ? '🌍 building the world…' : '🌍 leaving…';
+  const opts = {
+    neural: $('#w-neural').checked, learning: $('#w-learning').checked, predators: false,
+    smell: $('#w-smell').checked, taste: $('#w-taste').checked,
+    wind: $('#w-wind').checked, vision: $('#w-vision').checked,
+    fruits: +$('#w-fruits').value, wind_mm_s: +$('#w-windspeed').value,
+    seed: Math.floor(Math.random() * 1000),
+  };
+  const r = on ? await post('/api/world/start', opts) : await post('/api/world/stop');
+  btn.disabled = false;
+  if (!r || !r.ok) { toast('World failed: ' + ((r && r.error) || 'unknown')); worldShown(!on); return; }
+  worldShown(on);
+  if (on) setPlaying(true);
+}
+
+function worldShown(on) {
+  state.world = on;
+  const btn = $('#btn-world');
+  btn.textContent = on ? '🌍 LEAVE THE WORLD' : '🌍 ENTER THE WORLD';
+  btn.classList.toggle('on', on);
+  $('#world-stats').hidden = !on;
+  if (!on) $('#world-events').innerHTML = '';
+}
+
+function renderWorld(f) {
+  const w = f.world;
+  if (!w) return;
+  if (!state.world) worldShown(true);
+  const st = w.stats, b = f.body || {};
+  const sens = w.senses || {};
+  const pct = (x) => (100 * x).toFixed(0) + '%';
+  $('#world-stats').innerHTML =
+    `<div>doing: <b>${b.behaviour || ''}</b>${b.neural === false ? ' <i>(brain disconnected)</i>' : ''}</div>` +
+    `<div>energy <b>${pct(w.energy)}</b> · ate sweet <b>${pct(st.eaten_sweet)}</b> · bitter <b>${pct(st.eaten_bitter)}</b></div>` +
+    `<div>fruit visits <b>${st.fruit_visits}</b> · first meal <b>${st.first_food_ms == null ? '—' : (st.first_food_ms / 1000).toFixed(1) + ' s'}</b></div>` +
+    (st.attacks ? `<div>attacks <b>${st.attacks}</b> · survived <b>${st.escaped}</b> · caught <b>${st.caught}</b></div>` : '') +
+    `<div>smell L/R <b>${(sens.odour_L ?? 0).toFixed(2)}</b> / <b>${(sens.odour_R ?? 0).toFixed(2)}</b>` +
+    (sens.taste ? ` · tasting <b>${sens.taste}</b>` : '') + (sens.loom_deg ? ` · looming <b>${sens.loom_deg.toFixed(0)}°</b>` : '') + `</div>` +
+    `<div>flown <b>${(st.airborne_ms / 1000).toFixed(1)} s</b> · travelled <b>${(st.distance_mm / 1000).toFixed(2)} m</b></div>` +
+    (f.learning ? `<div>memory: <b>${f.learning.depressed_synapses}</b> KC→MBON synapses changed` +
+      (Object.keys(f.learning.changed_mbons || {}).length ? ' (' + Object.entries(f.learning.changed_mbons)
+        .sort((a, b) => a[1] - b[1]).slice(0, 4).map(([k, v]) => `${k} ${(100 * v).toFixed(0)}%`).join(', ') + ')' : '') + `</div>` : '');
+  const ev = [...(w.events || []), ...((b.events || []).map(e => ({ t_ms: e.t_ms, event: e.event })))]
+    .sort((a, c) => c.t_ms - a.t_ms).slice(0, 10);
+  $('#world-events').innerHTML = ev.map(e => `<div>${(e.t_ms / 1000).toFixed(1)} s — ${e.event}</div>`).join('');
+}
+
+/* ───────────────────────── live camera ──────────────────────── */
+async function toggleCamera() {
+  const on = !state.camera;
+  const btn = $('#btn-camera');
+  btn.disabled = true;
+  btn.textContent = on ? '📷 starting camera…' : '📷 stopping…';
+  const r = await post(`/api/camera/${on ? 1 : 0}`);
+  btn.disabled = false;
+  if (on && !r.ok) {
+    btn.textContent = '📷 LIVE CAMERA: off';
+    $('#camera-info').textContent = 'Camera failed: ' + (r.error || 'unknown error');
+    return;
+  }
+  cameraShown(on);
+  if (on) {
+    state.stimText = 'live camera → LC4 + LPLC2';
+    setPlaying(true);
+  }
+}
+
+function cameraShown(on) {
+  state.camera = on;
+  const btn = $('#btn-camera'), img = $('#camera-preview');
+  btn.textContent = on ? '📷 LIVE CAMERA: on' : '📷 LIVE CAMERA: off';
+  btn.classList.toggle('on', on);
+  img.hidden = !on;
+  clearTimeout(state.cameraTimer);
+  if (!on) return;
+  const tick = () => {                     // ~10 fps preview, one request in flight
+    if (!state.camera) return;
+    const next = new Image();
+    next.onload = () => { img.src = next.src; state.cameraTimer = setTimeout(tick, 90); };
+    next.onerror = () => { state.cameraTimer = setTimeout(tick, 500); };
+    next.src = `/api/camera/preview.jpg?t=${Date.now()}`;
+  };
+  tick();
+}
+
 async function placeFood() {
   const r = await post('/api/stimulus/food', { intensity: 1.0, duration_ms: 600 });
   if (r.ok) {
@@ -202,6 +366,7 @@ async function openReplay() {
 
 function closeReplay() {
   state.replay = null;
+  window.dispatchEvent(new CustomEvent('fly-replay', { detail: null }));
   const sc = $('#replay-scrub');
   sc.disabled = true; sc.value = 0; sc.max = 0;
   $('#btn-live').hidden = true;
@@ -213,6 +378,7 @@ function closeReplay() {
 function showReplayFrame() {
   const f = state.replay && state.replay[state.replayIdx];
   if (!f) return;
+  window.dispatchEvent(new CustomEvent('fly-replay', { detail: f }));
   $('#replay-t').textContent = `${f.t_ms.toFixed(0)} ms`;
   const beh = $('#behaviour');
   beh.textContent = f.body.behaviour || 'resting';
@@ -240,13 +406,19 @@ function connect() {
 
 function onFrame(f) {
   state.latest = f;
+  window.dispatchEvent(new CustomEvent('fly-frame', { detail: f }));   // 3D body view
   if (state.replay) return;   // scrubbing: don't overwrite the display
   state.active = new Set(f.active_idx || []);
   $('#s-time').textContent = f.t_ms.toFixed(1) + ' ms';
   $('#s-active').textContent = f.active_neurons.toLocaleString();
   $('#s-spikes').textContent = f.total_spikes.toLocaleString();
-  $('#s-rt').textContent = f.realtime_factor
-    ? (f.realtime_factor < 1 ? `${(1 / f.realtime_factor).toFixed(1)}× slower` : '—') : '—';
+  // simulated seconds per real second, measured over the last ~2 s
+  const rt = f.realtime_factor;
+  $('#s-rt').textContent = rt ? `${rt.toFixed(2)}×` : '—';
+  $('#s-rt').title = f.lag_ms != null
+    ? `pace ${f.pace}× · ${f.lag_ms.toFixed(1)} ms behind schedule` +
+      (f.dropped_ms ? ` · ${f.dropped_ms.toFixed(0)} ms skipped to keep up` : '')
+    : 'unpaced';
 
   const b = f.body || {};
   const beh = $('#behaviour');
@@ -257,12 +429,20 @@ function onFrame(f) {
     (b.proboscis_extension > 0.05 ? `  proboscis ${(b.proboscis_extension * 100).toFixed(0)}%` : '');
 
   const st = (f.stimuli || [])[0];
-  $('#stim-info').textContent = st
-    ? (st.half_angle_deg !== undefined
+  $('#stim-info').textContent = st && st.kind === 'world'
+    ? `world  smell L ${(st.odour_L ?? 0).toFixed(2)} R ${(st.odour_R ?? 0).toFixed(2)}` +
+      (st.airspeed_mm_s ? `  air ${st.airspeed_mm_s.toFixed(0)} mm/s from ${st.air_from_deg.toFixed(0)}°` : '') +
+      (st.taste ? `  taste ${st.taste}` : '') + (st.loom_deg ? `  looming ${st.loom_deg.toFixed(0)}°` : '')
+    : st
+    ? (st.source === 'camera'
+        ? `camera  θ=${st.half_angle_deg.toFixed(1)}°  dθ/dt=${st.expansion_rate_deg_s.toFixed(0)}°/s` +
+          `  az ${st.azimuth_deg.toFixed(0)}°  (${st.camera_fps} fps)`
+        : st.half_angle_deg !== undefined
         ? `looming  θ=${st.half_angle_deg.toFixed(1)}°  dθ/dt=${st.expansion_rate_deg_s.toFixed(0)}°/s  d=${st.distance_mm.toFixed(0)} mm`
         : `${st.modality}  level ${(st.level * 100).toFixed(0)}%`)
     : state.stimText;
 
+  renderWorld(f);
   renderChannels(f.channels || {}, f.proboscis_drive || 0);
   renderDN(f.dn_rates || {});
   renderRegions(f.regions || {});
@@ -272,7 +452,9 @@ function renderChannels(ch, prob) {
   const rows = [
     ['Escape takeoff (Giant Fibre DNp01)', ch.escape_takeoff || 0],
     ['Escape, long mode (DNp02/04/11)', ch.escape_long_mode || 0],
-    ['Stop / freeze (DNp09)', ch.stop_freeze || 0],
+    ['Forward walk (DNp09 / P9)', ch.forward_walk || 0],
+    ['Landing (DNp07/DNp10)', ch.landing || 0],
+    ['Flight power (DNg02 population)', ch.flight_power || 0],
     ['Backward walk (MDN)', ch.backward_walk || 0],
     ['Turn (DNa01/DNa02)', Math.abs(ch.turn_bias || 0)],
     ['Proboscis extension (motor neurons)', prob],

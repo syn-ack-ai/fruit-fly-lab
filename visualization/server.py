@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import struct
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -37,19 +39,35 @@ app = FastAPI(title="Fruit Fly Laboratory")
 
 
 class Runner:
-    """Owns the Session and advances it on a background thread."""
+    """
+    Owns the Session and advances it on a background thread, paced to the
+    wall clock: at pace 1.0 one simulated second takes one real second.
+    """
+
+    PACE_CHUNK_MS = 5.0      # simulate in chunks this size (keeps the native
+                             # engine's compute/readout pipeline busy)
+    MAX_CHUNK_MS = 25.0
+    MAX_BEHIND_MS = 100.0    # further behind than this: drop the backlog
 
     def __init__(self):
         self.connectome = load_connectome()
         self.session = Session(self.connectome, seed=0)
         self.lock = threading.Lock()
         self.running = False
-        self.sim_ms_per_tick = 2.0
+        self.sim_ms_per_tick = 20.0    # chunk size when unpaced (pace 0)
+        self.pace = float(os.environ.get("FLY_PACE", "1.0"))   # 0 = as fast as possible
         self.latest = None
         self.thread = None
         self._stop = threading.Event()
-        self._wall_start = None
-        self._replay = []          # recorded frames of the current experiment
+        self._anchor = None            # (wall s, sim ms) the pacing clock counts from
+        self._rt_window = deque()      # (wall s, sim ms), last ~2 s, for the speed readout
+        self.dropped_ms = 0.0          # sim time skipped because we fell behind
+        self._replay = []              # recorded frames of the current experiment
+        self.camera = None             # CameraFeed when the live camera is on
+        self._camera_stim = None
+        self.head = None               # robot.head.HeadFeed when the pan/tilt head is on
+        self._head_parts = []          # (encoder, stimulus) pairs it adds
+        self.head_ctrl = None
 
     # ------------------------------------------------------------------ loop
     def start(self):
@@ -59,19 +77,57 @@ class Runner:
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
+    def _chunk(self):
+        """Sim ms to advance now, or None to wait (sleeps as needed)."""
+        if self.pace <= 0:
+            return self.sim_ms_per_tick
+        now = time.perf_counter()
+        t = self.session.engine.t_ms
+        if self._anchor is None:
+            self._anchor = (now, t)
+        due = self._anchor[1] + (now - self._anchor[0]) * 1000.0 * self.pace
+        behind = due - t
+        if behind > self.MAX_BEHIND_MS:           # can't keep up: don't chase it
+            self.dropped_ms += behind - self.PACE_CHUNK_MS
+            self._anchor = (now, t + self.PACE_CHUNK_MS)
+            behind = self.PACE_CHUNK_MS
+        if behind < self.PACE_CHUNK_MS:
+            time.sleep((self.PACE_CHUNK_MS - behind) / 1000.0 / self.pace)
+            return None
+        return float(min(int(behind), self.MAX_CHUNK_MS))
+
     def _loop(self):
         while not self._stop.is_set():
             if not self.running:
+                self._anchor = None
+                self._rt_window.clear()
                 time.sleep(0.02)
                 continue
-            t0 = time.perf_counter()
+            chunk = self._chunk()
+            if chunk is None:
+                continue
             with self.lock:
-                frames = self.session.advance(self.sim_ms_per_tick)
+                frames = self.session.advance(chunk)
+            if frames and self.head_ctrl is not None:
+                try:
+                    self.head_ctrl.update(frames[-1]["channels"])
+                except Exception as ex:          # never let the head stop the brain
+                    print("[head] controller error:", ex)
             if frames:
                 f = frames[-1]
-                f["wall_elapsed_s"] = round(time.perf_counter() - (self._wall_start or t0), 2)
-                f["realtime_factor"] = round(
-                    (f["t_ms"] / 1000.0) / max(1e-6, f["wall_elapsed_s"]), 3)
+                now = time.perf_counter()
+                w = self._rt_window
+                w.append((now, f["t_ms"]))
+                while len(w) > 2 and now - w[0][0] > 2.0:
+                    w.popleft()
+                span = w[-1][0] - w[0][0]
+                f["realtime_factor"] = (round((w[-1][1] - w[0][1]) / 1000.0 / span, 3)
+                                        if span > 0.2 else None)
+                f["pace"] = self.pace
+                f["lag_ms"] = (round(self._anchor[1] + (now - self._anchor[0]) * 1000.0
+                                     * self.pace - f["t_ms"], 1)
+                               if self._anchor and self.pace > 0 else None)
+                f["dropped_ms"] = round(self.dropped_ms, 1)
                 self.latest = f
                 self._replay.append({
                     "t_ms": f["t_ms"], "channels": f["channels"],
@@ -89,9 +145,12 @@ class Runner:
     def play(self):
         with self.lock:
             self.session.paused = False
-        if self._wall_start is None:
-            self._wall_start = time.perf_counter()
         self.running = True
+
+    def set_pace(self, pace: float):
+        self.pace = max(0.0, min(4.0, float(pace)))
+        self._anchor = None            # re-anchor the clock at the new pace
+        self._rt_window.clear()
 
     def pause(self):
         self.running = False
@@ -102,9 +161,12 @@ class Runner:
         with self.lock:
             self.session.reset(seed=seed)
             self.session.body.reset()
+            self._attach_camera()
         self.latest = None
         self._replay = []
-        self._wall_start = None
+        self._anchor = None
+        self._rt_window.clear()
+        self.dropped_ms = 0.0
 
     # Composite: what a fly actually encounters when food is placed in front of
     # it. Each component drives a real, separately cited FlyWire population;
@@ -150,6 +212,172 @@ class Runner:
     def clear_stimuli(self):
         with self.lock:
             self.session.clear_stimuli()
+            self._attach_camera()
+
+    # ---------------------------------------------------------------- camera
+    # The camera is a sensor, not a one-shot stimulus: while it is on it stays
+    # attached across Reset and Clear, driving LC4/LPLC2 through the same
+    # LoomingEncoder as the thrown rock (see brain/sensory/camera.py).
+    def _attach_head(self):
+        if self.head is None:
+            return
+        for enc, st in self._head_parts:
+            if not any(x is st for _, x in self.session.encoders):
+                self.session.add_stimulus(enc, st)
+
+    def head_on(self) -> dict:
+        if self.head is not None and self.head.alive:
+            return {"ok": True, "head": self.head.state()}
+        from brain.sensory.encoders import LoomingEncoder
+        from brain.sensory.retinotopy import load_retinotopy
+        from robot.head import (HeadController, HeadFeed, HeadLoomingStimulus,
+                                ObjectEncoder, RestingOlfaction)
+        try:
+            feed = HeadFeed()
+        except Exception as ex:
+            return {"ok": False, "error": str(ex)}
+        t0 = time.time()
+        while time.time() - t0 < 25.0:             # camera reset + detector start-up
+            if not feed.alive:
+                err = feed.error(); feed.close()
+                return {"ok": False, "error": "head process exited: " + err[-400:]}
+            if feed.state().get("ready"):
+                break
+            time.sleep(0.1)
+        else:
+            feed.close()
+            return {"ok": False, "error": "no frames from the head camera within 25 s"}
+        loom = LoomingEncoder(self.connectome, load_retinotopy(self.connectome))
+        obj = ObjectEncoder(self.connectome, feed)
+        rest = RestingOlfaction(self.connectome)
+        parts = [(loom, HeadLoomingStimulus(feed)), (obj, obj), (rest, rest)]
+        self.hearing = None
+        try:                                       # the camera's microphone -> JO-A/JO-B
+            from robot.hearing import HearingEncoder, HearingFeed
+            self.hearing = HearingFeed()
+            ear = HearingEncoder(self.connectome, self.hearing)
+            parts.append((ear, ear))
+        except Exception as ex:
+            print("[head] no hearing:", ex)
+        with self.lock:
+            self.head = feed
+            self._head_parts = parts
+            self._attach_head()
+            self.head_ctrl = HeadController(feed, target_fn=lambda: obj.last.get("target") is not None)
+        self.play()
+        return {"ok": True, "head": feed.state()}
+
+    def head_off(self) -> dict:
+        with self.lock:
+            feed, self.head = self.head, None
+            parts = {id(st) for _, st in self._head_parts}
+            self.session.encoders = [(e, st) for e, st in self.session.encoders if id(st) not in parts]
+            if not self.session.encoders:
+                self.session.engine.clear_poisson()
+            self._head_parts = []
+            self.head_ctrl = None
+        if feed is not None:
+            feed.close()
+        if getattr(self, "hearing", None) is not None:
+            self.hearing.close()
+            self.hearing = None
+        return {"ok": True}
+
+    def _attach_camera(self):
+        self._attach_head()
+        if self.camera is None:
+            return
+        from brain.sensory.camera import CameraLoomingStimulus
+        from brain.sensory.encoders import LoomingEncoder
+        from brain.sensory.retinotopy import load_retinotopy
+        if self._camera_stim is None:
+            self._camera_enc = LoomingEncoder(self.connectome, load_retinotopy(self.connectome))
+            self._camera_stim = CameraLoomingStimulus(self.camera)
+        if not any(st is self._camera_stim for _, st in self.session.encoders):
+            self.session.add_stimulus(self._camera_enc, self._camera_stim)
+
+    def camera_on(self) -> dict:
+        if self.camera is not None and self.camera.alive:
+            return {"ok": True, "camera": self.camera.state()}
+        from brain.sensory.camera import CameraFeed
+        feed = CameraFeed(yaw_deg=float(os.environ.get("FLY_CAMERA_YAW", 0)),
+                          pitch_deg=float(os.environ.get("FLY_CAMERA_PITCH", 0)),
+                          rotate=int(os.environ.get("FLY_CAMERA_ROTATE", 0)))
+        t0 = time.time()
+        while time.time() - t0 < 8.0:              # wait for the first frame
+            if not feed.alive:
+                err = feed.error()
+                feed.close()
+                return {"ok": False, "error": "camera process exited: " + err[-400:]}
+            if feed.state()["frames"] > 0:
+                break
+            time.sleep(0.05)
+        else:
+            feed.close()
+            return {"ok": False, "error": "no frames from the camera within 8 s"}
+        with self.lock:
+            self.camera = feed
+            self._camera_stim = None
+            self._attach_camera()
+        self.play()
+        return {"ok": True, "camera": feed.state()}
+
+    def camera_off(self) -> dict:
+        with self.lock:
+            feed, self.camera = self.camera, None
+            if self._camera_stim is not None:
+                self.session.encoders = [(e, st) for e, st in self.session.encoders
+                                         if st is not self._camera_stim]
+                if not self.session.encoders:
+                    self.session.engine.clear_poisson()
+            self._camera_stim = None
+        if feed is not None:
+            feed.close()
+        return {"ok": True}
+
+    # ----------------------------------------------------------------- world
+    def world_start(self, p: dict) -> dict:
+        """Put the fly in the closed-loop world (fly/world/)."""
+        from fly.world.world import WorldConfig
+        cfg = WorldConfig(
+            size_mm=float(p.get("size_mm", 600.0)),
+            n_fruit=int(p.get("fruits", 4)),
+            wind_speed_mm_s=float(p.get("wind_mm_s", 150.0)),
+            wind_from_deg=float(p.get("wind_from_deg", 180.0)),
+            turbulent=bool(p.get("turbulent", True)),
+            predators=bool(p.get("predators", False)),
+            predator_interval_s=(float(p.get("predator_min_s", 10.0)),
+                                 float(p.get("predator_max_s", 25.0))))
+        senses = {k: bool(p.get(k, True)) for k in ("smell", "taste", "wind", "vision")}
+        self.running = False
+        time.sleep(0.05)
+        with self.lock:
+            self.session.set_world(cfg, neural=bool(p.get("neural", True)), senses=senses,
+                                   seed=int(p.get("seed", 0)),
+                                   learning=bool(p.get("learning", True)))
+            tol = float(p.get("quiesce_tol_mV", 1e-3))
+            if hasattr(self.session.engine, "set_quiesce_tolerance"):
+                self.session.engine.set_quiesce_tolerance(tol)
+            self.session.reset(seed=int(p.get("seed", 0)))
+        self.latest = None
+        self._replay = []
+        self._anchor = None
+        self.play()
+        return {"ok": True, "world": self.session.world.state(),
+                "senses": self.session.world_senses.provenance,
+                "body": self.session.body.provenance}
+
+    def world_stop(self) -> dict:
+        self.running = False
+        time.sleep(0.05)
+        with self.lock:
+            self.session.set_world(None)
+            if hasattr(self.session.engine, "set_quiesce_tolerance"):
+                self.session.engine.set_quiesce_tolerance(0.0)
+            self.session.reset(seed=0)
+            self._attach_camera()
+        self.latest = None
+        return {"ok": True}
 
     def silence(self, cell_type: str, on: bool) -> dict:
         with self.lock:
@@ -158,10 +386,13 @@ class Runner:
             if cells.empty:
                 return {"ok": False, "error": "no neurons of type %r" % cell_type}
             idx = cells["idx"].to_numpy()
+            eng = self.session.engine
             if on:
-                self.session.engine.silence(idx)
+                eng.silence(idx)
+            elif hasattr(eng, "unsilence"):          # native engine
+                eng.unsilence(idx)
             else:
-                self.session.engine._silenced[idx] = False
+                eng._silenced[idx] = False
             return {"ok": True, "cell_type": cell_type,
                     "n": int(len(idx)), "silenced": on}
 
@@ -175,11 +406,76 @@ def _startup():
     RUNNER = Runner()
     RUNNER.start()
     print("[server] connectome loaded: %s" % RUNNER.connectome)
+    print("[server] engine: %s" % RUNNER.session.engine.provenance.get(
+        "backend", "python (simulation/engine/lif_engine.py)"))
+
+
+@app.on_event("shutdown")
+def _shutdown():
+    if RUNNER is None:
+        return
+    RUNNER.running = False
+    RUNNER._stop.set()
+    if RUNNER.camera is not None:
+        RUNNER.camera_off()
+    if RUNNER.head is not None:
+        RUNNER.head_off()
 
 
 # --------------------------------------------------------------------------- #
 # REST API
 # --------------------------------------------------------------------------- #
+
+
+@app.post("/api/head/{on}")
+def api_head(on: int):
+    return RUNNER.head_on() if on else RUNNER.head_off()
+
+
+@app.get("/api/head/state")
+def api_head_state():
+    h = RUNNER.head
+    if h is None:
+        return {"on": False}
+    st = h.state()
+    ctrl = RUNNER.head_ctrl
+    obj = next((e for e, _ in RUNNER._head_parts if hasattr(e, "last")), None)
+    f = RUNNER.latest or {}
+    return {"on": True, "state": st, "moves": ctrl.log[-8:] if ctrl else [],
+            "lc10a_target": obj.last if obj else None,
+            "hearing": (RUNNER.hearing.state if getattr(RUNNER, "hearing", None) else None),
+            "turn_bias": (f.get("channels") or {}).get("turn_bias"),
+            "steer_baseline": round(ctrl.baseline, 2) if ctrl else None,
+            "dn": {k: v for k, v in (f.get("dn_rates") or {}).items()
+                   if k.startswith(("DNa01", "DNa02", "DNp09"))}}
+
+
+@app.get("/api/head/preview.jpg")
+def api_head_preview():
+    h = RUNNER.head
+    jpg = h.preview_jpeg() if h is not None else None
+    if not jpg:
+        return Response(status_code=204)
+    return Response(content=jpg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/world/start")
+async def api_world_start(payload: dict = None):
+    return RUNNER.world_start(payload or {})
+
+
+@app.post("/api/world/stop")
+def api_world_stop():
+    return RUNNER.world_stop()
+
+
+@app.get("/api/world/state")
+def api_world_state():
+    s = RUNNER.session
+    return {"on": s.world is not None,
+            "world": None if s.world is None else s.world.state(),
+            "neural": None if s.world is None else s.body.neural}
 
 
 @app.get("/api/provenance")
@@ -204,6 +500,7 @@ def api_state():
     return {
         "running": RUNNER.running,
         "t_ms": RUNNER.session.engine.t_ms,
+        "pace": RUNNER.pace,
         "sim_ms_per_tick": RUNNER.sim_ms_per_tick,
         "latest": RUNNER.latest,
     }
@@ -227,6 +524,13 @@ def api_reset():
     return {"ok": True, "t_ms": 0.0}
 
 
+@app.post("/api/pace/{value}")
+def api_pace(value: float):
+    """Simulated seconds per wall-clock second (1 = real time, 0 = unpaced)."""
+    RUNNER.set_pace(value)
+    return {"pace": RUNNER.pace}
+
+
 @app.post("/api/speed/{value}")
 def api_speed(value: float):
     RUNNER.sim_ms_per_tick = max(0.1, min(20.0, float(value)))
@@ -239,6 +543,31 @@ async def api_stimulus(kind: str, payload: dict = None):
     if res.get("ok"):
         RUNNER.play()
     return res
+
+
+@app.post("/api/camera/{on}")
+def api_camera(on: int):
+    return RUNNER.camera_on() if int(on) else RUNNER.camera_off()
+
+
+@app.get("/api/camera/state")
+def api_camera_state():
+    cam = RUNNER.camera
+    if cam is None:
+        return {"on": False}
+    if not cam.alive:
+        return {"on": False, "error": cam.error()[-400:]}
+    return {"on": True, **cam.state()}
+
+
+@app.get("/api/camera/preview.jpg")
+def api_camera_preview():
+    cam = RUNNER.camera
+    jpg = cam.preview_jpeg() if cam is not None else None
+    if not jpg:
+        return Response(status_code=204)
+    return Response(content=jpg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/stimulus/clear")
@@ -343,20 +672,43 @@ def api_lookup(root_id: int):
 # --------------------------------------------------------------------------- #
 
 
+def _track_since(track, t_after: float) -> list:
+    """Body-track samples newer than t_after (newest last), rounded for JSON."""
+    out = []
+    for e in reversed(track):
+        if e[0] <= t_after:
+            break
+        out.append([round(e[0], 1), round(e[1], 3), round(e[2], 3), round(e[3], 3),
+                    round(e[4], 2), round(e[5], 2), round(e[6], 1), round(e[7], 1),
+                    round(e[8], 3), round(e[9], 3), int(e[10]), e[11]])
+        if len(out) >= 2000:
+            break
+    out.reverse()
+    return out
+
+
 @app.websocket("/ws")
 async def ws(sock: WebSocket):
     await sock.accept()
     last_t = -1.0
+    last_track = -1.0
     try:
         while True:
             f = RUNNER.latest
             if f is not None and f["t_ms"] != last_t:
                 last_t = f["t_ms"]
                 with RUNNER.lock:
+                    track = RUNNER.session.body_track
+                    if track and track[-1][0] < last_track:     # session was reset
+                        last_track = -1.0
+                    body_track = _track_since(track, last_track)
+                    if body_track:
+                        last_track = body_track[-1][0]
                     raster = RUNNER.session.raster(250.0)
                     active = np.flatnonzero(
                         RUNNER.session.recorder.window_sum).astype(np.int32)
                 payload = dict(f)
+                payload["track"] = body_track
                 payload["raster"] = raster[-1500:]
                 payload["active_idx"] = active[
                     np.linspace(0, len(active) - 1, min(len(active), 3000)).astype(int)
@@ -381,8 +733,13 @@ def index():
 
 def main():
     import uvicorn
-    print("Fruit Fly Laboratory -> http://127.0.0.1:8000")
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    host = os.environ.get("FLY_HOST", "127.0.0.1")
+    port = int(os.environ.get("FLY_PORT", "8000"))
+    print("Fruit Fly Laboratory -> http://%s:%d" % (host, port))
+    # Open WebSockets never close on their own, so bound the graceful shutdown;
+    # otherwise a stopped server lingers, holding the camera and CPU cores.
+    uvicorn.run(app, host=host, port=port, log_level="warning",
+                timeout_graceful_shutdown=2)
 
 
 if __name__ == "__main__":

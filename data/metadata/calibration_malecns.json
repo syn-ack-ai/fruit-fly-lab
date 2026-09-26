@@ -1,0 +1,25 @@
+{
+  "dataset": "Janelia MaleCNS v1.0",
+  "gain": 0.62,
+  "w_syn_mV": 0.1705,
+  "method": "cognition/calibrate_malecns.py: each sensory modality driven identically (150 Hz, 500 ms, 4 seeds) in FlyWire FAFB (published Shiu et al. 2024 model, gain 1) and in the MaleCNS; activity compared over ~7,100 cell types present in both (FlyWire naming, driven types excluded).",
+  "choice": "highest gain at which no modality runs away (bitter taste runs away from 0.64; head touch from ~0.75)",
+  "at_this_gain_vs_fafb_activity": {
+    "looming": 0.81,
+    "odor_vinegar": 0.72,
+    "touch_head": 0.56,
+    "taste_sugar": 0.23,
+    "taste_bitter": 1.42,
+    "sound": 0.14
+  },
+  "spot_checks": {
+    "sugar -> MN9 (CB0701)": "18 Hz (FAFB model: 157 Hz)",
+    "bitter -> MN9": "0 Hz (FAFB model: 0 Hz)",
+    "looming -> DNp01": "fires (FAFB model: fires)"
+  },
+  "open_issues": [
+    "taste and touch loops through the nerve cord run away above gain ~0.64-0.75 (no adaptation or tonic inhibition in the model)",
+    "sugar drive to MN9 is ~8x weaker than in the FAFB model"
+  ],
+  "scan_results": "calibration_malecns_scan.json"
+}

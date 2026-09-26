@@ -27,6 +27,13 @@ C. OUR APPROXIMATION
      synapse-count-weighted mean visual direction of its column-assigned
      presynaptic partners. Its RF radius is the weighted standard deviation.
      This is a reasonable proxy but is NOT a measured receptive field.
+   - receptive_fields_2hop(): for types whose inputs are mostly NOT
+     column-assigned (e.g. LC10a: median one column-assigned partner), each
+     presynaptic neuron's own RF is first estimated from its column-assigned
+     inputs, and the target's RF is the synapse-weighted mean over partners
+     with compact RFs (radius < 25 deg, >= 3 input columns). Partners are
+     retinotopic optic-lobe neurons (e.g. Tm5f, Li types); wide-field central
+     partners are excluded by the compactness criterion.
 """
 from __future__ import annotations
 
@@ -153,6 +160,65 @@ class Retinotopy:
             "rf_radius_deg", "n_input_columns", "input_synapses"])
         self._cache[cell_type] = df
         return df
+
+
+def _rf_from_columns(w_csc, j, known, az, el):
+    col = w_csc[:, j].tocoo()
+    pres, syn = col.row, np.abs(col.data).astype(np.float64)
+    m = known[pres]
+    if not m.any():
+        return None
+    p, s = pres[m], syn[m]
+    wsum = s.sum()
+    a = float((az[p] * s).sum() / wsum)
+    e = float((el[p] * s).sum() / wsum)
+    var = float((s * ((az[p] - a) ** 2 + (el[p] - e) ** 2)).sum() / wsum)
+    return a, e, float(np.sqrt(var)), int(m.sum()), float(wsum)
+
+
+def receptive_fields_2hop(rt: "Retinotopy", cell_type: str, min_direct_columns: int = 10,
+                          max_partner_radius: float = 25.0) -> pd.DataFrame:
+    """Two-synapse receptive-field estimate (see module docstring, C)."""
+    key = ("2hop", cell_type)
+    if key in rt._cache:
+        return rt._cache[key]
+    c = rt.c
+    direct = rt.receptive_fields(cell_type)
+    col = rt.columns.copy()
+    col["idx"] = col["root_id"].map(dict(zip(c.neurons["root_id"], c.neurons["idx"])))
+    col = col.dropna(subset=["idx"])
+    known = np.zeros(c.n, bool); az = np.zeros(c.n); el = np.zeros(c.n)
+    ii = col["idx"].astype(int).to_numpy()
+    known[ii] = True; az[ii] = col["azimuth_deg"].to_numpy(); el[ii] = col["elevation_deg"].to_numpy()
+    w = c.w.tocsc()
+    partner_rf = {}
+    rows = []
+    for _, r in direct.iterrows():
+        j = int(r["idx"])
+        if r["n_input_columns"] >= min_direct_columns:
+            rows.append(r.to_dict()); continue
+        colj = w[:, j].tocoo()
+        A, E, S, pts = [], [], [], []
+        for p, syn in zip(colj.row, np.abs(colj.data)):
+            if known[p]:
+                A.append(az[p]); E.append(el[p]); S.append(float(syn)); continue
+            if p not in partner_rf:
+                partner_rf[p] = _rf_from_columns(w, p, known, az, el)
+            prf = partner_rf[p]
+            if prf is None or prf[3] < 3 or prf[2] > max_partner_radius:
+                continue
+            A.append(prf[0]); E.append(prf[1]); S.append(float(syn))
+        d = r.to_dict()
+        if S:
+            A, E, S = np.array(A), np.array(E), np.array(S)
+            a = float((A * S).sum() / S.sum()); e = float((E * S).sum() / S.sum())
+            d.update(azimuth_deg=a, elevation_deg=e,
+                     rf_radius_deg=float(np.sqrt((S * ((A - a) ** 2 + (E - e) ** 2)).sum() / S.sum())),
+                     n_input_columns=int(len(S)), input_synapses=int(S.sum()))
+        rows.append(d)
+    df = pd.DataFrame(rows)
+    rt._cache[key] = df
+    return df
 
 
 @lru_cache(maxsize=1)

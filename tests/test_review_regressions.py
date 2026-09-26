@@ -34,11 +34,11 @@ def test_world_reset_counts_first_fruit_contact_again():
     assert world.stats["fruit_visits"] == 1
 
 
-def test_pending_speech_call_is_counted_without_mutating_history():
+def test_pending_speech_call_is_reported_without_mutating_history():
     person = ScriptedPerson()
     person.call_t = 58.0
-    assert person.summary()["calls"] == 1
-    assert person.summary()["answered"] == 0
+    assert person.summary()["pending"] == 1
+    assert person.summary()["calls"] == 0 and person.summary()["answered"] == 0
     assert person.calls == []
 
 
@@ -119,3 +119,13 @@ def test_session_reset_clears_episode_activity_but_keeps_learning(monkeypatch):
     session.world.reset.assert_called_once_with(7)
     assert session.world_senses._B is None
     assert not session.world_senses._jo_adapt.any()
+
+
+def test_give_up_blocks_food_goal_only():
+    cx = CortexV0.__new__(CortexV0)
+    cx.goal = None
+    cx.food_avoid = {(1, 0): 100.0}
+    cx._utilities = lambda here, t: ({(1, 0): (2.0, "owner"), here: (0.1, "explore")}, {})
+    cx.day_log = {"goals": {}}
+    cx._plan((0, 0), 10.0)
+    assert cx.goal is not None and cx.goal[0] == (1, 0) and cx.goal[1] == "owner"

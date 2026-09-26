@@ -476,7 +476,10 @@ class CortexV0:
                 return
             elif not reached and kind == "explore_new" and gcell not in self.map.nodes:
                 return
-        choices = {cell: value for cell, value in U.items() if cell not in self.food_avoid}
+        # a food spot it just gave up on is not chosen as FOOD again for a while
+        # (other reasons to go there, e.g. its person, still count)
+        choices = {cell: value for cell, value in U.items()
+                   if not (cell in self.food_avoid and value[1] == "food")}
         if not choices:
             self.goal = None
             self._dist = dist

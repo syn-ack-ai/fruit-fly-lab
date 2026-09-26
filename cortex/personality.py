@@ -17,7 +17,7 @@ An intention only nudges the neocortex's choice, weighted by the matching drive:
 a pet that is full is not made to eat because the model said so.
 
 The model is reached through an OpenAI-compatible endpoint: NVIDIA's Personal
-AI Router (PAIR) on the machine running the brain (port 1236) routes it to the
+AI Router (PAIR) on the machine running the brain (port 1234; it used 1236 while another program held 1234) routes it to the
 cluster (LM Studio on the Mac Studio, so the fly brain keeps the local GPU).
 Default model: Gemma 4 E4B (MLX 4-bit): 0.6 s per decision, praise and scolding
 read correctly in every test (cortex/llm_bench.py, 2026-09-26: vs Qwen3.5-9B
@@ -71,7 +71,7 @@ DEFAULT_CHARACTER = ("affectionate but independent, curious about new places, lo
 
 
 class Personality:
-    def __init__(self, url: str = "http://127.0.0.1:1236/v1/chat/completions",
+    def __init__(self, url: str = "http://127.0.0.1:1234/v1/chat/completions",
                  model: str = "gemma-4-e4b-it-mlx", name: str = "Mote",
                  character: str = DEFAULT_CHARACTER, state_path: str | None = None,
                  timeout_s: float = 20.0):

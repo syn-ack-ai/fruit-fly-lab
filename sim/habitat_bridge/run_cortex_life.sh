@@ -7,7 +7,7 @@
 #   amnesic  the same neocortex, but its place memories are wiped every night
 #   manners  v0 with cat-like manners around its person (CONDS="none v0 manners")
 #   talk     v0 with manners + the LLM personality (cortex/personality.py) and a scripted
-#            talking person; needs the model at LLM_URL (default: the NVIDIA PAIR router on the box, port 1236)
+#            talking person; needs the model at LLM_URL (default: the NVIDIA PAIR router on the box, port 1234)
 #   pet      battery pet: the bowl is a charging dock, hunger = charge, cat-like naps
 #   petreflex  control: the battery pet with the old always-on feeding reflex at the dock
 #   pettalk  the battery pet + personality + scripted talking person
@@ -28,7 +28,7 @@ CONDS=(${CONDS:-none v0 amnesic})
 SAFE=""; [ "${SAFE_SPEED:-0}" = 1 ] && SAFE=--safe-speed
 [ "${SPEECH:-0}" = 1 ] && SAFE="$SAFE --speech"
 [ -n "${FACE_URL:-}" ] && SAFE="$SAFE --face $FACE_URL"
-LLM_URL=${LLM_URL:-http://127.0.0.1:1236/v1/chat/completions}
+LLM_URL=${LLM_URL:-http://127.0.0.1:1234/v1/chat/completions}
 mkdir -p $OUT
 JOBS=()
 port=${PORT0:-6040}

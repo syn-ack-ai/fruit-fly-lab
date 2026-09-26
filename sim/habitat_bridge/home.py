@@ -64,6 +64,7 @@ class HomeWorld:
                  seed: int = 0, battery=None, hunger_senses: bool = True):
         self.pet_rate, self.treat_rate = pet_rate, treat_rate
         self.battery = battery
+        self.docked_by_nav = False              # set by the client's emergency return
         self.hunger_senses = hunger_senses      # False: control, the dock is sensed at full strength
         self.sources = [("bowl", BOWL_XZ, "fermenting_fruit", 1.0, "sweet")]
         if plant:
@@ -91,9 +92,9 @@ class HomeWorld:
 
     def sense_gain(self) -> tuple:
         """(taste, odour) gain on the dock's signals: hunger-dependent sensitivity."""
-        h = self.hunger
-        if h is None or not self.hunger_senses:
+        if self.battery is None or not self.hunger_senses:
             return (1.0, 1.0)
+        h = self.battery.sense_hunger             # 1 during a meal (robot/battery.py)
         return (0.15 + 0.85 * h, 0.3 + 0.7 * h)
 
     def step(self, obs: dict, dt: float, proboscis: float, speed: float = 0.0,
@@ -124,7 +125,7 @@ class HomeWorld:
                     st["at_bowl_s"] += dt
                     if proboscis > 0.5:
                         st["eating_s"] += dt
-                        if self.hunger is not None and self.hunger < 0.1:
+                        if self.battery is not None and self.battery.soc >= 0.83:
                             st["eating_when_full_s"] += dt
             elif d < EAT_R_M:
                 st["at_plant_s"] += dt
@@ -132,7 +133,8 @@ class HomeWorld:
                 self.taste = taste
         if self.battery is not None:
             d_dock = math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1])
-            self.battery.step(dt, speed, resting, charging=d_dock < EAT_R_M and proboscis > 0.5)
+            self.battery.step(dt, speed, resting,
+                              charging=d_dock < EAT_R_M and (proboscis > 0.5 or self.docked_by_nav))
         # the owner
         if obs["dist"] < OWNER_R_M:
             st["near_person_s"] += dt

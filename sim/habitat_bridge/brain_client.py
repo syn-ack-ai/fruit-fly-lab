@@ -185,6 +185,12 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         home.reset(seed)
     if cortex is not None:
         cortex.reset(episode, home, conn)
+        if (home is not None and home.battery is not None and hasattr(cortex, "know_place")
+                and getattr(cortex, "days", 1) == 0 and not getattr(cortex, "_dock_known", False)):
+            from sim.habitat_bridge.home import BOWL_XZ
+            cortex.know_place(BOWL_XZ)              # born on its dock: it knows where it is
+            cortex._dock_known = True
+    emergency = {"active": False, "s": 0.0, "events": 0}
     if person is not None:
         person.reset()
     if personality is not None:
@@ -233,8 +239,10 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if governor is not None:
             governor.observe(obs["visible"], obs["half"], t_sim)
             v = governor.limit(v, t_sim, period_ms / 1000.0)
-        if home is not None and home.battery is not None and home.battery.flat:
-            v, w = 0.0, 0.0                       # a flat battery: the robot stops
+        if home is not None and home.battery is not None:
+            v, w = _emergency_return(conn, obs, home, emergency, v, w, period_ms / 1000.0)
+            if home.battery.flat:
+                v, w = 0.0, 0.0                   # a flat battery: the robot stops
         last_v = v
         prev_obs = obs
         obs = _call(conn, {"cmd": "step", "v": v, "w": w, "n": n_env,
@@ -285,6 +293,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["home"] = dict(home.stats)
         if home.battery is not None:
             res["home"]["battery"] = home.battery.summary()
+            res["home"]["emergency_return"] = {"events": emergency["events"], "s": round(emergency["s"], 1)}
         res["home"]["mean_bowl_dist"] = round(float(np.mean([math.hypot(r["robot"][0] - home.sources[0][1][0],
                                                                          r["robot"][1] - home.sources[0][1][1])
                                                               for r in log])), 2) if log else None
@@ -308,6 +317,38 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["learning"] = brain[0].mb.summary()
         res["learning"]["enabled"] = bool(brain[0].mb.learning)
     return res
+
+
+EMERGENCY_SOC, EMERGENCY_DONE = 0.10, 0.30
+
+
+def _emergency_return(conn, obs, home, em, v, w, dt):
+    """Robot-level safety net, not the pet's choice: below EMERGENCY_SOC the
+    navigation layer drives to the dock and docks (as a robot vacuum returns to
+    base; on the real robot, Nav2 docking). The brain keeps running but its
+    motor output is ignored until the charge is back to EMERGENCY_DONE. Every
+    return is recorded as a FAILURE of the pet's own behaviour."""
+    from sim.habitat_bridge.home import BOWL_XZ, EAT_R_M
+    b = home.battery
+    if not em["active"] and b.soc < EMERGENCY_SOC and not b.flat:
+        em["active"] = True
+        em["events"] += 1
+    if em["active"] and b.soc >= EMERGENCY_DONE:
+        em["active"] = False
+    home.docked_by_nav = False
+    if not em["active"]:
+        return v, w
+    em["s"] += dt
+    x, z, yaw = obs["robot"]
+    if math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1]) < EAT_R_M:
+        home.docked_by_nav = True                 # on the contacts: charges without "eating"
+        return 0.0, 0.0
+    p = _call(conn, {"cmd": "path", "goal": list(BOWL_XZ), "ahead": 0.6})
+    from cortex.topdown import bearing_deg
+    err = ((bearing_deg((x, z), p["waypoint"]) - yaw + 180.0) % 360.0) - 180.0   # + = turn left (CCW)
+    w = math.radians(max(-90.0, min(90.0, 2.0 * err)))
+    v = 0.3 * max(0.0, math.cos(math.radians(err)))
+    return v, w
 
 
 def _digest(cortex, ses, obs, home=None) -> dict:
@@ -411,7 +452,7 @@ def main():
     ap.add_argument("--speech", action="store_true",
                     help="a scripted person calls, praises and scolds the pet (sim/habitat_bridge/speech.py)")
     ap.add_argument("--personality", default=None, metavar="URL",
-                    help="LLM personality layer (cortex/personality.py), e.g. http://127.0.0.1:1236/v1/chat/completions (PAIR)")
+                    help="LLM personality layer (cortex/personality.py), e.g. http://127.0.0.1:1234/v1/chat/completions (PAIR)")
     ap.add_argument("--llm-model", default="gemma-4-e4b-it-mlx")
     ap.add_argument("--pet-name", default="Mote")
     ap.add_argument("--face", default=None, metavar="URL",

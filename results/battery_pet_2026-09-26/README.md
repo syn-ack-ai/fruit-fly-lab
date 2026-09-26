@@ -24,3 +24,23 @@ Conclusion: the hunger-scaled-senses vs reflex comparison is inconclusive; the
 design needs the dock to be known from the start, as for any real robot (it
 starts on its dock), and a navigation-layer emergency return at critical charge
 (counted as a failure). Next run implements both.
+
+## Run C (10 days, 3 seeds; dock known from "birth", emergency return < 10%)
+
+The first attempt was cut short by a power loss at days 3-4 and restarted from
+scratch (partial output kept on the box as battery_pet_runC_interrupted).
+
+| (3 seeds x 10 days) | pet (dock senses scale with hunger) | petreflex (always-on reflex) |
+|---|---|---|
+| flat batteries / emergency returns | 0 / 0 | 0 / 0 |
+| charging while already full (charge >= 83%) | 0 s | 150 s |
+| end-of-day charge, mean (lowest) | 0.45 (0.19) | 0.75 (0.47) |
+| naps | 0 s | 40 s |
+| near person / pets received | 474 s / 32 | 390 s / 22 |
+| pet ran into person | 40 | 38 |
+
+Hunger-scaled senses do make a charged pet ignore its dock (0 s vs 150 s of
+charging when full). But hunger then rose from 90% down and there was no meal
+state, so the pet charged in small sips, lived at ~45% charge, felt half-hungry
+all day and never napped (naps require not hungry). Next: hunger onset below
+60% and meals that continue to 90% (robot/battery.py).

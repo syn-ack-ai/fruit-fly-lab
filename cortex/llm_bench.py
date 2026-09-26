@@ -143,7 +143,7 @@ def report(model, rows):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default="http://127.0.0.1:1236/v1/chat/completions")
+    ap.add_argument("--url", default="http://127.0.0.1:1234/v1/chat/completions")
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--out", default=None, help="write every reply here (json)")

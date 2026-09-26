@@ -255,6 +255,18 @@ class CortexV0:
         self.cells_at_start = len(self.map.nodes)
         self.replay = []                             # (phi, cmd, reward) for the world model
 
+    def know_place(self, xz, kind: str = "food", value: float = 0.5) -> None:
+        """A place known without having walked there: the robot's charging dock
+        at "birth" (a robot starts life on its dock and knows where it is, as a
+        kitten is shown its bowl). It has no map edges yet, so it is planned to
+        by straight-line distance until the pet has walked there."""
+        c = cell_of(*xz)
+        n = self.map.visit(c, None)
+        n["visits"] -= 1                             # known, not visited
+        n[kind] = max(n[kind], value)
+        if kind == "food":
+            n["fx"], n["fz"], n["fn"] = xz[0], xz[1], 1.0
+
     def set_personality(self, intent: str, feedback: int = 0) -> None:
         """From cortex/personality.py: the current intention, and praise (+1) or
         scolding (-1) heard since the last step (counted once)."""
@@ -406,8 +418,16 @@ class CortexV0:
 
     def _utilities(self, here, t_s):
         dist = self.map.distances(here)
+        # known places not yet joined to the map (know_place): straight-line
+        # distance x 1.5 as a detour allowance
+        hx, hz = centre(here)
+        cand = dict(dist)
+        for cell, n in self.map.nodes.items():
+            if cell not in cand and n["food"] > 0:
+                cx, cz = centre(cell)
+                cand[cell] = (1.5 * math.hypot(cx - hx, cz - hz), None)
         U = {}
-        for cell, (d, _) in dist.items():
+        for cell, (d, _) in cand.items():
             n = self.map.nodes[cell]
             u_food = self.hunger * n["food"]
             u_owner = self.social * max(n["owner"], self.owner_prior.get(cell, 0.0))

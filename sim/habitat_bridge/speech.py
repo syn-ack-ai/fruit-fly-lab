@@ -77,6 +77,6 @@ class ScriptedPerson:
 
     def summary(self) -> dict:
         answered = [a for _, a in self.calls if a is not None]
-        return {"calls": len(self.calls), "answered": len(answered),
+        return {"calls": len(self.calls) + (self.call_t is not None), "answered": len(answered),
                 "median_answer_s": float(np.median(answered)) if answered else None,
                 "scolds": self.scolds, "heard": self.heard}

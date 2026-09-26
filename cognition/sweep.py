@@ -29,6 +29,30 @@ from pathlib import Path
 import numpy as np
 
 
+def complete_dataset(dataset: Path, trials: int) -> bool:
+    """Reject partial runs rather than silently comparing mismatched trial sets."""
+    if not dataset.exists():
+        return False
+    meta_path = dataset / "meta.json"
+    driven_path = dataset / "driven.npz"
+    if not meta_path.exists() or not driven_path.exists():
+        raise ValueError(f"Incomplete dataset at {dataset}; generate into a fresh directory")
+    meta = json.loads(meta_path.read_text())
+    shards = sorted(dataset.glob("shard_*.npz"))
+    if meta["trials"] != trials or not shards:
+        raise ValueError(f"Incomplete dataset at {dataset}; expected {trials} trials")
+    with np.load(driven_path) as driven:
+        if not driven.files:
+            raise ValueError(f"Missing driven populations at {dataset}")
+    ids = []
+    for shard in shards:
+        with np.load(shard) as data:
+            ids.append(data["seed"])
+    if not np.array_equal(np.sort(np.concatenate(ids)), np.arange(trials)):
+        raise ValueError(f"Incomplete dataset at {dataset}; trial shards are missing or duplicated")
+    return True
+
+
 def activity(dataset: Path) -> dict:
     meta = json.loads((dataset / "meta.json").read_text())
     driven = np.load(dataset / "driven.npz")
@@ -72,7 +96,7 @@ def main():
         for g in [float(x) for x in gains.split(",")]:
             key = f"{wiring}@{g:g}"
             ds = root / f"{wiring}_g{g:g}_n{a.trials}"
-            if not (ds / "shard_000.npz").exists():
+            if not complete_dataset(ds, a.trials):
                 t0 = time.time()
                 subprocess.run([sys.executable, "-m", "cognition.datagen", "--out", str(ds),
                                 "--trials", str(a.trials), "--workers", str(a.workers),

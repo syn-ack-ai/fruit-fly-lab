@@ -52,7 +52,6 @@ Run standalone to test the sensor process:  python -m robot.head --test
 from __future__ import annotations
 
 import argparse
-import fcntl
 import glob
 import os
 import struct
@@ -62,6 +61,11 @@ import time
 from multiprocessing import shared_memory
 
 import numpy as np
+
+try:
+    import fcntl
+except ImportError:  # V4L2 is Linux-only; keep the sensor-independent code importable.
+    fcntl = None
 
 # ------------------------------------------------------------------ hardware
 ORBIT_GLOB = "/dev/v4l/by-id/usb-046d_0994_*-video-index0"
@@ -190,7 +194,7 @@ _F = ["seq", "t_wall", "fps", "frames", "pan_deg", "tilt_deg", "moving",
       "person_active", "person_az", "person_el", "person_half_deg", "person_score",
       "person_t",
       # commands from the simulation
-      "cmd_seq", "cmd_dpan", "cmd_dtilt", "cmd_reset", "cmd_done",
+      "cmd_seq", "cmd_dpan", "cmd_dtilt", "cmd_reset", "cmd_done", "cmd_stop",
       "preview_seq", "preview_len"]
 _I = {k: i for i, k in enumerate(_F)}
 _HEADER = 512
@@ -236,7 +240,13 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
     import cv2
     from brain.sensory.camera import LoomingExtractor
 
-    shm = shared_memory.SharedMemory(name=shm_name, track=False)
+    if sys.version_info >= (3, 13):
+        shm = shared_memory.SharedMemory(name=shm_name, track=False)
+    else:
+        # This subprocess has its own resource tracker; the parent owns unlink().
+        from multiprocessing import resource_tracker
+        shm = shared_memory.SharedMemory(name=shm_name)
+        resource_tracker.unregister(shm._name, "shared_memory")
     hdr = np.ndarray((len(_F),), dtype=np.float64, buffer=shm.buf)
     pt = PanTilt(dev)
     pt.reset()
@@ -259,7 +269,7 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
     person, person_t = None, 0.0
     t_last, frames, rate, n = time.monotonic(), 0, 0.0, 0
     try:
-        while os.getppid() == parent:
+        while os.getppid() == parent and not hdr[_I["cmd_stop"]]:
             # commands from the simulation (efference: executed here, vision gated)
             cs = int(hdr[_I["cmd_seq"]])
             if cs != last_cmd and cs % 2 == 0:
@@ -407,11 +417,16 @@ class HeadFeed:
 
     def close(self) -> None:
         if self.proc.poll() is None:
-            self.proc.terminate()
+            self._h[_I["cmd_stop"]] = 1.0
             try:
                 self.proc.wait(timeout=6)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait()
         del self._h
         self.shm.close()
         try:

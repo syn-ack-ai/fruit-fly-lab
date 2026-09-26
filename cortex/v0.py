@@ -241,6 +241,7 @@ class CortexV0:
         self.t = 0.0
         self.prev_cell = None
         self.goal = None                             # (cell, kind, utility, t_set)
+        self.food_avoid = {}                         # timed-out food cells, until a later retry
         self.next_plan = 0.0
         self.person_seen = None                      # (x, z, t)
         self.person_vel = (0.0, 0.0)                 # estimated, m/s
@@ -441,6 +442,9 @@ class CortexV0:
 
     def _plan(self, here, t_s, sweet=False):
         U, dist = self._utilities(here, t_s)
+        for cell, until in list(self.food_avoid.items()):
+            if t_s >= until:
+                del self.food_avoid[cell]
         if self.goal is not None and self.goal[1] == "food":
             gcell, kind, util, t_set = self.goal
             if sweet:                                  # arrived: the fly eats
@@ -452,6 +456,8 @@ class CortexV0:
                 self.goal = (gcell, kind, U[gcell][0], t_set)   # keep going, even inside the cell
                 self._dist = dist
                 return
+            if t_s - t_set > FOOD_GIVE_UP_S:
+                self.food_avoid[gcell] = t_s + FOOD_GIVE_UP_S
             self.goal = None
         if self.goal is not None:
             gcell, kind, util, t_set = self.goal
@@ -470,7 +476,12 @@ class CortexV0:
                 return
             elif not reached and kind == "explore_new" and gcell not in self.map.nodes:
                 return
-        best = max(U.items(), key=lambda kv: kv[1][0])
+        choices = {cell: value for cell, value in U.items() if cell not in self.food_avoid}
+        if not choices:
+            self.goal = None
+            self._dist = dist
+            return
+        best = max(choices.items(), key=lambda kv: kv[1][0])
         cell, (u, kind) = best
         if kind == "rest" and (cell == here or (self.goal is not None and self.goal[1] == "rest" and self.goal[0] == here)):
             self.resting, self.want_rest, self.goal = True, False, None     # settle here

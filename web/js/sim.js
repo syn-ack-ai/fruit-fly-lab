@@ -190,8 +190,9 @@ export class DescendingReadout {
     return out;
   }
   channels(ws, windowMs) {
-    const acc = {}, lt = [], rt = [];
+    const acc = {}, sides = {};
     for (const ch of this.channels_list) acc[ch] = [];
+    for (const ch of this.channels_list) sides[ch] = { left: [], right: [] };
     for (const cmd of this.commands) {
       for (const side of ['left', 'right']) {
         const idx = this.tracked[`${cmd.cell_type}_${side}`];
@@ -199,13 +200,16 @@ export class DescendingReadout {
         const hz = this._hz(idx, ws, windowMs);
         const act = hz / (hz + this.half);
         acc[cmd.channel].push(act);
-        if (cmd.channel === 'turn') (side === 'left' ? lt : rt).push(act);
+        sides[cmd.channel][side].push(act);
       }
     }
     const res = {};
     for (const [ch, v] of Object.entries(acc)) res[ch] = v.length ? Math.max(...v) : 0;
     const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
-    res.turn_bias = mean(rt) - mean(lt);
+    for (const [ch, { left, right }] of Object.entries(sides)) {
+      if (left.length && right.length) res[`${ch}_lr`] = mean(right) - mean(left);
+    }
+    res.turn_bias = res.turn_lr ?? 0;
     return res;
   }
   escapeLaterality(ws) {
@@ -233,10 +237,12 @@ export class DescendingReadout {
 /* ─────────────────────────── body ────────────────────────── */
 
 const ESCAPE_THRESHOLD = 0.35, LONG_MODE_THRESHOLD = 0.30;
-const FREEZE_THRESHOLD = 0.30, BACKWARD_THRESHOLD = 0.30, PROBOSCIS_THRESHOLD = 0.15;
+const FREEZE_THRESHOLD = 0.30, FORWARD_THRESHOLD = 0.30;
+const BACKWARD_THRESHOLD = 0.30, PROBOSCIS_THRESHOLD = 0.15;
 const GF_TAKEOFF_LATENCY_MS = 5.0, LONG_MODE_PREP_MS = 200.0;
 const JUMP_SPEED_MM_S = 750.0, MAX_WALK_SPEED_MM_S = 25.0;
 const MAX_TURN_RATE_DEG_S = 400.0, BACKWARD_SPEED_MM_S = 8.0, GRAVITY = 9810.0;
+const P9_TURN_DEG_S = 150.0;
 
 export class FlyBody {
   constructor() { this.reset(); }
@@ -250,7 +256,8 @@ export class FlyBody {
   update(dtMs, ch, tMs, laterality = 0, proboscisDrive = 0) {
     const s = this.s, dt = dtMs / 1000;
     const takeoff = ch.escape_takeoff ?? 0, longMode = ch.escape_long_mode ?? 0;
-    const freeze = ch.stop_freeze ?? 0, backward = ch.backward_walk ?? 0;
+    const freeze = ch.stop_freeze ?? 0, forward = ch.forward_walk ?? 0;
+    const backward = ch.backward_walk ?? 0;
     const turn = ch.turn_bias ?? 0;
 
     if (this.complete && takeoff < ESCAPE_THRESHOLD && longMode < LONG_MODE_THRESHOLD) {
@@ -295,9 +302,15 @@ export class FlyBody {
 
     if (this.armedAt === null) {
       if (freeze >= FREEZE_THRESHOLD) {
-        s.speed_mm_s = 0; s.turn_rate_deg_s = 0; s.behaviour = 'freezing (DNp09)';
+        s.speed_mm_s = 0; s.turn_rate_deg_s = 0; s.behaviour = 'freezing';
+      } else if (forward >= FORWARD_THRESHOLD) {
+        s.speed_mm_s = MAX_WALK_SPEED_MM_S * forward;
+        s.turn_rate_deg_s = -MAX_TURN_RATE_DEG_S * turn
+          - P9_TURN_DEG_S * (ch.forward_walk_lr ?? 0);
+        s.behaviour = 'walking forward (DNp09)';
       } else if (backward >= BACKWARD_THRESHOLD) {
         s.speed_mm_s = -BACKWARD_SPEED_MM_S * backward;
+        s.turn_rate_deg_s = 0;
         s.behaviour = 'walking backward (MDN)';
       } else if (Math.abs(turn) > 0.02) {
         s.turn_rate_deg_s = -MAX_TURN_RATE_DEG_S * turn;
@@ -408,7 +421,9 @@ export class Session {
     }
     const idx = new Int32Array(best.size), rates = new Float64Array(best.size);
     let k = 0;
-    for (const [i, r] of best) { idx[k] = i; rates[k] = r; k++; }
+    for (const [i, r] of [...best].sort((a, b) => a[0] - b[0])) {
+      idx[k] = i; rates[k] = r; k++;
+    }
     this.engine.setPoisson(idx, rates);
   }
 

@@ -428,15 +428,16 @@ function onFrame(f) {
     `heading ${(b.heading_deg || 0).toFixed(0)}°  z ${(b.z_mm || 0).toFixed(1)} mm` +
     (b.proboscis_extension > 0.05 ? `  proboscis ${(b.proboscis_extension * 100).toFixed(0)}%` : '');
 
-  const st = (f.stimuli || [])[0];
+  const st = (f.stimuli || []).find(s => s.active);
   $('#stim-info').textContent = st && st.kind === 'world'
     ? `world  smell L ${(st.odour_L ?? 0).toFixed(2)} R ${(st.odour_R ?? 0).toFixed(2)}` +
       (st.airspeed_mm_s ? `  air ${st.airspeed_mm_s.toFixed(0)} mm/s from ${st.air_from_deg.toFixed(0)}°` : '') +
       (st.taste ? `  taste ${st.taste}` : '') + (st.loom_deg ? `  looming ${st.loom_deg.toFixed(0)}°` : '')
     : st
-    ? (st.source === 'camera'
+    ? (st.source === 'camera' || st.source === 'head'
         ? `camera  θ=${st.half_angle_deg.toFixed(1)}°  dθ/dt=${st.expansion_rate_deg_s.toFixed(0)}°/s` +
-          `  az ${st.azimuth_deg.toFixed(0)}°  (${st.camera_fps} fps)`
+          `  az ${st.azimuth_deg.toFixed(0)}°` +
+          (st.camera_fps != null ? `  (${st.camera_fps} fps)` : '')
         : st.half_angle_deg !== undefined
         ? `looming  θ=${st.half_angle_deg.toFixed(1)}°  dθ/dt=${st.expansion_rate_deg_s.toFixed(0)}°/s  d=${st.distance_mm.toFixed(0)} mm`
         : `${st.modality}  level ${(st.level * 100).toFixed(0)}%`)
@@ -546,7 +547,7 @@ function drawArena() {
   const rp = state.replay ? state.replay[state.replayIdx] : null;
   const f = rp || state.latest;
   const b = (f && f.body) || { heading_deg: 0, z_mm: 0, wing_angle_deg: 0 };
-  const st = rp ? null : (f && (f.stimuli || [])[0]);
+  const st = rp ? null : (f && (f.stimuli || []).find(s => s.active && s.distance_mm !== undefined));
 
   // looming object
   if (st && st.distance_mm !== undefined && st.active) {

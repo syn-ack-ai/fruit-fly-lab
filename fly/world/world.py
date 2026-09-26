@@ -138,6 +138,7 @@ class World:
         self.energy = 1.0
         self.events = []
         self._on_fruit = None
+        self._was_on = False
         self._last_xy = None
         self.senses = {}
 

@@ -30,10 +30,24 @@
   "overall": 1.0,
   "passed": 32,
   "of": 32,
+  "roles": {
+   "held_out": {
+    "passed": 21,
+    "of": 21
+   },
+   "constraint": {
+    "passed": 3,
+    "of": 3
+   },
+   "fit": {
+    "passed": 8,
+    "of": 8
+   }
+  },
   "shuffled": {
-   "passed": 10,
+   "passed": 9,
    "of": 32,
-   "score": 0.593
+   "score": 0.562
   },
   "robustness": {
    "wsyn": {
@@ -41,9 +55,9 @@
      "0.7": 1.0,
      "0.85": 1.0,
      "1.15": 1.0,
-     "1.3": 0.8
+     "1.3": 1.0
     },
-    "auc": 0.95
+    "auc": 1.0
    },
    "edge_drop": {
     "curve": {
@@ -87,24 +101,57 @@
    }
   },
   "robustness_auc": 0.95,
-  "text": "FLY EXAM  dynamics=calibrated_v3 wiring=real\n\n  [x] sugar_activates_MN9               93.5  target: sugar GRNs 100 Hz -> MN9 fires  | shuffled fail 0\n  [x] sugar_dose_monotonic                 1  target: MN9 rate rises with sugar GRN rate (10/50/200 Hz)  | shuffled PASS 1\n  [x] bitter_no_MN9                        0  target: bitter GRNs -> MN9 silent  | shuffled PASS 0\n  [x] bitter_inhibits_sugar          0.00267  target: sugar + strong bitter -> MN9 strongly reduced  | shuffled -\n  [x] ir94e_reduces_not_abolishes      0.616  target: sugar + Ir94e -> MN9 reduced but not eliminated  | shuffled -\n  [x] contralateral_MN9                   23  target: unilateral sugar -> contralateral MN9 stronger  | shuffled fail 0\n  [x] sugar_pathway_responders           0.9  target: 10 named 2nd-order/premotor types respond to sugar  | shuffled fail 0\n  [x] named_sufficiency                    1  target: 50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)  | shuffled fail 0.2\n  [x] named_necessity                      1  target: silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts  | shuffled fail 0.5\n  [x] rest_uPN_Hz                       7.21  target: uniglomerular PNs 4.6 +- 4.2 Hz  | shuffled fail 0.0112\n  [x] rest_LN_Hz                        6.72  target: AL local neurons 4.6 +- 2.8 Hz  | shuffled fail 0.0214\n  [x] rest_KC_Hz                       0.035  target: Kenyon cells 0.1 +- 0.4 Hz  | shuffled PASS 0.00138\n  [x] rest_LHN_Hz                        3.7  target: lateral horn neurons low (spontaneous spikes suppressed)  | shuffled PASS 0.00677\n  [x] rest_GF_silent                       0  target: Giant Fibre silent at rest  | shuffled PASS 0\n  [x] rest_MBON_Hz                      2.09  target: MBONs tonically active (one ex vivo measurement: 12 Hz)  | shuffled fail 0.122\n  [x] kc_mixture_sparseness           0.0326  target: ~5-10% of KCs per odour  | shuffled fail 0.0007\n  [x] kc_mixture_overlap              0.0367  target: distinct KC codes for different odours  | shuffled PASS 0.0591\n  [x] no_latching                     0.0175  target: activity decays after odour offset  | shuffled PASS 0\n  [x] pn_odour_transform               0.867  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz)  | shuffled fail 0\n  [x] glomerulus_specificity           0.752  target: single receptor type drives mostly its own PNs  | shuffled fail 0\n  [x] looming_drives_GF                  176  target: LC4/LPLC2 150 Hz -> Giant Fibre  | shuffled fail 0\n  [x] odour_lateralization            0.0362  target: odour at right antenna steers right vs left  | shuffled fail 0\n  [x] pursuit_sign                     0.427  target: LC10a target right steers right vs left  | shuffled fail 0\n  [x] compass_tracking_deg              1.42  target: E-PG bump reads back the heading  | shuffled PASS 1.47\n  [x] goal_steering_sign                17.5  target: goal clockwise -> DNa02 right > left  | shuffled fail 0\n  [x] sound_startle                        1  target: JO-A/B burst -> DNp11 up, walking command down  | shuffled fail 0\n  [x] mb_conditioning                  0.455  target: paired odour's MBON11 drops more than unpaired  | shuffled fail 0\n  [x] symmetry_looming                  0.97  target: mirror-image GF responses to left/right looming  | shuffled -\n  [x] symmetry_pursuit                 0.815  target: left/right pursuit responses of similar size  | shuffled -\n  [x] symmetry_odour                   0.616  target: left/right odour steering of similar size  | shuffled -\n  [x] health_saturation                    0  target: almost no neurons pinned >250 Hz  | shuffled PASS 0\n  [x] health_rate_cv                    0.24  target: steady population rate at rest  | shuffled PASS 0.0254\n\n  shiu      9/9 passed, score 1.00\n  rest      6/6 passed, score 1.00\n  calib     12/12 passed, score 1.00\n  symmetry  3/3 passed, score 1.00\n  health    2/2 passed, score 1.00\n  OVERALL   32/32 passed, score 1.00\n  SHUFFLED  10/32 passed, score 0.59\n\n  ROBUSTNESS (core tests pass rate per level; AUC = mean)\n  wsyn         AUC 0.95  {'0.7': 1.0, '0.85': 1.0, '1.15': 1.0, '1.3': 0.8}\n  edge_drop    AUC 1.00  {'0.05': 1.0, '0.1': 1.0, '0.2': 1.0}\n  nt_flip      AUC 0.87  {'0.03': 1.0, '0.07': 0.8, '0.13': 0.8}\n  lesion       AUC 1.00  {'0.01': 1.0, '0.03': 1.0, '0.05': 1.0}\n  sensor_drop  AUC 0.93  {'0.2': 1.0, '0.5': 1.0, '0.8': 0.8}\n  sensor_gain  AUC 0.93  {'0.3': 0.8, '0.5': 1.0, '2.0': 1.0}\n  mean robustness AUC 0.95",
-  "wall_s": 533.5
+  "text": "FLY EXAM  dynamics=calibrated wiring=real\n\n  [x] sugar_activates_MN9               93.5  target: sugar GRNs 100 Hz -> MN9 fires (constraint)  | shuffled fail 0\n  [x] sugar_dose_monotonic                 1  target: MN9 rate rises with sugar GRN rate (10/50/200 Hz)  | shuffled PASS 1\n  [x] bitter_no_MN9                        0  target: bitter GRNs -> MN9 silent (constraint)  | shuffled PASS 0\n  [x] bitter_inhibits_sugar          0.00267  target: sugar + strong bitter -> MN9 strongly reduced  | shuffled -\n  [x] ir94e_reduces_not_abolishes      0.616  target: sugar + Ir94e -> MN9 reduced but not eliminated  | shuffled -\n  [x] contralateral_MN9                   23  target: unilateral sugar -> contralateral MN9 stronger  | shuffled fail 0\n  [x] sugar_pathway_responders           0.9  target: 10 named 2nd-order/premotor types respond to sugar  | shuffled fail 0\n  [x] named_sufficiency                    1  target: 50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)  | shuffled fail 0.2\n  [x] named_necessity                      1  target: silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts  | shuffled fail 0.5\n  [x] rest_uPN_Hz                       6.09  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)  | shuffled fail 0.00665\n  [x] rest_LN_Hz                        6.13  target: AL local neurons 4.6 +- 2.8 Hz  | shuffled fail 0.0152\n  [x] rest_KC_Hz                      0.0233  target: Kenyon cells 0.1 +- 0.4 Hz  | shuffled PASS 0.00103\n  [x] rest_LHN_Hz                       3.24  target: lateral horn neurons low (spontaneous spikes suppressed)  | shuffled PASS 0.00451\n  [x] rest_GF_silent                       0  target: Giant Fibre silent at rest (fit)  | shuffled PASS 0\n  [x] rest_MBON_Hz                      1.89  target: MBONs tonically active (one ex vivo measurement: 12 Hz)  | shuffled fail 0.0833\n  [x] kc_mixture_sparseness           0.0327  target: ~5-10% of KCs per odour  | shuffled fail 0.000652\n  [x] kc_mixture_overlap              0.0376  target: distinct KC codes for different odours  | shuffled PASS 0.0572\n  [x] no_latching                     0.0264  target: activity decays after odour offset (fit)  | shuffled PASS 0\n  [x] pn_odour_transform                   1  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)  | shuffled fail 0\n  [x] glomerulus_specificity           0.744  target: single receptor type drives mostly its own PNs (fit)  | shuffled fail 0\n  [x] looming_drives_GF                  176  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)  | shuffled fail 0\n  [x] odour_lateralization            0.0395  target: odour at right antenna steers right vs left (fit)  | shuffled fail 0\n  [x] pursuit_sign                     0.436  target: LC10a target right steers right vs left  | shuffled fail 0\n  [x] compass_tracking_deg              16.5  target: E-PG bump reads back the heading  | shuffled fail 180\n  [x] goal_steering_sign                  15  target: goal clockwise -> DNa02 right > left  | shuffled fail 0\n  [x] sound_startle                        1  target: JO-A/B burst -> DNp11 up, walking command down (fit)  | shuffled fail 0\n  [x] mb_conditioning                  0.574  target: paired odour's MBON11 drops more than unpaired  | shuffled fail 0\n  [x] symmetry_looming                  0.97  target: mirror-image GF responses to left/right looming  | shuffled -\n  [x] symmetry_pursuit                 0.823  target: left/right pursuit responses of similar size  | shuffled -\n  [x] symmetry_odour                    0.77  target: left/right odour steering of similar size (fit)  | shuffled -\n  [x] health_saturation                    0  target: almost no neurons pinned >250 Hz  | shuffled PASS 0\n  [x] health_rate_cv                   0.237  target: steady population rate at rest  | shuffled PASS 0.0251\n\n  shiu      9/9 passed, score 1.00\n  rest      6/6 passed, score 1.00\n  calib     12/12 passed, score 1.00\n  symmetry  3/3 passed, score 1.00\n  health    2/2 passed, score 1.00\n  OVERALL   32/32 passed, score 1.00\n    held_out   21/21\n    constraint 3/3\n    fit        8/8\n  SHUFFLED  9/32 passed, score 0.56\n\n  ROBUSTNESS (core tests pass rate per level; AUC = mean)\n  wsyn         AUC 1.00  {'0.7': 1.0, '0.85': 1.0, '1.15': 1.0, '1.3': 1.0}\n  edge_drop    AUC 1.00  {'0.05': 1.0, '0.1': 1.0, '0.2': 1.0}\n  nt_flip      AUC 0.87  {'0.03': 1.0, '0.07': 0.8, '0.13': 0.8}\n  lesion       AUC 1.00  {'0.01': 1.0, '0.03': 1.0, '0.05': 1.0}\n  sensor_drop  AUC 0.93  {'0.2': 1.0, '0.5': 1.0, '0.8': 0.8}\n  sensor_gain  AUC 0.93  {'0.3': 0.8, '0.5': 1.0, '2.0': 1.0}\n  mean robustness AUC 0.95",
+  "wall_s": 638.5
  },
  "results": [
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "rest_uPN_Hz",
+   "pass": true,
+   "score": 1.0,
+   "value": 6.0920245398773005,
+   "seconds": 23.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "rest_LN_Hz",
+   "pass": true,
+   "score": 1.0,
+   "value": 6.134032634032634,
+   "seconds": 0.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "rest_KC_Hz",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.023308222265147123,
+   "seconds": 0.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "rest_LHN_Hz",
    "pass": true,
    "score": 1.0,
-   "value": 3.702450032237266,
+   "value": 3.2359767891682787,
    "seconds": 22.6
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "rest_GF_silent",
@@ -115,95 +162,62 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "rest_MBON_Hz",
    "pass": true,
    "score": 1.0,
-   "value": 2.085069444444444,
+   "value": 1.8888888888888886,
    "seconds": 0.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "rest_uPN_Hz",
-   "pass": true,
-   "score": 1.0,
-   "value": 7.209100204498977,
-   "seconds": 24.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "rest_LN_Hz",
-   "pass": true,
-   "score": 1.0,
-   "value": 6.718337218337219,
-   "seconds": 0.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "rest_KC_Hz",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.03496233339772069,
-   "seconds": 0.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "kc_mixture_sparseness",
    "pass": true,
    "score": 1.0,
-   "value": 0.0326443886420707,
-   "seconds": 24.5
+   "value": 0.032740969673556115,
+   "seconds": 24.6
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "kc_mixture_overlap",
    "pass": true,
    "score": 1.0,
-   "value": 0.03665350355837919,
+   "value": 0.03757777191416361,
    "seconds": 0.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "no_latching",
    "pass": true,
    "score": 1.0,
-   "value": 0.017512705896760763,
+   "value": 0.026403940886699506,
    "seconds": 0.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "sugar_activates_MN9",
    "pass": true,
    "score": 1.0,
    "value": 93.5,
-   "seconds": 11.7
+   "seconds": 13.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "sugar_dose_monotonic",
@@ -219,18 +233,18 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "bitter_no_MN9",
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 10.3
+   "seconds": 10.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "bitter_inhibits_sugar",
@@ -239,11 +253,11 @@
    "value": 0.00267379679144385,
    "sugar_hz": 93.5,
    "sugar_bitter_hz": 0.2,
-   "seconds": 23.6
+   "seconds": 24.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "ir94e_reduces_not_abolishes",
@@ -252,11 +266,11 @@
    "value": 0.6163101604278075,
    "sugar_hz": 93.5,
    "sugar_ir94e_hz": 57.6,
-   "seconds": 22.5
+   "seconds": 22.9
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "contralateral_MN9",
@@ -269,58 +283,58 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "health_saturation",
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "active_frac": 0.0321,
-   "seconds": 3.3
+   "active_frac": 0.0238,
+   "seconds": 3.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "health_rate_cv",
    "pass": true,
    "score": 1.0,
-   "value": 0.24004940400125444,
-   "mean_spikes_per_50ms": 3024.2,
-   "seconds": 7.7
+   "value": 0.23697113978973147,
+   "mean_spikes_per_50ms": 2907.6,
+   "seconds": 7.9
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "pn_odour_transform",
    "pass": true,
    "score": 1.0,
-   "value": 0.8666666666666667,
+   "value": 1.0,
    "pn_minus_baseline_hz": {
     "DL5": [
-     37.5,
-     83.0,
-     133.5,
-     179.0,
-     201.0
+     33.5,
+     74.0,
+     113.5,
+     150.5,
+     162.0
     ],
     "DM1": [
-     44.5,
-     98.0,
-     158.5,
-     213.0,
-     237.0
+     43.5,
+     90.0,
+     137.5,
+     185.5,
+     194.5
     ],
     "DA1": [
-     23.9,
-     58.4,
-     89.4,
-     120.9,
-     137.6
+     21.7,
+     51.6,
+     79.2,
+     101.6,
+     109.5
     ]
    },
    "orn_rates_above_rest_hz": [
@@ -330,85 +344,44 @@
     100.0,
     200.0
    ],
-   "seconds": 58.9
+   "seconds": 59.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "glomerulus_specificity",
    "pass": true,
    "score": 1.0,
-   "value": 0.7520320692692102,
-   "seconds": 6.3
+   "value": 0.7443393645586192,
+   "seconds": 6.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "looming_drives_GF",
    "pass": true,
    "score": 1.0,
    "value": 175.83333333333334,
-   "seconds": 4.2
+   "seconds": 4.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "odour_lateralization",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.03621824411815763,
-   "turn_bias": {
-    "left": -0.055,
-    "right": -0.019
-   },
-   "seconds": 39.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.4267896868881135,
-   "turn_bias_left_right": [
-    -0.283,
-    0.144
-   ],
-   "seconds": 40.5
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "compass_tracking_deg",
-   "pass": true,
-   "score": 1.0,
-   "value": 1.422557711721538,
-   "seconds": 6.2
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "sugar_activates_MN9",
    "pass": false,
    "score": 0.75,
    "value": 0.0,
-   "seconds": 10.4
+   "seconds": 10.5
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "sugar_dose_monotonic",
@@ -424,90 +397,18 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "bitter_no_MN9",
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 9.1
+   "seconds": 9.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "rest_uPN_Hz",
-   "pass": false,
-   "score": 0.9511247443762781,
-   "value": 0.011247443762781187,
-   "seconds": 17.2
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "rest_LN_Hz",
-   "pass": false,
-   "score": 0.9021367521367522,
-   "value": 0.021367521367521364,
-   "seconds": 0.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "rest_KC_Hz",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0013843281179576332,
-   "seconds": 0.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "bitter_inhibits_sugar",
-   "pass": false,
-   "score": 0.0,
-   "value": NaN,
-   "sugar_hz": 0.0,
-   "sugar_bitter_hz": 0.0,
-   "seconds": 19.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "ir94e_reduces_not_abolishes",
-   "pass": false,
-   "score": 0.0,
-   "value": NaN,
-   "sugar_hz": 0.0,
-   "sugar_ir94e_hz": 0.0,
-   "seconds": 18.3
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "contralateral_MN9",
-   "pass": false,
-   "score": 0.999,
-   "value": 0.0,
-   "mn9_left_hz": 0.0,
-   "mn9_right_hz": 0.0,
-   "seconds": 8.6
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "sugar_pathway_responders",
@@ -526,11 +427,11 @@
     "Bract": 6.8,
     "Usnea": 53.0
    },
-   "seconds": 13.2
+   "seconds": 13.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "named_sufficiency",
@@ -549,11 +450,11 @@
     "Phantom": 0.0,
     "Usnea": 0.0
    },
-   "seconds": 100.4
+   "seconds": 100.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
    "test": "named_necessity",
@@ -564,22 +465,94 @@
     "Roundup": 0.16,
     "Fdg": 0.97
    },
-   "seconds": 29.0
+   "seconds": 28.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "bitter_inhibits_sugar",
+   "pass": false,
+   "score": 0.0,
+   "value": NaN,
+   "sugar_hz": 0.0,
+   "sugar_bitter_hz": 0.0,
+   "seconds": 19.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "ir94e_reduces_not_abolishes",
+   "pass": false,
+   "score": 0.0,
+   "value": NaN,
+   "sugar_hz": 0.0,
+   "sugar_ir94e_hz": 0.0,
+   "seconds": 17.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "contralateral_MN9",
+   "pass": false,
+   "score": 0.999,
+   "value": 0.0,
+   "mn9_left_hz": 0.0,
+   "mn9_right_hz": 0.0,
+   "seconds": 8.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "rest_uPN_Hz",
+   "pass": false,
+   "score": 0.9506646216768916,
+   "value": 0.006646216768916155,
+   "seconds": 16.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "rest_LN_Hz",
+   "pass": false,
+   "score": 0.9015151515151515,
+   "value": 0.01515151515151515,
+   "seconds": 0.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "rest_KC_Hz",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0010301976691777734,
+   "seconds": 0.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "rest_LHN_Hz",
    "pass": true,
    "score": 1.0,
-   "value": 0.006769825918762089,
-   "seconds": 16.1
+   "value": 0.004513217279174726,
+   "seconds": 16.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "rest_GF_silent",
@@ -590,40 +563,40 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "rest_MBON_Hz",
    "pass": false,
-   "score": 0.9881018518518518,
-   "value": 0.12152777777777778,
+   "score": 0.9855555555555555,
+   "value": 0.08333333333333333,
    "seconds": 0.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "kc_mixture_sparseness",
    "pass": false,
-   "score": 0.8070021247826926,
-   "value": 0.0007002124782692679,
-   "seconds": 17.1
+   "score": 0.8065192196252656,
+   "value": 0.0006519219625265598,
+   "seconds": 16.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "kc_mixture_overlap",
    "pass": true,
    "score": 1.0,
-   "value": 0.05911281179138322,
+   "value": 0.0572420634920635,
    "seconds": 0.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "no_latching",
@@ -634,53 +607,48 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real"
    },
-   "test": "symmetry_looming",
+   "test": "odour_lateralization",
    "pass": true,
    "score": 1.0,
-   "value": 0.9696969696969697,
-   "gf_LR_for_left": [
-    17.0,
-    15.0
+   "value": 0.039487136582106466,
+   "turn_bias": {
+    "left": -0.043,
+    "right": -0.004
+   },
+   "seconds": 146.8
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.436231211624712,
+   "turn_bias_left_right": [
+    -0.273,
+    0.163
    ],
-   "gf_LR_for_right": [
-    15.0,
-    19.0
-   ],
-   "ipsi_total": 36.0,
+   "seconds": 34.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "compass_tracking_deg",
+   "pass": true,
+   "score": 1.0,
+   "value": 16.54365056455785,
    "seconds": 5.5
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "symmetry_pursuit",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.8153792180845496,
-   "left_resp": -0.253,
-   "right_resp": 0.174,
-   "seconds": 59.2
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "symmetry_odour",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.6157479478361851,
-   "left_resp": -0.025,
-   "right_resp": 0.011,
-   "seconds": 49.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "pn_odour_transform",
@@ -707,7 +675,7 @@
      0.0,
      0.1,
      0.2,
-     0.5
+     0.4
     ]
    },
    "orn_rates_above_rest_hz": [
@@ -717,57 +685,33 @@
     100.0,
     200.0
    ],
-   "seconds": 45.4
+   "seconds": 43.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "glomerulus_specificity",
    "pass": false,
    "score": 0.0,
    "value": 0.0,
-   "seconds": 4.4
+   "seconds": 4.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "looming_drives_GF",
    "pass": false,
    "score": 0.33333333333333337,
    "value": 0.0,
-   "seconds": 3.2
+   "seconds": 3.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "health_saturation",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "active_frac": 0.0059,
-   "seconds": 2.4
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "health_rate_cv",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.025350700412308105,
-   "mean_spikes_per_50ms": 1815.3,
-   "seconds": 5.3
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "sugar_pathway_responders",
@@ -786,11 +730,11 @@
     "Bract": 0.0,
     "Usnea": 0.0
    },
-   "seconds": 9.3
+   "seconds": 8.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "named_sufficiency",
@@ -809,11 +753,11 @@
     "Phantom": 0.0,
     "Usnea": 0.0
    },
-   "seconds": 74.0
+   "seconds": 74.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "named_necessity",
@@ -824,11 +768,191 @@
     "Roundup": NaN,
     "Fdg": NaN
    },
+   "seconds": 24.6
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "health_saturation",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "active_frac": 0.0054,
+   "seconds": 2.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "health_rate_cv",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.02514274391695247,
+   "mean_spikes_per_50ms": 1805.2,
+   "seconds": 5.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "goal_steering_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 15.0,
+   "dna02_r_minus_l": {
+    "-90.0": 12.5,
+    "90.0": -2.5
+   },
    "seconds": 25.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "sound_startle",
+   "pass": true,
+   "score": 1.0,
+   "value": 1.0,
+   "dnp11_up_hz": 70.3,
+   "dng100_walking_hz": 22.9,
+   "dng100_drop": 0.97,
+   "seconds": 51.6
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "mb_conditioning",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.5737704918032787,
+   "paired_change": -0.57,
+   "unpaired_change": 0.0,
+   "mbon11_before": [
+    30.5,
+    9.0
+   ],
+   "seconds": 164.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.7
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 37.125,
+   "seconds": 8.6
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.7
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 8.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.7
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 17.9
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.7
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 140.83333333333334,
+   "seconds": 3.2
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.7
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.475168724568763,
+   "turn_bias_left_right": [
+    -0.279,
+    0.197
+   ],
+   "seconds": 35.6
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "symmetry_looming",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.9696969696969697,
+   "gf_LR_for_left": [
+    17.0,
+    15.0
+   ],
+   "gf_LR_for_right": [
+    15.0,
+    19.0
+   ],
+   "ipsi_total": 36.0,
+   "seconds": 5.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "symmetry_pursuit",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.8230528489120876,
+   "left_resp": -0.257,
+   "right_resp": 0.179,
+   "seconds": 59.6
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real"
+   },
+   "test": "symmetry_odour",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.7696310536658384,
+   "left_resp": -0.024,
+   "right_resp": 0.015,
+   "seconds": 201.2
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "odour_lateralization",
@@ -839,11 +963,11 @@
     "left": 0.0,
     "right": 0.0
    },
-   "seconds": 29.1
+   "seconds": 123.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "pursuit_sign",
@@ -854,22 +978,388 @@
     0.0,
     0.0
    ],
-   "seconds": 29.0
+   "seconds": 34.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "compass_tracking_deg",
-   "pass": true,
-   "score": 1.0,
-   "value": 1.473969347158004,
-   "seconds": 4.3
+   "pass": false,
+   "score": 0.0,
+   "value": 180.0,
+   "seconds": 5.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.85
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 75.125,
+   "seconds": 9.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.85
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 8.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.85
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 20.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.85
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 159.16666666666669,
+   "seconds": 3.8
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 0.85
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.4603616694149053,
+   "turn_bias_left_right": [
+    -0.275,
+    0.185
+   ],
+   "seconds": 37.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.15
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 105.625,
+   "seconds": 11.1
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.15
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 9.7
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.15
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.08333333333333333,
+   "seconds": 21.9
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.15
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 189.58333333333334,
+   "seconds": 3.8
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.15
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.4012902249003393,
+   "turn_bias_left_right": [
+    -0.266,
+    0.135
+   ],
+   "seconds": 36.2
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.3
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 103.5,
+   "seconds": 11.9
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.3
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 10.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.3
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.16666666666666666,
+   "seconds": 21.9
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.3
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 201.25,
+   "seconds": 3.8
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "wsyn": 1.3
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.3233616504812318,
+   "turn_bias_left_right": [
+    -0.228,
+    0.096
+   ],
+   "seconds": 36.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.05
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 98.75,
+   "seconds": 10.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.05
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 9.1
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.05
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 20.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.05
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 173.33333333333334,
+   "seconds": 3.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.05
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.450626117424207,
+   "turn_bias_left_right": [
+    -0.29,
+    0.16
+   ],
+   "seconds": 33.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.1
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 75.125,
+   "seconds": 10.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.1
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 9.1
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.1
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 19.8
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.1
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 164.16666666666669,
+   "seconds": 3.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "edge_drop": 0.1
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.5057245352945908,
+   "turn_bias_left_right": [
+    -0.296,
+    0.209
+   ],
+   "seconds": 32.1
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "goal_steering_sign",
+   "pass": false,
+   "score": 0.75,
+   "value": 0.0,
+   "dna02_r_minus_l": {
+    "-90.0": 0.0,
+    "90.0": 0.0
+   },
+   "seconds": 18.2
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "sound_startle",
+   "pass": false,
+   "score": 0.0,
+   "value": 0.0,
+   "dnp11_up_hz": 0.8,
+   "dng100_walking_hz": 0.0,
+   "dng100_drop": null,
+   "seconds": 38.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "shuffled"
+   },
+   "test": "mb_conditioning",
+   "pass": false,
+   "score": 0.4,
+   "value": 0.0,
+   "paired_change": 0.0,
+   "unpaired_change": 0.0,
+   "mbon11_before": [
+    0.5,
+    0.0
+   ],
+   "seconds": 175.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "symmetry_looming",
@@ -885,11 +1375,11 @@
     0.0
    ],
    "ipsi_total": 0.0,
-   "seconds": 3.9
+   "seconds": 4.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "symmetry_pursuit",
@@ -898,11 +1388,11 @@
    "value": NaN,
    "left_resp": 0.0,
    "right_resp": 0.0,
-   "seconds": 41.8
+   "seconds": 42.9
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "shuffled"
    },
    "test": "symmetry_odour",
@@ -911,441 +1401,11 @@
    "value": NaN,
    "left_resp": 0.0,
    "right_resp": 0.0,
-   "seconds": 39.2
+   "seconds": 180.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "goal_steering_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 17.5,
-   "dna02_r_minus_l": {
-    "-90.0": 7.5,
-    "90.0": -10.0
-   },
-   "seconds": 25.3
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "sound_startle",
-   "pass": true,
-   "score": 1.0,
-   "value": 1.0,
-   "dnp11_up_hz": 68.9,
-   "dng100_walking_hz": 23.6,
-   "dng100_drop": 0.97,
-   "seconds": 52.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real"
-   },
-   "test": "mb_conditioning",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.45454545454545453,
-   "paired_change": -0.5,
-   "unpaired_change": -0.05,
-   "mbon11_before": [
-    41.0,
-    11.0
-   ],
-   "seconds": 160.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.7
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 37.125,
-   "seconds": 8.5
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.7
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 7.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.7
-   },
-   "test": "rest_GF_silent",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 16.2
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.7
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 140.83333333333334,
-   "seconds": 3.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.7
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.475267185629105,
-   "turn_bias_left_right": [
-    -0.278,
-    0.197
-   ],
-   "seconds": 29.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.85
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 75.125,
-   "seconds": 8.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.85
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 7.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.85
-   },
-   "test": "rest_GF_silent",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 16.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.85
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 159.16666666666669,
-   "seconds": 2.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 0.85
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.4773980816236682,
-   "turn_bias_left_right": [
-    -0.278,
-    0.199
-   ],
-   "seconds": 30.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.15
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 105.625,
-   "seconds": 8.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.15
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 7.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.15
-   },
-   "test": "rest_GF_silent",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.16666666666666666,
-   "seconds": 17.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.15
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 190.0,
-   "seconds": 3.2
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.15
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.40029565020358016,
-   "turn_bias_left_right": [
-    -0.268,
-    0.132
-   ],
-   "seconds": 33.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.3
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 111.375,
-   "seconds": 9.4
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.3
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 9.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.3
-   },
-   "test": "rest_GF_silent",
-   "pass": false,
-   "score": 0.8916666666666667,
-   "value": 0.41666666666666663,
-   "seconds": 19.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.3
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 200.83333333333334,
-   "seconds": 3.6
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "wsyn": 1.3
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.3765532003911135,
-   "turn_bias_left_right": [
-    -0.259,
-    0.118
-   ],
-   "seconds": 35.6
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.05
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 98.75,
-   "seconds": 9.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.05
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 8.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.05
-   },
-   "test": "rest_GF_silent",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 19.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.05
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 173.33333333333334,
-   "seconds": 3.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.05
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.48460529035088296,
-   "turn_bias_left_right": [
-    -0.294,
-    0.191
-   ],
-   "seconds": 34.1
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.1
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 75.125,
-   "seconds": 8.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.1
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 8.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.1
-   },
-   "test": "rest_GF_silent",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 19.4
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.1
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 164.16666666666669,
-   "seconds": 3.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "edge_drop": 0.1
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.5042456473094425,
-   "turn_bias_left_right": [
-    -0.305,
-    0.199
-   ],
-   "seconds": 33.0
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "edge_drop": 0.2
    },
@@ -1353,11 +1413,11 @@
    "pass": true,
    "score": 1.0,
    "value": 84.5,
-   "seconds": 9.2
+   "seconds": 8.6
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "edge_drop": 0.2
    },
@@ -1365,11 +1425,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 9.0
+   "seconds": 8.5
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "edge_drop": 0.2
    },
@@ -1377,11 +1437,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 18.5
+   "seconds": 17.9
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "edge_drop": 0.2
    },
@@ -1389,27 +1449,27 @@
    "pass": true,
    "score": 1.0,
    "value": 152.5,
-   "seconds": 3.1
+   "seconds": 3.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "edge_drop": 0.2
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.5388823408739958,
+   "value": 0.5394302767926045,
    "turn_bias_left_right": [
-    -0.333,
-    0.206
+    -0.327,
+    0.213
    ],
-   "seconds": 31.4
+   "seconds": 34.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.03
    },
@@ -1417,11 +1477,11 @@
    "pass": true,
    "score": 1.0,
    "value": 76.75,
-   "seconds": 9.7
+   "seconds": 9.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.03
    },
@@ -1429,23 +1489,23 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 9.1
+   "seconds": 8.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.03
    },
    "test": "rest_GF_silent",
    "pass": true,
    "score": 1.0,
-   "value": 0.08333333333333333,
-   "seconds": 18.2
+   "value": 0.0,
+   "seconds": 18.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.03
    },
@@ -1457,133 +1517,23 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.03
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.3527730865009457,
+   "value": 0.36964927635389755,
    "turn_bias_left_right": [
     -0.353,
-    -0.001
+    0.017
    ],
-   "seconds": 32.2
+   "seconds": 35.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "goal_steering_sign",
-   "pass": false,
-   "score": 0.75,
-   "value": 0.0,
-   "dna02_r_minus_l": {
-    "-90.0": 0.0,
-    "90.0": 0.0
-   },
-   "seconds": 18.6
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "sound_startle",
-   "pass": false,
-   "score": 0.0,
-   "value": 0.0,
-   "dnp11_up_hz": 0.9,
-   "dng100_walking_hz": 0.0,
-   "dng100_drop": null,
-   "seconds": 37.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "shuffled"
-   },
-   "test": "mb_conditioning",
-   "pass": false,
-   "score": 0.4,
-   "value": 0.0,
-   "paired_change": 0.0,
-   "unpaired_change": 0.0,
-   "mbon11_before": [
-    1.0,
-    0.0
-   ],
-   "seconds": 159.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.07
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 51.25,
-   "seconds": 8.9
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.07
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 8.4
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.07
-   },
-   "test": "rest_GF_silent",
-   "pass": false,
-   "score": 0.5583333333333333,
-   "value": 1.0833333333333333,
-   "seconds": 18.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.07
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 158.75,
-   "seconds": 3.4
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.07
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.3275681679738109,
-   "turn_bias_left_right": [
-    -0.373,
-    -0.045
-   ],
-   "seconds": 36.4
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.13
    },
@@ -1591,77 +1541,13 @@
    "pass": true,
    "score": 1.0,
    "value": 7.125,
-   "seconds": 8.7
+   "seconds": 8.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "nt_flip": 0.13
-   },
-   "test": "bitter_no_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 8.5
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.13
-   },
-   "test": "rest_GF_silent",
-   "pass": false,
-   "score": 0.0,
-   "value": 2.25,
-   "seconds": 18.6
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.13
-   },
-   "test": "looming_drives_GF",
-   "pass": true,
-   "score": 1.0,
-   "value": 180.41666666666669,
-   "seconds": 3.8
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "nt_flip": 0.13
-   },
-   "test": "pursuit_sign",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.25312869651258524,
-   "turn_bias_left_right": [
-    -0.443,
-    -0.189
-   ],
-   "seconds": 36.7
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "lesion": 0.01
-   },
-   "test": "sugar_activates_MN9",
-   "pass": true,
-   "score": 1.0,
-   "value": 97.625,
-   "seconds": 9.5
-  },
-  {
-   "cfg": {
-    "dynamics": "calibrated_v3",
-    "wiring": "real",
-    "lesion": 0.01
    },
    "test": "bitter_no_MN9",
    "pass": true,
@@ -1671,47 +1557,111 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
-    "lesion": 0.01
+    "nt_flip": 0.13
    },
    "test": "rest_GF_silent",
-   "pass": true,
-   "score": 1.0,
-   "value": 0.0,
-   "seconds": 18.9
+   "pass": false,
+   "score": 0.0,
+   "value": 4.333333333333334,
+   "seconds": 20.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
-    "lesion": 0.01
+    "nt_flip": 0.13
    },
    "test": "looming_drives_GF",
    "pass": true,
    "score": 1.0,
-   "value": 175.0,
+   "value": 180.41666666666669,
    "seconds": 4.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
-    "lesion": 0.01
+    "nt_flip": 0.13
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.363187091399487,
+   "value": 0.2034195943126255,
    "turn_bias_left_right": [
-    -0.203,
-    0.16
+    -0.42,
+    -0.217
    ],
-   "seconds": 36.0
+   "seconds": 36.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "nt_flip": 0.07
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 51.25,
+   "seconds": 9.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "nt_flip": 0.07
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 8.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "nt_flip": 0.07
+   },
+   "test": "rest_GF_silent",
+   "pass": false,
+   "score": 0.7666666666666667,
+   "value": 0.6666666666666666,
+   "seconds": 20.5
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "nt_flip": 0.07
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 159.16666666666669,
+   "seconds": 3.8
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "nt_flip": 0.07
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.38524932205710344,
+   "turn_bias_left_right": [
+    -0.384,
+    0.001
+   ],
+   "seconds": 36.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.03
    },
@@ -1719,11 +1669,11 @@
    "pass": true,
    "score": 1.0,
    "value": 100.375,
-   "seconds": 9.2
+   "seconds": 10.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.03
    },
@@ -1731,11 +1681,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 8.8
+   "seconds": 9.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.03
    },
@@ -1743,11 +1693,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 20.3
+   "seconds": 19.5
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.03
    },
@@ -1755,41 +1705,41 @@
    "pass": true,
    "score": 1.0,
    "value": 160.83333333333334,
-   "seconds": 3.8
+   "seconds": 3.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.03
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.524263154059256,
+   "value": 0.5071704958357588,
    "turn_bias_left_right": [
-    -0.297,
-    0.227
+    -0.285,
+    0.223
    ],
-   "seconds": 35.1
+   "seconds": 34.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
-    "lesion": 0.05
+    "lesion": 0.01
    },
    "test": "sugar_activates_MN9",
    "pass": true,
    "score": 1.0,
-   "value": 93.5,
-   "seconds": 9.3
+   "value": 97.625,
+   "seconds": 10.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
-    "lesion": 0.05
+    "lesion": 0.01
    },
    "test": "bitter_no_MN9",
    "pass": true,
@@ -1799,7 +1749,71 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "lesion": 0.01
+   },
+   "test": "rest_GF_silent",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.08333333333333333,
+   "seconds": 20.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "lesion": 0.01
+   },
+   "test": "looming_drives_GF",
+   "pass": true,
+   "score": 1.0,
+   "value": 175.0,
+   "seconds": 3.9
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "lesion": 0.01
+   },
+   "test": "pursuit_sign",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.37490511072500693,
+   "turn_bias_left_right": [
+    -0.215,
+    0.16
+   ],
+   "seconds": 35.4
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "lesion": 0.05
+   },
+   "test": "sugar_activates_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 93.5,
+   "seconds": 10.0
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
+    "wiring": "real",
+    "lesion": 0.05
+   },
+   "test": "bitter_no_MN9",
+   "pass": true,
+   "score": 1.0,
+   "value": 0.0,
+   "seconds": 9.3
+  },
+  {
+   "cfg": {
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.05
    },
@@ -1807,11 +1821,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 20.6
+   "seconds": 20.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.05
    },
@@ -1819,27 +1833,27 @@
    "pass": true,
    "score": 1.0,
    "value": 155.41666666666669,
-   "seconds": 3.7
+   "seconds": 3.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "lesion": 0.05
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.4232113045999889,
+   "value": 0.43273214866519927,
    "turn_bias_left_right": [
-    -0.278,
-    0.145
+    -0.263,
+    0.17
    ],
-   "seconds": 36.0
+   "seconds": 38.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.2
    },
@@ -1851,7 +1865,7 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.2
    },
@@ -1863,19 +1877,19 @@
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.2
    },
    "test": "rest_GF_silent",
    "pass": true,
    "score": 1.0,
-   "value": 0.08333333333333333,
-   "seconds": 19.6
+   "value": 0.0,
+   "seconds": 19.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.2
    },
@@ -1883,27 +1897,27 @@
    "pass": true,
    "score": 1.0,
    "value": 157.91666666666669,
-   "seconds": 3.8
+   "seconds": 3.5
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.2
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.3745372124443557,
+   "value": 0.3973233502915477,
    "turn_bias_left_right": [
-    -0.278,
-    0.096
+    -0.292,
+    0.105
    ],
-   "seconds": 35.8
+   "seconds": 37.6
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.8
    },
@@ -1911,11 +1925,11 @@
    "pass": true,
    "score": 1.0,
    "value": 10.25,
-   "seconds": 8.2
+   "seconds": 8.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.8
    },
@@ -1923,11 +1937,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 8.2
+   "seconds": 8.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.8
    },
@@ -1935,11 +1949,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 17.8
+   "seconds": 18.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.8
    },
@@ -1947,27 +1961,27 @@
    "pass": false,
    "score": 0.6416666666666666,
    "value": 46.25,
-   "seconds": 3.3
+   "seconds": 3.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.8
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.23331121813247585,
+   "value": 0.2116894493525916,
    "turn_bias_left_right": [
-    -0.169,
-    0.065
+    -0.157,
+    0.054
    ],
-   "seconds": 31.7
+   "seconds": 34.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.5
    },
@@ -1975,11 +1989,11 @@
    "pass": true,
    "score": 1.0,
    "value": 54.875,
-   "seconds": 9.2
+   "seconds": 9.4
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.5
    },
@@ -1987,11 +2001,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 8.8
+   "seconds": 9.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.5
    },
@@ -1999,11 +2013,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 18.6
+   "seconds": 19.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.5
    },
@@ -2011,27 +2025,27 @@
    "pass": true,
    "score": 1.0,
    "value": 121.25000000000001,
-   "seconds": 3.4
+   "seconds": 3.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_drop": 0.5
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.3020016867717955,
+   "value": 0.32080811331710557,
    "turn_bias_left_right": [
-    -0.199,
-    0.103
+    -0.213,
+    0.108
    ],
-   "seconds": 33.3
+   "seconds": 35.9
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.3
    },
@@ -2039,11 +2053,11 @@
    "pass": true,
    "score": 1.0,
    "value": 34.75,
-   "seconds": 9.1
+   "seconds": 9.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.3
    },
@@ -2051,11 +2065,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 8.2
+   "seconds": 8.9
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.3
    },
@@ -2063,11 +2077,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 18.6
+   "seconds": 20.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.3
    },
@@ -2075,27 +2089,27 @@
    "pass": false,
    "score": 0.8583333333333334,
    "value": 78.75,
-   "seconds": 3.5
+   "seconds": 3.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.3
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.23782202997276358,
+   "value": 0.2445958843675834,
    "turn_bias_left_right": [
-    -0.158,
-    0.08
+    -0.172,
+    0.073
    ],
-   "seconds": 32.2
+   "seconds": 31.3
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.5
    },
@@ -2103,11 +2117,11 @@
    "pass": true,
    "score": 1.0,
    "value": 69.0,
-   "seconds": 9.5
+   "seconds": 10.2
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.5
    },
@@ -2115,23 +2129,23 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 9.1
+   "seconds": 9.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.5
    },
    "test": "rest_GF_silent",
    "pass": true,
    "score": 1.0,
-   "value": 0.08333333333333333,
-   "seconds": 19.6
+   "value": 0.16666666666666666,
+   "seconds": 21.1
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.5
    },
@@ -2139,27 +2153,27 @@
    "pass": true,
    "score": 1.0,
    "value": 123.33333333333334,
-   "seconds": 3.5
+   "seconds": 3.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 0.5
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.352280024858192,
+   "value": 0.32833060439853223,
    "turn_bias_left_right": [
-    -0.233,
-    0.119
+    -0.21,
+    0.118
    ],
-   "seconds": 29.2
+   "seconds": 31.8
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 2.0
    },
@@ -2167,11 +2181,11 @@
    "pass": true,
    "score": 1.0,
    "value": 130.75,
-   "seconds": 10.0
+   "seconds": 11.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 2.0
    },
@@ -2179,11 +2193,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 9.1
+   "seconds": 9.7
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 2.0
    },
@@ -2191,11 +2205,11 @@
    "pass": true,
    "score": 1.0,
    "value": 0.0,
-   "seconds": 20.3
+   "seconds": 19.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 2.0
    },
@@ -2203,23 +2217,23 @@
    "pass": true,
    "score": 1.0,
    "value": 233.33333333333334,
-   "seconds": 3.4
+   "seconds": 3.0
   },
   {
    "cfg": {
-    "dynamics": "calibrated_v3",
+    "dynamics": "calibrated",
     "wiring": "real",
     "sensor_gain": 2.0
    },
    "test": "pursuit_sign",
    "pass": true,
    "score": 1.0,
-   "value": 0.5369222267201732,
+   "value": 0.5282782096838128,
    "turn_bias_left_right": [
-    -0.343,
-    0.194
+    -0.326,
+    0.202
    ],
-   "seconds": 28.7
+   "seconds": 27.0
   }
  ]
 }

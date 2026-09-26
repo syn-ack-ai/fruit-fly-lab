@@ -15,7 +15,11 @@
 >   every change cites its source.
 > - `cognition/exam/` - a 32-test validation battery ("fly exam") with shuffled-wiring
 >   controls and robustness curves. Results (`results/fly_exam_2026-09-25/`): published
->   model 17/32, calibrated v2 27/32, calibrated v3 (default) 32/32, shuffled wiring 10/32.
+>   model 16/32, calibrated v2 26/32, calibrated v3 (default) 32/32 (21/21 held-out
+>   tests), shuffled wiring 9/32.
+> - Habitat lifetimes (`results/cortex_lifetime_2026-09-25/`): the cortex with place
+>   memory finds food on 17/20 simulated days vs 8/20 without memory (p = 0.008)
+>   and 8/20 for the fly brain alone.
 > - `brain/plasticity/` (dopamine-gated mushroom-body learning), `brain/navigation/`
 >   (E-PG compass, FC2 -> PFL3 goal steering), `fly/world/` (closed-loop foraging world).
 > - `robot/` (pan/tilt camera head, person detection, microphone hearing),

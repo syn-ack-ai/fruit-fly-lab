@@ -2,15 +2,22 @@
 
     python -m cognition.exam --dynamics <published|calibrated_v2|calibrated> --controls --workers 6
 
-| dynamics | passed | shuffled wiring | robustness AUC |
-|---|---|---|---|
-| published (Shiu et al. 2024) | 17/32 | 10/32 | 0.97 |
-| calibrated v2 | 27/32 | 11/32 | 0.87 |
-| calibrated v3 (current default) | 32/32 | 10/32 | 0.95 |
+Final run after an independent code review (fixes in commit b356400 and later).
 
-Files: `exam_<published|calibrated_v2|calibrated_v3>_real.txt` (report) and `.json` (every test, control and
-perturbation). The v2 run used `--dynamics calibrated` before v3 became the
-default; its settings are in `data/metadata/dynamics_calibrated_v2.json`.
-Narrow passes in v3: symmetry_odour 0.616 (limit 0.6), odour_lateralization
-0.036 (limit 0.01). See data/metadata/dynamics_calibrated.json for what each
-change is and its source.
+| dynamics | passed | held-out tests | constraints | fit tests | shuffled wiring | robustness AUC |
+|---|---|---|---|---|---|---|
+| published (Shiu et al. 2024) | 16/32 | 10/21 | 3/3 | 3/8 | 9/32 | 0.97 |
+| calibrated v2 | 26/32 | 19/21 | 3/3 | 4/8 | 10/32 | 0.87 |
+| calibrated v3 (default) | 32/32 | 21/21 | 3/3 | 8/8 | 9/32 | 0.95 |
+
+Test roles (cognition/exam/tests.py ROLES): "fit" = used to set or choose a
+calibration value; "constraint" = calibration had to keep it passing;
+"held_out" = never used in calibration. Files: exam_<published|calibrated_v2|
+calibrated_v3>_real.txt (report) and .json (every test, control, perturbation).
+
+History: a first run the same day gave v3 32/32 before the review; the review
+found that two left/right corrections compounded, that the compass test passed
+by construction, and that the odour-steering tests (4 trials) measured noise.
+After the fixes v3 scored 30/32; the one fitted value (ORN depression) was refit
+by the same criterion (the measured ORN->PN transform) and the odour tests were
+given 16 trials for every model, giving the table above.

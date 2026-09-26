@@ -1,19 +1,32 @@
 # Neocortex prototype in the Habitat home, 2026-09-25
 
-`sim/habitat_bridge/run_cortex_life.sh` (10 days x 120 s, small HSSD house, 150 deg
-view, mushroom-body learning on) and `run_cortex_oracle.sh` (6 x 60 s).
-`summary.txt` columns: day, episode, first_bowl_s, near_bowl_s, eating_s,
-mean_bowl_dist, plant_s, pets, treats, near_person_s, bumps, wall_s.
+`sim/habitat_bridge/run_cortex_life.sh` (10 days x 120 s per lifetime, small HSSD
+house, 150 deg view, mushroom-body learning on in every condition).
 
-| Condition | Run 1 (v2 dynamics, before the CUDA stream fix) | Run 2 (v3 dynamics, fixed engine) |
+## Final run (`summary_final.txt`): all review fixes, calibrated v3, 2 seeds
+
+| Condition | Days reaching bowl | Eating per day | Person bumps |
+|---|---|---|---|
+| fly brain alone | 8/20 | 5.6 s | 71 |
+| cortex, place memory (and critic) wiped nightly | 8/20 | 5.5 s | 46 |
+| cortex v0 | 17/20 | 11.8 s | 124 |
+
+Cortex v0 vs nightly-wiped cortex: days reaching the bowl p = 0.008 (Fisher exact),
+eating time p = 0.011 (Mann-Whitney); days 1-9 only (memory possible): 15/18 vs
+7/18, p = 0.015. Wiped cortex vs fly alone: identical (8/20 vs 8/20, p = 1.0).
+Caveats: days within a lifetime are not independent; two seeds.
+
+## Earlier runs (superseded; kept for the record)
+
+`summary.txt`: run 1 (v2 dynamics, before the CUDA stream fix) and run 2 (v3
+before the code-review fixes: Habitat person motion read "always moving" after
+day 0, the amnesic control kept its critic, compensation/consensus compounded).
+
+| Condition | Run 1 | Run 2 |
 |---|---|---|
-| fly brain alone | 2/10 days reached bowl, 1.2 s eating/day | 3/10, 2.8 s |
-| cortex, place memory wiped nightly | 3/10, 2.5 s | 5/10, 5.2 s |
+| fly brain alone | 2/10, 1.2 s | 3/10, 2.8 s |
+| cortex, memory wiped nightly | 3/10, 2.5 s | 5/10, 5.2 s |
 | cortex v0 | 8/10, 9.9 s | 6/10, 8.8 s |
 
-Run 1 shared the GPU between processes while the CUDA engine could read stale
-inputs (fixed in native/lif_cuda.cu); all conditions were affected alike.
-In run 2 the cortex held the bowl as its goal on days 2 and 8, came within
-0.6-0.7 m (eating radius 0.6 m) and overshot: the v3 brain walks almost
-continuously (~0.45 m/s) and the cortex cannot slow the approach. Ten days
-per condition cannot separate memory from no-memory.
+Oracle channel test (6 x 60 s, before the fixes): none 2/6, FC2 goal 3/6, LC10a
+attend 5/6, both 6/6 reached the bowl.

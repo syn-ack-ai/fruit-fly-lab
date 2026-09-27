@@ -91,6 +91,7 @@ SLEEPY, AWAKE = 0.6, 0.15
 ALONE_S, ALONE_GIVE_UP_S = 20.0, 45.0      # alone; after this it stops looking for them
 BORED_U = 0.15                              # best food / explore / owner utility below this
 BORED_SLEEPY = 0.2
+BORED_NAP_U = 0.3            # a bored nap's value floor (above BORED_U)
 MEAL_SETTLE = 0.6           # rest drive while at the bowl during a meal
 REST_LEARN = 0.02
 # personality (cortex/personality.py): an intention multiplies the matching
@@ -200,6 +201,7 @@ class Critic:
 
 class CortexV0:
     N_FOURIER = 16
+    naps = False             # set per instance (cortex kind "pet"); class default for partial construction
 
     def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False,
                  manners: bool = False, naps: bool = False):
@@ -460,7 +462,7 @@ class CortexV0:
         hx, hz = centre(here)
         cand = dict(dist)
         for cell, n in self.map.nodes.items():
-            if cell not in cand and n["food"] > 0:
+            if self.naps and cell not in cand and n["food"] > 0:     # the pet only (keeps v0 / manners as run)
                 cx, cz = centre(cell)
                 cand[cell] = (1.5 * math.hypot(cx - hx, cz - hz), None)
         U = {}
@@ -491,6 +493,11 @@ class CortexV0:
             elif self.intent == "rest":
                 u_new /= 1 + INTENT_GAIN
             u_rest = self.sleepy * (0.3 + n.get("rest", 0.0)) if self.want_rest else 0.0
+            if self.want_rest and self._want_kind == "bored":
+                # bored: napping beats anything left (all below BORED_U); nearest
+                # or favourite spot wins (review 2026-09-26: a 0.076 "explore"
+                # nook beat a 0.075 nap, so bored naps never happened)
+                u_rest = max(u_rest, BORED_NAP_U + 0.1 * n.get("rest", 0.0))
             u = u_food + u_owner + u_new + u_rest - n["bitter"] - PATH_COST * d
             kind = max((("food", u_food), ("owner", u_owner), ("explore", u_new), ("rest", u_rest)),
                        key=lambda kv: kv[1])[0]
@@ -518,7 +525,8 @@ class CortexV0:
                 self._dist = dist
                 return
             if t_s - t_set > FOOD_GIVE_UP_S:
-                self.food_avoid[gcell] = t_s + FOOD_GIVE_UP_S
+                if self.naps:                          # PR #1 fix; the pet only (older conditions as run)
+                    self.food_avoid[gcell] = t_s + FOOD_GIVE_UP_S
             self.goal = None
         if self.goal is not None:
             gcell, kind, util, t_set = self.goal

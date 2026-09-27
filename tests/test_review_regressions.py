@@ -84,6 +84,7 @@ def test_sweep_rejects_missing_trial_shard(tmp_path):
 
 def test_timed_out_food_goal_is_not_selected_again():
     cx = CortexV0.__new__(CortexV0)
+    cx.naps = True                     # the give-up ban applies to the pet (older kinds as run)
     cx.goal = ((1, 0), "food", 1.0, 0.0)
     cx.food_avoid = {}
     cx._utilities = lambda here, t: ({(1, 0): (2.0, "food"), here: (0.1, "explore")}, {})
@@ -123,6 +124,7 @@ def test_session_reset_clears_episode_activity_but_keeps_learning(monkeypatch):
 
 def test_give_up_blocks_food_goal_only():
     cx = CortexV0.__new__(CortexV0)
+    cx.naps = True
     cx.goal = None
     cx.food_avoid = {(1, 0): 100.0}
     cx._utilities = lambda here, t: ({(1, 0): (2.0, "owner"), here: (0.1, "explore")}, {})

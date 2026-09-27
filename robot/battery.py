@@ -24,7 +24,7 @@ two days and left no time to find the dock; run of 2026-09-26, stopped).
 from __future__ import annotations
 
 ONSET, HUNGRY, FULL = 0.60, 0.20, 0.90
-MEAL_BREAK_S = 15.0       # flies eat in bursts and wander a little between them
+MEAL_BREAK_S = 15.0       # a meal ends after this long without charging (flies eat in bursts)
 IDLE, MOVE, REST = 0.0006, 0.0016, 0.0002    # fraction of charge per second
 CHARGE = 0.02                                 # per second, docked and eating
 V_REF = 0.5                                   # m/s for MOVE
@@ -46,6 +46,9 @@ class Battery:
         rescued = self.flat
         if rescued:
             self.soc = RESCUE
+        # no meal carries over night (review 2026-09-26: a day ending mid-meal
+        # started the next one "hungry" at full dock sensitivity)
+        self.meal, self._off_dock = False, 0.0
         self.stats = {"start": round(self.soc, 3), "min": self.soc, "charged": 0.0,
                       "low_s": 0.0, "flat_s": 0.0, "rescued": rescued}
 
@@ -62,8 +65,15 @@ class Battery:
     def flat(self) -> bool:
         return self.soc <= 0.0
 
-    def step(self, dt: float, speed: float, resting: bool, charging: bool) -> None:
-        if charging and (self.meal or (self.hunger > 0.0 and self.soc < FULL)):
+    def step(self, dt: float, speed: float, resting: bool, charging: bool,
+             feeding: bool | None = None) -> None:
+        """charging: on the dock contacts and charging; feeding: the pet itself
+        is eating (proboscis out). Only feeding starts a meal: a charge on the
+        contacts forced by the navigation layer's emergency return is not the
+        pet eating. (feeding defaults to charging.)"""
+        if feeding is None:
+            feeding = charging
+        if charging and (self.meal or (feeding and self.hunger > 0.0 and self.soc < FULL)):
             # a meal starts only when hungry, and never at or above FULL
             self.meal, self._off_dock = True, 0.0
         elif self.meal:

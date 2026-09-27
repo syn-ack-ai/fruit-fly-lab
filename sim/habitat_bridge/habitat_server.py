@@ -133,14 +133,16 @@ class Server:
     def _lidar(self, sim, robot, rp, yaw) -> list:
         """A 2D lidar scan: ranges (m) for beams at lidar_angles (deg, + = right
         of the heading), in the horizontal plane at LIDAR_H_M; the robot's own
-        body is ignored, the person is seen (their legs)."""
+        body is ignored, the person is seen (their legs). yaw in radians."""
         import habitat_sim
         import magnum as mn
         own = {robot.sim_obj.object_id} | set(getattr(robot.sim_obj, "link_object_ids", {}).keys())
         origin = mn.Vector3(float(rp[0]), float(rp[1]) + self.LIDAR_H_M, float(rp[2]))
         out = []
         for a in self.lidar_angles:
-            b = math.radians(yaw) - math.radians(a)          # world bearing, CCW from +x in (x, -z)
+            b = yaw - math.radians(a)                        # yaw is in RADIANS here (summary: atan2);
+            # world bearing CCW from +x in (x, -z). (Review 2026-09-26: an extra
+            # radians() left the beams fixed to the world axes.)
             d = mn.Vector3(math.cos(b), 0.0, -math.sin(b))
             hits = sim.cast_ray(habitat_sim.geo.Ray(origin, d), max_distance=self.LIDAR_MAX_M)
             r = self.LIDAR_MAX_M

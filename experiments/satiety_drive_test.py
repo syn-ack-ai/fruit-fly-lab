@@ -16,7 +16,7 @@ handles at 0 Hz when off (a changing Poisson set shifts the RNG streams).
 Result (Pi, 6 seeds x 1 s, 2026-09-26): proboscis motor neurons to sugar at
 20 / 60 / 120 Hz: 8.0 / 18.4 / 25.6 Hz. Hugin at 80 Hz: no change at all (its
 synaptic outputs do not reach the feeding circuit; its effects are hormonal).
-ISN at 80 Hz: -10% / -15% (p = 0.03) / -6%, i.e. the WRONG direction (real
+ISN at 80 Hz: -10% / -15% (p = 0.03, one of 6 uncorrected comparisons) / -6%, i.e. if anything the WRONG direction (real
 ISNs promote sugar intake, largely through neuropeptides). The fast-synapse
 model cannot carry hunger through these cells; the pet's satiety therefore
 acts on sugar-taste and food-odour sensitivity (sim/habitat_bridge/home.py),

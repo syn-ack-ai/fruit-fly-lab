@@ -105,7 +105,7 @@ SPOT_HALF_LEN_M, SPOT_HALF_WID_M = 0.55, 0.25       # Habitat's robot body (Spot
 
 
 def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = False,
-                topdown: tuple | None = None, lidar: bool = False):
+                topdown: tuple | None = None, lidar: bool = False, lidar_senses: bool = True):
     import robot.head as rh
     from brain.neurons.registry import load_connectome
     from brain.sensory.encoders import LoomingEncoder
@@ -128,8 +128,10 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
         ang = beam_angles(LIDAR_BEAMS)
         scan = LidarScan(ang, ellipse_body(ang, SPOT_HALF_LEN_M, SPOT_HALF_WID_M))
         lloom, ltouch = LidarLooming(scan), LidarTouch(c, scan)
-        parts += [(LoomingEncoder(c, load_retinotopy(c)), lloom), (ltouch, ltouch)]
+        if lidar_senses:
+            parts += [(LoomingEncoder(c, load_retinotopy(c)), lloom), (ltouch, ltouch)]
         ses.lidar = (scan, lloom, ltouch)
+        ses.lidar_limit = True
     if home is not None:
         from sim.habitat_bridge.home import HomeSenses
         senses = HomeSenses(c, home)
@@ -194,6 +196,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0)
         if ses.mb is not None:
             ses.mb.reset_activity()               # new day: ongoing activity gone, memories kept
+        if getattr(ses, "lidar", None) is not None:
+            ses.lidar[0].t = None                 # new day: no lidar history (review 2026-09-26)
+            ses.lidar[1].reset()
     if home is not None:
         home.reset(seed)
     if cortex is not None:
@@ -229,7 +234,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             clock.t = t_sim
             feed.update(obs, period_ms / 1000.0)
             if getattr(ses, "lidar", None) is not None and obs.get("lidar"):
-                ses.lidar[0].update(obs["lidar"], t_sim)
+                ses.lidar[0].update(obs["lidar"], t_sim, pose=tuple(obs["robot"]))   # odometry on the robot
                 ses.lidar[1].update()
             if getattr(ses, "nav", None) is not None:
                 ses.body.state.heading_deg = float(obs["robot"][2]) % 360.0   # odometry yaw
@@ -252,14 +257,23 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             tb = 0.0
         else:
             v, w, tb = 0.0, 0.0, 0.0
+        # robot layers, in order: battery (emergency return / docking), then the
+        # safety limits, which nothing above may override (review 2026-09-26:
+        # the emergency return used to bypass them)
+        if home is not None and home.battery is not None:
+            v, w = _emergency_return(conn, obs, home, emergency, v, w, period_ms / 1000.0)
+            if not emergency["active"]:
+                seeking = bool(cortex is not None and getattr(cortex, "goal", None) and cortex.goal[1] == "food")
+                v = _dock_approach_limit(obs, home, v, seeking_food=seeking)
         if governor is not None:
             governor.observe(obs["visible"], obs["half"], t_sim)
             v = governor.limit(v, t_sim, period_ms / 1000.0)
-        if home is not None and home.battery is not None:
-            v = _dock_approach_limit(obs, home, v)
-            v, w = _emergency_return(conn, obs, home, emergency, v, w, period_ms / 1000.0)
-            if home.battery.flat:
-                v, w = 0.0, 0.0                   # a flat battery: the robot stops
+        if (mode == "brain" and getattr(ses, "lidar", None) is not None and ses.lidar[0].t is not None
+                and getattr(ses, "lidar_limit", True)):
+            from robot.safety import obstacle_limit
+            v = obstacle_limit(ses.lidar[0].clearance(), ses.lidar[0].angles, v)   # robot-level obstacle reflex
+        if home is not None and home.battery is not None and home.battery.flat:
+            v, w = 0.0, 0.0                       # a flat battery: the robot stops
         last_v = v
         prev_obs = obs
         obs = _call(conn, {"cmd": "step", "v": v, "w": w, "n": n_env,
@@ -346,16 +360,20 @@ EMERGENCY_SOC, EMERGENCY_DONE = 0.10, 0.30
 DOCK_SLOW_M, DOCK_SLOW_V, DOCK_PIVOT_DEG = 1.2, 0.15, 60.0
 
 
-def _dock_approach_limit(obs, home, v):
+def _dock_approach_limit(obs, home, v, seeking_food: bool = False):
     """Robot-level slow final approach to the dock (any robot docks slowly):
-    within DOCK_SLOW_M of the dock during a meal or when hungry, forward speed
+    within DOCK_SLOW_M of the dock while going to it (a meal, or the neocortex's
+    goal is food), forward speed
     is capped so the brain has time to turn and line up, and with the dock
     more than DOCK_PIVOT_DEG to the side it does not drive forward at all (a
     smoke test showed the pet orbiting the dock at 1 m). The dock position is
     the robot's own knowledge (it starts on its dock), not a sensed cue."""
     from sim.habitat_bridge.home import BOWL_XZ
     b = home.battery
-    if b is None or not (b.meal or b.hunger > 0.5):
+    if b is None or not (b.meal or seeking_food):
+        # only while the pet is going to its dock (a meal, or the neocortex's
+        # goal is food); otherwise it can still get out of the way (review
+        # 2026-09-26: "hunger > 0.5" froze pets beside the dock)
         return v
     x, z, yaw = obs["robot"]
     if math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1]) < DOCK_SLOW_M:
@@ -503,7 +521,10 @@ def main():
     ap.add_argument("--face", default=None, metavar="URL",
                     help="send the face to robot/face_server.py, e.g. http://127.0.0.1:8010/state")
     ap.add_argument("--lidar", action="store_true",
-                    help="simulated 2D lidar -> looming (LC4/LPLC2) and antennal touch (robot/lidar.py)")
+                    help="simulated 2D lidar -> looming (LC4/LPLC2) and antennal touch (robot/lidar.py) "
+                         "and the robot's obstacle speed limit (robot/safety.py)")
+    ap.add_argument("--lidar-use", choices=("both", "senses", "limit"), default="both",
+                    help="ablation: lidar feeds the fly's senses, the speed limit, or both")
     ap.add_argument("--safe-speed", action="store_true",
                     help="robot safety layer: slow down near the person (robot/safety.py)")
     a = ap.parse_args()
@@ -521,8 +542,11 @@ def main():
     chans = tuple(x for x in a.channels.split(",") if x) if a.cortex != "none" else None
     if a.cortex == "pet" and "rest" not in chans:
         chans += ("rest",)       # naps drive ER5 (attached only here: an idle input would shift the RNG stream)
-    brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar)
+    brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar,
+                         lidar_senses=a.lidar_use in ("both", "senses"))
              if a.mode == "brain" else None)
+    if brain is not None and a.lidar:
+        brain[0].lidar_limit = a.lidar_use in ("both", "limit")
     cortex = None
     if a.cortex != "none" and brain is not None:
         from cortex.agent import make_cortex

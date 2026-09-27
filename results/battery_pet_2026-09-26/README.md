@@ -40,7 +40,8 @@ scratch (partial output kept on the box as battery_pet_runC_interrupted).
 | pet ran into person | 40 | 38 |
 
 Hunger-scaled senses do make a charged pet ignore its dock (0 s vs 150 s of
-charging when full). But hunger then rose from 90% down and there was no meal
+charging at >= 83%; not normalised for time spent at high charge, and the pet
+spent little time there, averaging 0.45). But hunger then rose from 90% down and there was no meal
 state, so the pet charged in small sips, lived at ~45% charge, felt half-hungry
 all day and never napped (naps require not hungry). Next: hunger onset below
 60% and meals that continue to 90% (robot/battery.py).
@@ -69,8 +70,14 @@ Smoke test after 1-4: 3/3 hungry pets charged 0.40 -> 0.90 in one meal.
 | near person / pets received | 449 s / 23 | 380 s / 20 |
 | pet ran into person | 45 | 40 |
 
-Energy is now managed like a pet's: meals when hungry, a healthy charge, no
-flat batteries in 60 pet-days. Open: no boredom naps occurred (the person is
+No flat batteries in 60 pet-days and complete meals when hungry. Caveats
+(review 2026-09-26): "complete meals" can only start below 60% charge, so the
+always-on reflex, which tops up between 60 and 90%, has fewer by construction;
+the higher charge of the reflex control is the same fact, so "12 vs 5" is not
+evidence that the pet manages energy better than the control. Days within a
+lifetime are not independent (3 lifetimes per condition). A meal flag also
+carried over night and a navigation-forced charge could count as a meal
+(both fixed after this run). Open: no boredom naps occurred (the person is
 seen often in the small house, or unexplored cells keep "something to do");
 "charging while full" was not measured cleanly (the counter starts at 83%,
 inside a meal's intended range) and needs a >= 90% counter.

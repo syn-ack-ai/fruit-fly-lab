@@ -121,3 +121,51 @@ def test_the_cortex_stays_hungry_until_the_meal_is_done():
     for _ in range(8):                               # charge past ONSET
         home.step(at_dock, 1.0, proboscis=1.0)
     assert home.battery.soc > 0.6 and home.hunger == 1.0
+
+
+def test_no_meal_carries_over_night_and_nav_docking_is_not_a_meal():
+    b = Battery(0.5)
+    b.step(1.0, 0.0, False, charging=True)
+    assert b.meal
+    b.day_start()
+    assert not b.meal and b.sense_hunger == b.hunger
+    c = Battery(0.3)
+    c.step(1.0, 0.0, False, charging=True, feeding=False)     # emergency dock, not eating
+    assert not c.meal and c.soc > 0.3
+
+
+def test_a_bored_pet_really_naps():
+    """Regression (review 2026-09-26): a small explore option beat the nap."""
+    pytest.importorskip("torch")
+    from cortex.v0 import CortexV0, cell_of
+    cx = CortexV0(seed=1, manners=True, naps=True)
+    cx.reset(0, None, None)
+    here = cell_of(0.2, 0.2)
+    # a well-known neighbourhood (every cell visited often): little left to explore
+    for dx in (-1, 0, 1):
+        for dz in (-1, 0, 1):
+            c = (here[0] + dx, here[1] + dz)
+            for _ in range(100):
+                cx.map.visit(c, here if c != here else None)
+    cx.hunger, cx.social, cx.sleepy, cx.intent = 0.0, 0.1, 0.25, "none"
+    U, _ = cx._utilities(here, 30.0)
+    assert max(u for u, k in U.values() if k == "explore") < 0.15      # genuinely bored
+    cx.want_rest, cx._want_kind = True, "bored"
+    cx._plan(here, 30.0)
+    if not cx.resting:                                                # goes to a nap spot nearby first
+        assert cx.goal is not None and cx.goal[1] == "rest"
+        cx._plan(cx.goal[0], 31.0)                                    # arrived
+    assert cx.resting and cx.nap_kind == "bored"
+
+
+def test_older_cortex_kinds_do_not_use_the_new_planning():
+    pytest.importorskip("torch")
+    from cortex.v0 import CortexV0, cell_of
+    cx = CortexV0(seed=1, manners=True, naps=False)          # v0_manners
+    cx.reset(0, None, None)
+    cx.know_place((-5.29, -4.49))
+    here = cell_of(0.0, 0.0)
+    cx.map.visit(here, None)
+    cx.hunger, cx.social, cx.intent = 0.9, 0.1, "none"
+    U, _ = cx._utilities(here, 10.0)
+    assert cell_of(-5.29, -4.49) not in U

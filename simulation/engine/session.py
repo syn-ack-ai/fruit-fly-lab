@@ -687,6 +687,13 @@ class Session:
 
     # ------------------------------------------------------------------ state
     def reset(self, seed: int = 0) -> None:
+        """A new episode: engine state, readout, stimuli, body; ongoing
+        mushroom-body activity and navigation state are cleared, learned
+        weights kept. (Since PR #1, 2026-09-26, reset() always clears the body,
+        MB activity and navigation state; before, MB dopamine baseline and
+        eligibility carried into e.g. the test phase of
+        experiments/05_learned_preference.py, so its earlier numbers may not
+        reproduce exactly.)"""
         if self._native:
             self.engine.reset(seed=seed)
         else:

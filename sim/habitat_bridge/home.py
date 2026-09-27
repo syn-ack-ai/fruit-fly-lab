@@ -129,7 +129,8 @@ class HomeWorld:
                     st["at_bowl_s"] += dt
                     if proboscis > 0.5:
                         st["eating_s"] += dt
-                        if self.battery is not None and self.battery.soc >= 0.83:
+                        # eating although satiated: at or above FULL and not in a meal
+                        if self.battery is not None and self.battery.soc >= 0.9 and not self.battery.meal:
                             st["eating_when_full_s"] += dt
             elif d < EAT_R_M:
                 st["at_plant_s"] += dt
@@ -138,7 +139,8 @@ class HomeWorld:
         if self.battery is not None:
             d_dock = math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1])
             self.battery.step(dt, speed, resting,
-                              charging=d_dock < EAT_R_M and (proboscis > 0.5 or self.docked_by_nav))
+                              charging=d_dock < EAT_R_M and (proboscis > 0.5 or self.docked_by_nav),
+                              feeding=d_dock < EAT_R_M and proboscis > 0.5)
         # the owner
         if obs["dist"] < OWNER_R_M:
             st["near_person_s"] += dt

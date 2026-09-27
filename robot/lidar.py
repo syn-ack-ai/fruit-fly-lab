@@ -5,11 +5,15 @@ simulated scan: sim/habitat_bridge/habitat_server.py --lidar).
 A 2D lidar gives distances in one horizontal plane all around the robot. It is
 not vision; it feeds two of the fly's senses:
 
-  looming   a gap closing fast in any direction -> the looming detectors
-            LC4 / LPLC2 (the same neurons the camera drives, robot/head.py):
-            the beam with the fastest growing apparent size of an obstacle of
-            nominal width OBJECT_W_M, if it is within LOOM_MAX_M (LidarLooming,
-            a stimulus for brain.sensory.encoders.LoomingEncoder)
+  looming   something MOVING toward the pet -> the looming detectors LC4 /
+            LPLC2 (the same neurons the camera drives, robot/head.py). Self-
+            motion is discounted, as flies do with an efference copy: the last
+            scan is projected into the robot's new pose, and a beam looms only
+            where the world came closer than a still world predicts, faster
+            than MOVING_MS, within LOOM_MAX_M (LidarLooming, a stimulus for
+            brain.sensory.encoders.LoomingEncoder). (Without this, the first
+            test drove LC4/LPLC2 in 99.8% of steps: turning makes walls
+            "approach" in some beams.)
   touch     an obstacle within TOUCH_M of the body -> the antennal and
             vibrissal head bristles (BM_Ant, BM_Vib) on that side, as a fly
             feels a wall with its antennae (LidarTouch)
@@ -32,6 +36,7 @@ LOOM_MAX_M = 2.0            # beyond this, nothing looms
 TOUCH_M = 0.15              # "antenna" reach beyond the body surface
 TOUCH_HZ = 80.0             # as petting (sim/habitat_bridge/home.py)
 FRONT_DEG = 30.0            # beams within this of straight ahead touch both sides
+MOVING_MS = 0.3             # closing speed beyond self-motion that counts as "coming at me"
 
 
 def beam_angles(beams: int) -> list:
@@ -49,16 +54,50 @@ class LidarScan:
     """The latest scan: ranges (m) at beam angles (deg, + = right); body = the
     body surface's distance from the lidar (scalar or per beam)."""
 
-    def __init__(self, angles_deg, body_radius_m):
+    def __init__(self, angles_deg, body_radius_m, max_range_m: float = 8.0):
         self.angles = np.asarray(angles_deg, float)
+        self.max_range = float(max_range_m)          # a beam at max range hit nothing
         self.body = np.broadcast_to(np.asarray(body_radius_m, float), self.angles.shape).copy()
         self.ranges = np.full(len(self.angles), np.inf)
         self.t = None
+        self.pose = None
 
-    def update(self, ranges, t_s: float) -> None:
+    def update(self, ranges, t_s: float, pose=None) -> None:
+        """pose = (x, z, yaw_deg) of the robot (odometry / IMU on the robot;
+        Habitat's pose in simulation), yaw CCW in the (x, -z) plane."""
         r = np.asarray(ranges, float)
-        self.ranges = np.where(np.isfinite(r) & (r > 0), r, np.inf)
+        self.ranges = np.where(np.isfinite(r) & (r > 0) & (r < self.max_range - 1e-3), r, np.inf)
         self.t = t_s
+        self.pose = pose
+
+    def points_world(self) -> np.ndarray:
+        """Hit points in world (x, z), finite beams only."""
+        x, z, yaw = self.pose
+        ok = np.isfinite(self.ranges)
+        b = np.radians(yaw - self.angles[ok])
+        r = self.ranges[ok]
+        return np.stack([x + r * np.cos(b), z - r * np.sin(b)], axis=1)
+
+    def points_world_all(self) -> np.ndarray:
+        """Hit points in world (x, z) for every beam, nan where nothing was hit."""
+        x, z, yaw = self.pose
+        b = np.radians(yaw - self.angles)
+        r = np.where(np.isfinite(self.ranges), self.ranges, np.nan)
+        return np.stack([x + r * np.cos(b), z - r * np.sin(b)], axis=1)
+
+    def predict_from(self, pts) -> np.ndarray:
+        """Per beam of THIS pose: range at which a still world (the given world
+        points) would be seen; inf where no old point falls in the beam."""
+        x, z, yaw = self.pose
+        dx, dz = pts[:, 0] - x, pts[:, 1] - z
+        rng = np.hypot(dx, dz)
+        bearing = np.degrees(np.arctan2(-dz, dx))                   # CCW, (x, -z)
+        az = ((yaw - bearing + 180.0) % 360.0) - 180.0              # + = right
+        step = 360.0 / len(self.angles)
+        k = np.round((az - self.angles[0]) / step).astype(int) % len(self.angles)
+        out = np.full(len(self.angles), np.inf)
+        np.minimum.at(out, k, rng)
+        return out
 
     def clearance(self) -> np.ndarray:
         """Distance from the body surface to the nearest thing, per beam."""
@@ -66,31 +105,78 @@ class LidarScan:
 
 
 class LidarLooming:
-    """The most threatening beam as a looming stimulus (LoomingEncoder)."""
+    """The most threatening MOVING thing as a looming stimulus (LoomingEncoder).
+
+    Self-motion is discounted like a fly's efference copy, by matching points:
+    each current hit point (world frame, from the robot's pose) is compared
+    with the nearest point of the scan BASE_S earlier. A still world matches
+    within the scan's own resolution (MATCH_M + range x beam spacing); a point
+    that matches nothing and came closer faster than MOVING_MS is something
+    coming at the pet. Its looming drive is the angular expansion rate of an
+    object of width OBJECT_W_M closing at that speed. (Review 2026-09-26: the
+    first version compared ranges within 4-degree bins and fired on slanted
+    still walls in half the steps while walking.)"""
+
+    BASE_S = 0.5              # compare with the scan this long ago
+    MATCH_M = 0.08
 
     def __init__(self, scan: LidarScan):
         self.scan = scan
-        self._half = None
-        self._t = None
-        self._exp = np.zeros(len(scan.angles))
+        self.reset()
+
+    def reset(self) -> None:
+        """A new episode / day: no history."""
+        from collections import deque
+        self._hist = deque()
         self.last = {"active": False}
 
     def update(self) -> None:
         s = self.scan
-        clear = np.maximum(s.clearance(), 0.05)
-        half = np.degrees(np.arctan((OBJECT_W_M / 2) / clear))
-        half[~np.isfinite(s.ranges)] = 0.0
-        if self._half is not None and s.t is not None and s.t > self._t:
-            exp = (half - self._half) / (s.t - self._t)
-            self._exp = 0.5 * self._exp + 0.5 * exp
-        self._half, self._t = half, s.t
-        cand = np.where((clear < LOOM_MAX_M) & (self._exp > 0), self._exp, 0.0)
-        i = int(np.argmax(cand))
-        on = cand[i] > 0
-        self.last = {"active": bool(on), "azimuth_deg": float(s.angles[i]),
-                     "half_angle_deg": float(half[i]) if on else 0.0,
-                     "expansion_rate_deg_s": float(self._exp[i]) if on else 0.0,
-                     "range_m": float(s.ranges[i])}
+        self.last = {"active": False}
+        if s.t is None or s.pose is None:
+            return
+        while self._hist and (s.t < self._hist[-1][0] or s.t - self._hist[0][0] > 2 * self.BASE_S):
+            if s.t < self._hist[-1][0]:
+                self._hist.clear()               # the clock went back: a new episode
+            else:
+                self._hist.popleft()
+        ref = None
+        for t_old, pts_old in self._hist:
+            if s.t - t_old >= self.BASE_S:
+                ref = (t_old, pts_old)
+        ok = np.isfinite(s.ranges)
+        pts = s.points_world()                   # finite beams only, in beam order
+        self._hist.append((s.t, s.points_world_all()))
+        if ref is None or not ok.any():
+            return
+        t_old, old = ref
+        old = old[np.isfinite(old[:, 0])]
+        if not len(old):
+            return
+        dt = s.t - t_old
+        x, z, _ = s.pose
+        idx = np.flatnonzero(np.isfinite(s.ranges))
+        keep = ok[idx]
+        P, r = pts[keep], s.ranges[idx][keep]
+        beams = idx[keep]
+        d2 = ((P[:, None, :] - old[None, :, :]) ** 2).sum(-1)
+        j = np.argmin(d2, axis=1)
+        dmin = np.sqrt(d2[np.arange(len(P)), j])
+        r_old = np.hypot(old[j, 0] - x, old[j, 1] - z)
+        closing = (r_old - r) / dt
+        spacing = np.radians(360.0 / len(s.angles))
+        tol = self.MATCH_M + r * spacing * 1.5
+        clear = np.maximum(r - s.body[beams], 0.05)
+        moving = (dmin > tol) & (closing > MOVING_MS) & (clear < LOOM_MAX_M)
+        if not moving.any():
+            return
+        w2 = OBJECT_W_M / 2
+        half = np.degrees(np.arctan(w2 / clear))
+        exp = np.degrees(w2 * closing / (clear ** 2 + w2 ** 2))
+        k = int(np.argmax(np.where(moving, exp, -1.0)))
+        self.last = {"active": True, "azimuth_deg": float(s.angles[beams[k]]),
+                     "half_angle_deg": float(half[k]), "expansion_rate_deg_s": float(exp[k]),
+                     "range_m": float(r[k]), "closing_ms": float(closing[k])}
 
     def state(self, t_ms: float) -> dict:
         L = self.last
@@ -120,8 +206,9 @@ class LidarTouch:
         near = np.clip(1.0 - s.clearance() / TOUCH_M, 0.0, 1.0)
         near[~np.isfinite(s.ranges)] = 0.0
         a = s.angles
-        left = float(np.max(near[(a < FRONT_DEG)], initial=0.0))    # left side and front
-        right = float(np.max(near[(a > -FRONT_DEG)], initial=0.0))  # right side and front
+        rear = np.abs(a) >= 180.0 - 1e-6                             # straight behind: both sides
+        left = float(np.max(near[(a < FRONT_DEG) | rear], initial=0.0))    # left side, front, rear
+        right = float(np.max(near[(a > -FRONT_DEG) | rear], initial=0.0))  # right side, front, rear
         return left, right
 
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:

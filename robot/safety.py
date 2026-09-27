@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 TARGET_HALF_WIDTH_M = 0.25      # head and shoulders (robot/head.py target)
 HEAD_ABOVE_CAM_M = 1.10         # a standing person's head above the pet's camera
 CONTACT_M = 0.5                 # at or inside this: crawl
@@ -65,3 +67,29 @@ class ProximityGovernor:
             self.limited_s += dt
             return vmax
         return v
+
+
+# ------------------------------------------------------------ obstacles (lidar)
+OBST_STOP_M = 0.08              # clearance ahead at which forward motion stops
+OBST_FREE_M = 0.60              # from here: no limit
+OBST_CONE_DEG = 35.0            # "ahead" = beams within this of the heading
+OBST_V_MIN = 0.0
+
+
+def obstacle_limit(clearance_m, angles_deg, v: float, v_free: float = V_FREE) -> float:
+    """Forward speed allowed by the lidar's clearance ahead (m from the body
+    surface, per beam). Slows linearly from OBST_FREE_M and stops at
+    OBST_STOP_M; backing up and turning are never limited. The robot's own
+    obstacle reflex (on the rover: its safety layer / ESP32), not the brain's:
+    in this connectome antennal touch slows walking but does not steer around
+    things (experiments/antenna_touch_test.py)."""
+    if v <= 0:
+        return v
+    a = ((np.asarray(angles_deg, float) + 180.0) % 360.0) - 180.0
+    ahead = np.abs(a) <= OBST_CONE_DEG
+    c = np.asarray(clearance_m, float)[ahead]
+    if c.size == 0:
+        return v
+    near = float(c.min())
+    f = (near - OBST_STOP_M) / (OBST_FREE_M - OBST_STOP_M)
+    return min(v, OBST_V_MIN + (v_free - OBST_V_MIN) * min(1.0, max(0.0, f)))

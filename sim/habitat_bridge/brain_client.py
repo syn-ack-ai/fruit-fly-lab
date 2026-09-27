@@ -100,8 +100,12 @@ class SimFeed:
         return self.s
 
 
+LIDAR_BEAMS = 90
+SPOT_HALF_LEN_M, SPOT_HALF_WID_M = 0.55, 0.25       # Habitat's robot body (Spot) from its lidar
+
+
 def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = False,
-                topdown: tuple | None = None):
+                topdown: tuple | None = None, lidar: bool = False):
     import robot.head as rh
     from brain.neurons.registry import load_connectome
     from brain.sensory.encoders import LoomingEncoder
@@ -117,6 +121,15 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
     obj = rh.ObjectEncoder(c, feed)
     rest = rh.RestingOlfaction(c)
     parts = [(loom, rh.HeadLoomingStimulus(feed)), (obj, obj)]
+    ses.lidar = None
+    if lidar:
+        # 2D lidar as looming (LC4/LPLC2) and antennal touch (robot/lidar.py)
+        from robot.lidar import LidarLooming, LidarScan, LidarTouch, beam_angles, ellipse_body
+        ang = beam_angles(LIDAR_BEAMS)
+        scan = LidarScan(ang, ellipse_body(ang, SPOT_HALF_LEN_M, SPOT_HALF_WID_M))
+        lloom, ltouch = LidarLooming(scan), LidarTouch(c, scan)
+        parts += [(LoomingEncoder(c, load_retinotopy(c)), lloom), (ltouch, ltouch)]
+        ses.lidar = (scan, lloom, ltouch)
     if home is not None:
         from sim.habitat_bridge.home import HomeSenses
         senses = HomeSenses(c, home)
@@ -215,6 +228,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if mode == "brain":
             clock.t = t_sim
             feed.update(obs, period_ms / 1000.0)
+            if getattr(ses, "lidar", None) is not None and obs.get("lidar"):
+                ses.lidar[0].update(obs["lidar"], t_sim)
+                ses.lidar[1].update()
             if getattr(ses, "nav", None) is not None:
                 ses.body.state.heading_deg = float(obs["robot"][2]) % 360.0   # odometry yaw
             if personality is not None and cortex is not None:
@@ -240,6 +256,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             governor.observe(obs["visible"], obs["half"], t_sim)
             v = governor.limit(v, t_sim, period_ms / 1000.0)
         if home is not None and home.battery is not None:
+            v = _dock_approach_limit(obs, home, v)
             v, w = _emergency_return(conn, obs, home, emergency, v, w, period_ms / 1000.0)
             if home.battery.flat:
                 v, w = 0.0, 0.0                   # a flat battery: the robot stops
@@ -270,6 +287,10 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                     "az": round(obs["az"], 1), "v": round(v, 3), "w_deg": round(math.degrees(w), 1),
                     "turn_bias": tb, "dn": dn,
                     "lc10a_hz": (obj.last.get("drive_hz") if mode == "brain" else None)})
+        if mode == "brain" and getattr(ses, "lidar", None) is not None:
+            L = ses.lidar
+            log[-1]["lidar"] = {"loom": L[1].last.get("active", False), "loom_az": round(L[1].last.get("azimuth_deg", 0.0)),
+                                "touch": L[2].last, "min_clear": round(float(L[0].clearance().min()), 2)}
         if home is not None:
             log[-1].update({"odour": [round(float(home.conc["L"].sum()), 3), round(float(home.conc["R"].sum()), 3)],
                             "taste": home.taste, "pet": home.petting, "treat": home.treating,
@@ -320,6 +341,30 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
 
 
 EMERGENCY_SOC, EMERGENCY_DONE = 0.10, 0.30
+
+
+DOCK_SLOW_M, DOCK_SLOW_V, DOCK_PIVOT_DEG = 1.2, 0.15, 60.0
+
+
+def _dock_approach_limit(obs, home, v):
+    """Robot-level slow final approach to the dock (any robot docks slowly):
+    within DOCK_SLOW_M of the dock during a meal or when hungry, forward speed
+    is capped so the brain has time to turn and line up, and with the dock
+    more than DOCK_PIVOT_DEG to the side it does not drive forward at all (a
+    smoke test showed the pet orbiting the dock at 1 m). The dock position is
+    the robot's own knowledge (it starts on its dock), not a sensed cue."""
+    from sim.habitat_bridge.home import BOWL_XZ
+    b = home.battery
+    if b is None or not (b.meal or b.hunger > 0.5):
+        return v
+    x, z, yaw = obs["robot"]
+    if math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1]) < DOCK_SLOW_M:
+        from cortex.topdown import bearing_deg
+        off = ((bearing_deg((x, z), BOWL_XZ) - yaw + 180.0) % 360.0) - 180.0
+        if abs(off) > DOCK_PIVOT_DEG:
+            return min(v, 0.0)        # dock to the side: turn on the spot (the brain steers), don't orbit
+        return min(v, DOCK_SLOW_V)
+    return v
 
 
 def _emergency_return(conn, obs, home, em, v, w, dt):
@@ -457,6 +502,8 @@ def main():
     ap.add_argument("--pet-name", default="Mote")
     ap.add_argument("--face", default=None, metavar="URL",
                     help="send the face to robot/face_server.py, e.g. http://127.0.0.1:8010/state")
+    ap.add_argument("--lidar", action="store_true",
+                    help="simulated 2D lidar -> looming (LC4/LPLC2) and antennal touch (robot/lidar.py)")
     ap.add_argument("--safe-speed", action="store_true",
                     help="robot safety layer: slow down near the person (robot/safety.py)")
     a = ap.parse_args()
@@ -474,7 +521,8 @@ def main():
     chans = tuple(x for x in a.channels.split(",") if x) if a.cortex != "none" else None
     if a.cortex == "pet" and "rest" not in chans:
         chans += ("rest",)       # naps drive ER5 (attached only here: an idle input would shift the RNG stream)
-    brain = build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans) if a.mode == "brain" else None
+    brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar)
+             if a.mode == "brain" else None)
     cortex = None
     if a.cortex != "none" and brain is not None:
         from cortex.agent import make_cortex
@@ -504,6 +552,8 @@ def main():
     with Client(("127.0.0.1", a.port), authkey=authkey()) as conn:
         if a.topdown:
             print("top-down map:", _call(conn, {"cmd": "topdown", "path": a.topdown}), flush=True)
+        if a.lidar:
+            _call(conn, {"cmd": "lidar", "beams": LIDAR_BEAMS})
         for day, ep in enumerate(a.episodes):
             r = run_episode(conn, a.mode, ep, a.seconds, a.period_ms, a.seed + ep,
                             a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,

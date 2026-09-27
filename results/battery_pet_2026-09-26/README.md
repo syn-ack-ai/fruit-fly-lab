@@ -44,3 +44,33 @@ charging when full). But hunger then rose from 90% down and there was no meal
 state, so the pet charged in small sips, lived at ~45% charge, felt half-hungry
 all day and never napped (naps require not hungry). Next: hunger onset below
 60% and meals that continue to 90% (robot/battery.py).
+
+## Run D (final of the day): meals, boredom naps, dock approach
+
+Changes after run C, each found by tracing single hungry pets (one-day smoke
+tests with the charge starting at 45%):
+1. hunger starts below 60% charge; a meal (charging) continues to 90%, and only
+   starts when hungry (robot/battery.py);
+2. the neocortex stays hungry during a meal ("meal mode": other goals wait, it
+   steers back to the dock after a drift, pays its person little attention),
+   and settles at the bowl between feeding bursts (rest drive 0.6);
+3. a meal survives short wanders (15 s off the dock);
+4. robot-level slow final approach within 1.2 m of the dock (0.15 m/s) and
+   pivot-in-place when the dock is > 60 deg to the side (the pet orbited it);
+5. boredom naps (alone > 20 s, nothing worth doing, not hungry) besides sleepy naps.
+Smoke test after 1-4: 3/3 hungry pets charged 0.40 -> 0.90 in one meal.
+
+| (3 seeds x 10 days) | pet | petreflex (always-on dock reflex) |
+|---|---|---|
+| complete meals (to 90%) | 12 | 5 |
+| end-of-day charge, mean +- sd (lowest) | 0.65 +- 0.16 (0.27) | 0.75 +- 0.19 (0.30) |
+| flat / rescued / emergency returns | 0 / 0 / 0 | 0 / 0 / 0 |
+| naps (sleepy / bored) | 6 / 0 (83 s) | 2 / 0 (38 s) |
+| near person / pets received | 449 s / 23 | 380 s / 20 |
+| pet ran into person | 45 | 40 |
+
+Energy is now managed like a pet's: meals when hungry, a healthy charge, no
+flat batteries in 60 pet-days. Open: no boredom naps occurred (the person is
+seen often in the small house, or unexplored cells keep "something to do");
+"charging while full" was not measured cleanly (the counter starts at 83%,
+inside a meal's intended range) and needs a >= 90% counter.

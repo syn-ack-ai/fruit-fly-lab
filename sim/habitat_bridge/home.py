@@ -87,8 +87,12 @@ class HomeWorld:
 
     @property
     def hunger(self) -> float | None:
-        """Battery mode: how hungry (0..1) the charge makes the pet; else None."""
-        return None if self.battery is None else self.battery.hunger
+        """Battery mode: how hungry (0..1) the pet is; else None. During a meal
+        it stays hungry until satiated (robot/battery.py sense_hunger), so the
+        neocortex does not pull it away from the dock mid-meal (it did in the
+        first meal run: a meal started at 48% ended at 61% when the cortex,
+        no longer hungry, chose its person)."""
+        return None if self.battery is None else self.battery.sense_hunger
 
     def sense_gain(self) -> tuple:
         """(taste, odour) gain on the dock's signals: hunger-dependent sensitivity."""

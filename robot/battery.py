@@ -24,7 +24,7 @@ two days and left no time to find the dock; run of 2026-09-26, stopped).
 from __future__ import annotations
 
 ONSET, HUNGRY, FULL = 0.60, 0.20, 0.90
-MEAL_BREAK_S = 5.0
+MEAL_BREAK_S = 15.0       # flies eat in bursts and wander a little between them
 IDLE, MOVE, REST = 0.0006, 0.0016, 0.0002    # fraction of charge per second
 CHARGE = 0.02                                 # per second, docked and eating
 V_REF = 0.5                                   # m/s for MOVE
@@ -63,7 +63,8 @@ class Battery:
         return self.soc <= 0.0
 
     def step(self, dt: float, speed: float, resting: bool, charging: bool) -> None:
-        if charging:
+        if charging and (self.meal or (self.hunger > 0.0 and self.soc < FULL)):
+            # a meal starts only when hungry, and never at or above FULL
             self.meal, self._off_dock = True, 0.0
         elif self.meal:
             self._off_dock += dt

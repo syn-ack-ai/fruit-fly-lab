@@ -22,6 +22,9 @@ def test_a_meal_lasts_until_full():
     assert not b.meal and b.stats["meals"] == 1 and b.sense_hunger == 0.0
     c = Battery(0.5)
     c.step(1.0, 0.0, False, charging=True)
+    for _ in range(10):
+        c.step(1.0, 0.3, False, charging=False)    # a short wander between bursts
+    assert c.meal
     for _ in range(6):
         c.step(1.0, 0.3, False, charging=False)    # walked off the dock
     assert not c.meal
@@ -77,3 +80,44 @@ def test_a_pet_born_on_its_dock_plans_to_it_when_hungry():
     dock = cell_of(-5.29, -4.49)
     assert dock in U and U[dock][1] == "food"
     assert max(U.items(), key=lambda kv: kv[1][0])[0] == dock
+
+
+def test_bored_and_alone_it_naps_and_wakes_when_its_person_is_back():
+    pytest.importorskip("torch")
+    from cortex.v0 import CortexV0
+    cx = CortexV0(seed=1, manners=True, naps=True)
+    cx.reset(0, None, None)
+    cx.hunger, cx.sleepy = 0.1, 0.25
+    obs = {"robot": [0.2, 0.2, 0.0], "visible": False, "half": 0.0, "az": 0.0, "el": 0.0}
+    cx._u_best = {"food": 0.0, "explore": 0.05, "owner": 0.0}   # nothing worth doing
+    for k in range(260):                                         # 26 s alone, standing still
+        cx.next_plan = 1e9                                       # keep the utilities fixed
+        cx.act(obs, None, 0.1 * k, None)
+        if cx.want_rest:
+            break
+    assert cx.want_rest and cx._want_kind == "bored"
+    cx.resting, cx.nap_kind = True, "bored"
+    seen = dict(obs, visible=True, half=6.0)                    # its person walks in
+    cx.act(seen, None, 30.0, None)
+    assert not cx.resting
+
+
+def test_no_meal_when_not_hungry_and_none_restarts_at_full():
+    b = Battery(0.7)                                # not hungry (above ONSET)
+    b.step(1.0, 0.0, False, charging=True)
+    assert not b.meal and b.sense_hunger == 0.0
+    c = Battery(0.5)
+    while c.soc < FULL:
+        c.step(1.0, 0.0, False, charging=True)
+    for _ in range(5):                              # still on the contacts
+        c.step(1.0, 0.0, False, charging=True)
+    assert not c.meal and c.stats["meals"] == 1
+
+
+def test_the_cortex_stays_hungry_until_the_meal_is_done():
+    home = HomeWorld(seed=0, battery=Battery(0.5))
+    at_dock = {"robot": [BOWL_XZ[0], BOWL_XZ[1], 0.0], "dist": 5.0, "visible": False}
+    home.step(at_dock, 1.0, proboscis=1.0)
+    for _ in range(8):                               # charge past ONSET
+        home.step(at_dock, 1.0, proboscis=1.0)
+    assert home.battery.soc > 0.6 and home.hunger == 1.0

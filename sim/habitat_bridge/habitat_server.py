@@ -68,6 +68,8 @@ def make_env(house: str, max_seconds: float, habitat_lab_dir: str):
 
 
 class Server:
+    LIDAR_H_M, LIDAR_MAX_M = 0.20, 8.0      # UGV Rover-like lidar height; range limit
+
     def __init__(self, house: str, max_seconds: float, hfov_deg: float, habitat_lab_dir: str,
                  cam_height: float = CAM_HEIGHT_M, cam_pitch: float = 20.0):
         self.env = make_env(house, max_seconds, habitat_lab_dir)
@@ -116,7 +118,9 @@ class Server:
             ignore = {human.sim_obj.object_id, robot.sim_obj.object_id}
             visible = not (hits.has_hits() and any(h.object_id not in ignore for h in hits.hits))
         m = self.env.get_metrics()
+        out_lidar = self._lidar(sim, robot, rp, yaw) if getattr(self, "lidar_beams", 0) else None
         return {"t": round(self.t, 4), "dist": float(np.linalg.norm((hp - rp)[[0, 2]])),
+                "lidar": out_lidar,
                 "az": az, "el": el, "half": half, "visible": bool(visible), "in_fov": bool(in_fov),
                 "robot": [float(rp[0]), float(rp[2]), math.degrees(yaw)],
                 "human": [float(hp[0]), float(hp[2])],
@@ -125,6 +129,32 @@ class Server:
                 "scene_contacts": int((m.get("robot_collisions") or {}).get("robot_scene_colls", 0) or 0),
                 "stats": {k: (float(v) if isinstance(v, (int, float, np.floating, np.integer, bool)) else None)
                           for k, v in (m.get("social_nav_stats") or {}).items()}}
+
+    def _lidar(self, sim, robot, rp, yaw) -> list:
+        """A 2D lidar scan: ranges (m) for beams at lidar_angles (deg, + = right
+        of the heading), in the horizontal plane at LIDAR_H_M; the robot's own
+        body is ignored, the person is seen (their legs)."""
+        import habitat_sim
+        import magnum as mn
+        own = {robot.sim_obj.object_id} | set(getattr(robot.sim_obj, "link_object_ids", {}).keys())
+        origin = mn.Vector3(float(rp[0]), float(rp[1]) + self.LIDAR_H_M, float(rp[2]))
+        out = []
+        for a in self.lidar_angles:
+            b = math.radians(yaw) - math.radians(a)          # world bearing, CCW from +x in (x, -z)
+            d = mn.Vector3(math.cos(b), 0.0, -math.sin(b))
+            hits = sim.cast_ray(habitat_sim.geo.Ray(origin, d), max_distance=self.LIDAR_MAX_M)
+            r = self.LIDAR_MAX_M
+            if hits.has_hits():
+                for h in hits.hits:
+                    if h.object_id not in own:
+                        r = min(r, float(h.ray_distance))
+            out.append(round(r, 3))
+        return out
+
+    def set_lidar(self, beams: int) -> dict:
+        self.lidar_beams = int(beams)
+        self.lidar_angles = [(-180.0 + 360.0 * k / beams) for k in range(beams)] if beams else []
+        return {"beams": self.lidar_beams, "angles": self.lidar_angles}
 
     # ------------------------------------------------------------------ calls
     def reset(self, episode: int | None = None) -> dict:
@@ -247,6 +277,8 @@ def handle(srv, msg, conn):
         return srv.reset(msg.get("episode"))
     if cmd == "step":
         return srv.step(msg["v"], msg["w"], msg.get("n", 12), msg.get("frame", False))
+    if cmd == "lidar":
+        return srv.set_lidar(msg.get("beams", 90))
     if cmd == "path":
         return srv.path(msg["goal"], msg.get("ahead", 0.8))
     if cmd == "topdown":

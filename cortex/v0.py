@@ -85,6 +85,13 @@ WALKING_MS = 0.25            # estimated person speed that counts as walking
 # spot (where it has napped before) and rests there (top-down "rest" channel)
 SLEEP_RISE, SLEEP_ACTIVE, SLEEP_FALL = 0.004, 0.004, 0.03   # per second
 SLEEPY, AWAKE = 0.6, 0.15
+# boredom naps (cats sleep most when nothing is going on): its person not seen
+# for ALONE_S, charge fine, and nothing on the map worth doing -> nap even when
+# only mildly sleepy; it wakes when its person reappears
+ALONE_S, ALONE_GIVE_UP_S = 20.0, 45.0      # alone; after this it stops looking for them
+BORED_U = 0.15                              # best food / explore / owner utility below this
+BORED_SLEEPY = 0.2
+MEAL_SETTLE = 0.6           # rest drive while at the bowl during a meal
 REST_LEARN = 0.02
 # personality (cortex/personality.py): an intention multiplies the matching
 # utility, so the drive behind it still decides how much it matters
@@ -237,6 +244,7 @@ class CortexV0:
             self.critic = Critic(self._n_features(), int(self.rng.integers(1 << 30)))
         self.hunger, self.social = 0.6, 0.5          # a new day: hungry, wants company
         self.sleepy, self.resting, self.want_rest = 0.2, False, False
+        self.nap_kind, self._want_kind, self._u_best = None, None, {}
         self.prev_xz = None
         self.t = 0.0
         self.prev_cell = None
@@ -334,16 +342,26 @@ class CortexV0:
                                     - SOCIAL_PET * (new_pet or new_treat), 0, 1))
         speed = 0.0 if self.prev_xz is None else math.hypot(x - self.prev_xz[0], z - self.prev_xz[1]) / max(dt, 1e-3)
         self.prev_xz = (x, z)
+        # alone = its person not seen for a while (today; the start of a day counts)
+        alone_s = t_s - (self.person_seen[2] if self.person_seen is not None else 0.0)
         if self.resting:
             self.sleepy = max(0.0, self.sleepy - SLEEP_FALL * dt)
             node["rest"] += REST_LEARN * dt * (1.0 - node["rest"])      # a good place to nap
-            if self.sleepy <= AWAKE or self.hunger > 0.7 or new_pet or self.intent in ("seek_person", "eat", "explore"):
+            slept = self.sleepy <= (0.02 if self.nap_kind == "bored" else AWAKE)
+            home_again = self.nap_kind == "bored" and person_d is not None      # its person is back
+            if (slept or home_again or self.hunger > 0.7 or new_pet
+                    or self.intent in ("seek_person", "eat", "explore")):
                 self.resting = False
         else:
             self.sleepy = min(1.0, self.sleepy + (SLEEP_RISE + SLEEP_ACTIVE * min(1.0, speed / 0.3)) * dt)
-        self.want_rest = (self.naps and not self.resting and self.hunger < 0.5
-                          and (self.sleepy >= SLEEPY or (self.intent == "rest" and self.sleepy >= 0.3))
-                          and (self.social < SEEK_SOCIAL or self.intent == "rest"))
+        ub = self._u_best
+        bored = (ub.get("food", 0.0) < BORED_U and ub.get("explore", 0.0) < BORED_U
+                 and (ub.get("owner", 0.0) < BORED_U or alone_s > ALONE_GIVE_UP_S))
+        sleepy_nap = (self.sleepy >= SLEEPY or (self.intent == "rest" and self.sleepy >= 0.3)) \
+            and (self.social < SEEK_SOCIAL or self.intent == "rest")
+        bored_nap = bored and alone_s > ALONE_S and self.hunger < 0.3 and self.sleepy >= BORED_SLEEPY
+        self.want_rest = self.naps and not self.resting and self.hunger < 0.5 and (sleepy_nap or bored_nap)
+        self._want_kind = "sleepy" if sleepy_nap else ("bored" if bored_nap else None)
 
         # --- critic: reward-prediction error -> dopamine
         phi = self._features((x, z), node, home, obs)
@@ -372,8 +390,27 @@ class CortexV0:
             wp = self._waypoint(c, gcell, (x, z), kind)
             cmd["goal_deg"] = bearing_deg((x, z), wp)
             cmd["goal_gain"] = float(np.clip(util / 0.5, 0.3, 1.0))
+        # meal mode (battery pet): while a meal is on, other goals wait; if the
+        # pet drifts off the dock between feeding bursts it is steered back,
+        # and it pays its person little attention (a cat mid-meal ignores you)
+        battery = getattr(home, "battery", None) if home is not None else None
+        in_meal = bool(self.naps and battery is not None and battery.meal)
+        if in_meal:
+            fps = [self.map.food_point(cc) for cc, nn in self.map.nodes.items() if nn["food"] > 0.1]
+            if fps:
+                fx, fz = min(fps, key=lambda p: math.hypot(p[0] - x, p[1] - z))
+                if math.hypot(fx - x, fz - z) > 0.35:
+                    cmd["goal_deg"], cmd["goal_gain"] = bearing_deg((x, z), (fx, fz)), 1.0
+                else:
+                    # at the bowl: settle between feeding bursts (fewer spontaneous
+                    # walking bouts: ER5 + the body's nerve-cord stand-in)
+                    cmd["goal_deg"], cmd["goal_gain"], cmd["rest"] = None, 0.0, MEAL_SETTLE
+            self.goal = None
+            self.day_log["meal_s"] = self.day_log.get("meal_s", 0.0) + dt
         if self.manners:
             cmd = self._manners(cmd, x, z, t_s, dt)
+            if in_meal:
+                cmd["arousal"] = min(cmd.get("arousal", 1.0), 0.2)
             if self.manner == "yield":
                 self.resting = False                  # never nap in a walking person's path
         if self.resting:
@@ -462,6 +499,10 @@ class CortexV0:
 
     def _plan(self, here, t_s, sweet=False):
         U, dist = self._utilities(here, t_s)
+        self._u_best = {}
+        for u, kind in U.values():                   # for "nothing to do" (boredom naps)
+            if kind != "rest":
+                self._u_best[kind] = max(self._u_best.get(kind, -1e9), u)
         for cell, until in list(self.food_avoid.items()):
             if t_s >= until:
                 del self.food_avoid[cell]
@@ -508,6 +549,9 @@ class CortexV0:
         cell, (u, kind) = best
         if kind == "rest" and (cell == here or (self.goal is not None and self.goal[1] == "rest" and self.goal[0] == here)):
             self.resting, self.want_rest, self.goal = True, False, None     # settle here
+            self.nap_kind = self._want_kind or "sleepy"
+            self.day_log["naps"] = self.day_log.get("naps", {})
+            self.day_log["naps"][self.nap_kind] = self.day_log["naps"].get(self.nap_kind, 0) + 1
             self._dist = dist
             return
         if u <= 0.02 or (cell == here and (kind != "food" or sweet)):
@@ -550,7 +594,8 @@ class CortexV0:
                 "rpe_neg_steps": self.day_log["rpe_neg"],
                 "hunger_end": round(self.hunger, 2), "social_end": round(self.social, 2),
                 "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()},
-                "rest_s": round(self.day_log.get("rest_s", 0.0), 1)}
+                "rest_s": round(self.day_log.get("rest_s", 0.0), 1), "naps": self.day_log.get("naps", {}),
+                "meal_s": round(self.day_log.get("meal_s", 0.0), 1)}
 
     def save(self) -> None:
         self.days += 1

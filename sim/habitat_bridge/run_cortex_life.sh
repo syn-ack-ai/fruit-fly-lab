@@ -10,6 +10,7 @@
 #            talking person; needs the model at LLM_URL (default: the NVIDIA PAIR router on the box, port 1234)
 #   pet      battery pet: the bowl is a charging dock, hunger = charge, cat-like naps
 #   petreflex  control: the battery pet with the old always-on feeding reflex at the dock
+#   petlidar the battery pet + a simulated 2D lidar -> looming and antennal touch (robot/lidar.py)
 #   pettalk  the battery pet + personality + scripted talking person
 # SAFE_SPEED=1 adds the robot's near-person speed limit (robot/safety.py) to every condition.
 # SPEECH=1 lets the scripted person talk in every condition (only "talk" listens).
@@ -53,6 +54,7 @@ life() {  # port condition seed
   # the battery pet: dock = charger, hunger = charge, naps (BATTERY = starting charge)
   [ $2 = pet ] && cx=pet && extra="--battery ${BATTERY:-0.7}"
   [ $2 = petreflex ] && cx=pet && extra="--battery ${BATTERY:-0.7} --dock-reflex"
+  [ $2 = petlidar ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar"
   [ $2 = pettalk ] && cx=pet && extra="--battery ${BATTERY:-0.7} --personality $LLM_URL --speech"
   [ "$SEEDS" != "1" ] && d=$OUT/seed$3/$2
   mkdir -p $d; rm -rf $d/state $d/mb_weights.npy

@@ -75,6 +75,10 @@ def test_thread_counts_on_a_subgraph(c, threads):
     keep = set(int(i) for i in idx)
     for i in idx[:40]:
         keep.update(int(j) for j in c.w.getrow(int(i)).indices)
+    if len(keep) % 16 == 0:                        # keep the size odd (MaleCNS: it came out 976)
+        keep.update(int(j) for j in c.w.getrow(int(idx[40])).indices[:1])
+        if len(keep) % 16 == 0:
+            keep.discard(max(keep - set(int(i) for i in idx)))
     sg = c.subgraph(np.array(sorted(keep)))
     assert sg.n % 16 != 0
     drive = np.sort(sg.by_cell_types(["LC4", "LPLC2"])["idx"].to_numpy())

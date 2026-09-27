@@ -58,6 +58,8 @@ def main():
              "odour + ER5": (base, a.hz, 0),
              "odour + dFB + ER5": (base, a.hz, a.hz)}
     e = NativeLIFEngine.from_connectome(c, seed=1, threads=4)
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)             # the dataset's calibrated gain (male-based: 0.62)
     apply_dynamics(e, c, "calibrated")
     print("driven: dFB", len(dfb), "cells; ER5", len(er5), "cells; at", a.hz, "Hz;", a.seeds, "seeds x", a.seconds, "s")
     res = {}

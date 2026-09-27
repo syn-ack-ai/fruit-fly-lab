@@ -1,0 +1,5 @@
+dataset fafb, dynamics calibrated, 8 seeds x 1.0 s
+  rest     DNa01 L-R  +3.50 (sd 1.94, p 0.00) | DNa02 L-R  -0.88 (sd 2.76, p 0.43) | DN mean   6.7 Hz
+  odour    DNa01 L-R  +2.00 (sd 3.08, p 0.13) | DNa02 L-R  +0.25 (sd 2.63, p 0.81) | DN mean   7.6 Hz
+  looming  DNa01 L-R  +0.25 (sd 0.43, p 0.17) | DNa02 L-R  -0.50 (sd 1.22, p 0.32) | DN mean   0.4 Hz
+  walk     DNa01 L-R  +5.25 (sd 2.63, p 0.00) | DNa02 L-R  +1.50 (sd 2.40, p 0.14) | DN mean   9.0 Hz

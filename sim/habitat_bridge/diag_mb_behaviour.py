@@ -58,6 +58,8 @@ def function(c, weights_file=None, trials=6, seed=1):
     n = c.neurons
     t = n["primary_type"].fillna("").astype(str).to_numpy()
     e = NativeLIFEngine.from_connectome(c, seed=seed)
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)             # the dataset's calibrated gain (male-based: 0.62)
     apply_dynamics(e, c, "calibrated")
     mb = MushroomBody(c, e, plastic=True, kc_mbon_gain=8.0, dan_modulatory=True)
     ro = DescendingReadout(c)

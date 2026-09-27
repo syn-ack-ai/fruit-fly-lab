@@ -242,6 +242,60 @@ Places where the simulation visibly departs from the real animal:
 
 ---
 
+## 11. The default brain since 2026-09-27: the complete male CNS ("merged")
+
+`FLY_DATASET=merged` (the default) runs the Janelia MaleCNS -- brain AND
+ventral nerve cord of one male (DATA_SOURCES.md §1b) -- with the following
+additions. Everything here is category C unless a source is given; the numbers
+and the evidence are in `results/complete_brain_2026-09-27/README.md`.
+
+What changes against §7: the nerve cord is present, so leg and wing motor
+neurons, leg sensory neurons and the descending -> nerve cord -> motor neuron
+path exist (`experiments/vnc_turn_test.py`: the steering neuron DNa02 turns the
+legs' coxa movers left or right, every seed). The fly is male; sex differences
+are concentrated in higher brain centres and the sensory/motor periphery is
+largely isomorphic (Berg et al. 2026), which the gap filling relies on.
+
+**Gap filling (`brain/connectivity/merge.py`)**, only where the data show a
+reconstruction gap, never where the two animals merely differ:
+1. *Left-antenna olfactory receptor neurons*: 994 left vs 1,637 right by wiring
+   (FAFB 1,117 / 1,132). The deficient side's connection groups become the
+   mirror image of the complete side ("template"); groups found only on the
+   deficient side are dropped (939 groups, 25k synapses).
+2. *Johnston's organ and head bristles*, short on both sides against FAFB's
+   counts (connected JO-A/B 75 left / 9 right vs 207 / 169; published ~480 JO
+   neurons per antenna, Kamikouchi et al. 2006): each side's total output is
+   raised to FAFB's times the overall synapse ratio (1.24), at most 8x.
+   Fewer, stronger synapses stand in for the missing neurons.
+3. *Left/right symmetrisation* of every connection group (per postsynaptic
+   cell), so the robot cannot drift or favour a side. Unmirrorable groups
+   (cell types present on one side only): 0.66% of synapses; neurons without
+   a side: 1.9%.
+Male-specific and (potentially) dimorphic cell types are never filled.
+
+**Dynamics refitted for this brain** (`data/metadata/dynamics_calibrated_merged.json`,
+gain in `calibration_merged.json`, fitted with `cognition/calibrate_merged.py`
+against the fly exam and checked on held-out seeds), including two new
+mechanisms:
+- *nerve-cord adaptation*: extra spike-frequency adaptation in nerve-cord and
+  ascending neurons. Without it the flight and abdominal motor circuits
+  sustain activity after a stimulus -- in the real fly they are held by sensory
+  feedback and neuromodulation the wiring diagram does not contain.
+- *ORN -> PN input normalisation* (Tobin, Wilson & Lee 2017, generalised across
+  glomeruli, clipped 0.5-2x, uniglomerular PNs only): PNs with more receptor
+  synapses have lower input resistance. Needed for the male-enlarged VA1v
+  glomerulus (111 receptor neurons per side, Or47b 47 Hz spontaneous).
+
+**Known limitation -- odour steering.** Odour on one antenna reaches the
+antennal lobe and lateral horn with a clear side signal, but steering toward
+it is weak and not statistically reliable on fresh seeds (turn bias ~0.004 vs
+FAFB 0.023): the steering neuron DNa02 sits near threshold, and the male's
+enlarged VA1v pheromone channel -- which fruit odour SUPPRESSES (Hallem &
+Carlson 2006) -- pushes the opposite way. The robot has no nose, so it does not
+use odour steering (`--real-senses`); fixing it is an open biology task.
+
+---
+
 ## 10. What this simulation is not
 
 It is a **circuit-level simulation of one connectome under one published neuron

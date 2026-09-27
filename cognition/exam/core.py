@@ -5,7 +5,8 @@ configuration, neuron groups, and stimulus / read-out helpers.
 A configuration is a plain dict:
     dynamics      "published" | "calibrated"            (simulation.engine.session.apply_dynamics)
     wiring        "real" | "shuffled" | "random"        (cognition/wiring.py; degree-preserving = shuffled)
-    wsyn          global synaptic gain (Shiu et al. robustness test: +-30%)
+    wsyn          global synaptic gain, relative to the dataset's calibrated gain
+                  (Shiu et al. robustness test: +-30%)
     edge_drop     fraction of connections removed at random
     nt_flip       fraction of neurons whose output sign is flipped (transmitter misprediction)
     lesion        fraction of central neurons silenced (sensory, descending and motor spared)
@@ -42,7 +43,7 @@ def connectome():
 
 @lru_cache(maxsize=1)
 def labels() -> pd.DataFrame:
-    return pd.read_csv(config.FLYWIRE_DIR / "labels.csv.gz", usecols=["root_id", "label"])
+    return pd.read_csv(config.LABELS_CSV, usecols=["root_id", "label"])
 
 
 def label_cells(pattern: str, exclude: str | None = None) -> np.ndarray:
@@ -84,8 +85,10 @@ class Ctx:
         self.e = NativeLIFEngine.from_connectome(c, seed=1, threads=threads)
         apply_dynamics(self.e, c, self.cfg["dynamics"])
         rng = np.random.default_rng(1000 + int(self.cfg["seed"]))
-        if self.cfg["wsyn"] != 1.0:
-            self.e.set_gain(float(self.cfg["wsyn"]))
+        # the dataset's calibrated gain (FAFB 1.0; malecns 0.62; merged its own, calibration_merged.json),
+        # wsyn relative to it (robustness levels)
+        from simulation.engine.session import apply_calibrated_gain
+        apply_calibrated_gain(self.e, float(self.cfg["wsyn"]))
         if self.cfg["edge_drop"] > 0 or self.cfg["nt_flip"] > 0:
             mult = self.e.plastic_multipliers()
             if self.cfg["edge_drop"] > 0:
@@ -176,7 +179,13 @@ def groups() -> dict:
     g = {}
     g["sugar"] = np.sort(resolve_neurons(BY_KEY["taste_sugar"], c))
     g["bitter"] = np.sort(resolve_neurons(BY_KEY["taste_bitter"], c))
+    # unilateral sugar: FlyWire labels left-side sugar GRNs only; the MaleCNS
+    # map has both sides (12 left / 11 right LB3c), so "one side" = its left ones
+    g["sugar_L"] = g["sugar"][side[g["sugar"]] == "left"]
     g["ir94e"] = label_cells(r"Ir94e")
+    if not g["ir94e"].size and config.MALE_CNS:
+        # FlyWire's Ir94e-labelled GRNs are its 11 left LB1e; the MaleCNS types LB1e too
+        g["ir94e"] = np.flatnonzero((t == "LB1e") & (side == "left"))
     g["mn9"] = label_cells(r"\bMN9\b")
     g["mn9_L"] = g["mn9"][side[g["mn9"]] == "left"]
     g["mn9_R"] = g["mn9"][side[g["mn9"]] == "right"]

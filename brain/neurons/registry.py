@@ -147,4 +147,25 @@ def load_connectome() -> Connectome:
     w = sp.csr_matrix((z["data"].astype(np.int32), z["indices"], z["indptr"]), shape=shape)
     neurons = pd.read_csv(config.NEURON_INDEX, dtype={"root_id": np.int64})
     manifest = json.loads(config.BUILD_MANIFEST.read_text())
+    if config.MALE_CNS:
+        neurons = harmonize_malecns(neurons)
     return Connectome(neurons, w, manifest)
+
+
+def harmonize_malecns(neurons: pd.DataFrame) -> pd.DataFrame:
+    """Small, explicit label fixes so code written against FlyWire labels runs
+    on the MaleCNS: primary_neuropil, mostly empty there, becomes "" rather
+    than NaN; an empty class is filled from the FlyWire type. Types and classes stay the MaleCNS's own annotation; senses are
+    mapped separately (brain/sensory/crossmap.py). (Head bristles: the MaleCNS
+    types 69 of them only as "BM", cross-referenced to a mix of seven FlyWire
+    bristle types including BM_Ant; robot/lidar.LidarTouch uses them.)"""
+    n = neurons.copy()
+    n["primary_neuropil"] = n["primary_neuropil"].fillna("").astype(str)
+    # an empty class takes the FlyWire class of the neuron's FlyWire type
+    # (e.g. 445 lateral-horn local neurons, FlyWire class LHLN, have none in
+    # the MaleCNS); the MaleCNS's own class labels are never overridden
+    fafb = pd.read_csv(config.DERIVED_DIR / "neuron_index_v783.csv.gz", usecols=["primary_type", "class"])
+    fcls = fafb.dropna().groupby("primary_type")["class"].agg(lambda s: s.value_counts().index[0])
+    fill = n["class"].isna() & n["flywire_type"].isin(fcls.index)
+    n.loc[fill, "class"] = n.loc[fill, "flywire_type"].map(fcls)
+    return n

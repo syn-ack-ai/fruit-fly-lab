@@ -44,6 +44,13 @@ N_MIX, MIX_GLOMERULI, MIX_SEED = 8, 6, 2024
 _ctx = {}
 
 
+def _calibrated(e):
+    """The dataset's calibrated synaptic gain (simulation/engine/session.py)."""
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)
+    return e
+
+
 def _edge_positions(c, pre_mask, post_mask):
     """CSR positions (engine order) of connections from pre_mask to post_mask."""
     w = c.w.tocsr(); pos = []
@@ -90,7 +97,7 @@ def _setup():
         sugar=np.sort(resolve_neurons(BY_KEY["taste_sugar"], c)),
         bitter=np.sort(resolve_neurons(BY_KEY["taste_bitter"], c)),
         loom=np.sort(c.by_cell_types(["LC4", "LPLC2"])["idx"].to_numpy()),
-        engine=NativeLIFEngine.from_connectome(c, seed=1, threads=1),
+        engine=_calibrated(NativeLIFEngine.from_connectome(c, seed=1, threads=1)),
         # scopes for the extra dynamics
         pn_kc_pos=_edge_positions(c, (cl == "ALPN").to_numpy(), t.str.match("^KC").to_numpy()),
         eln_pn_pos=_edge_positions(c, ((cl == "ALLN") & (n["sign"] > 0)).to_numpy(), (cl == "ALPN").to_numpy()),

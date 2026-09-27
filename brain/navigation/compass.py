@@ -34,7 +34,8 @@ import pandas as pd
 
 import config
 
-TYPES = {"EPG": "EPG", "PEN_a/PEN1": "PEN1", "PEN_b/PEN2": "PEN2", "PEG": "PEG"}
+TYPES = {"EPG": "EPG", "PEN_a/PEN1": "PEN1", "PEN_b/PEN2": "PEN2", "PEG": "PEG",
+         "PEN_a(PEN1)": "PEN1", "PEN_b(PEN2)": "PEN2"}      # the last two: MaleCNS type names
 
 
 def glom_angle(side: str, glom: int) -> float:
@@ -47,7 +48,7 @@ class Compass:
     def __init__(self, connectome):
         n = connectome.neurons
         t = n["primary_type"].fillna("").astype(str)
-        lab = pd.read_csv(config.FLYWIRE_DIR / "labels.csv.gz", usecols=["root_id", "label"])
+        lab = pd.read_csv(config.LABELS_CSV, usecols=["root_id", "label"])
         want = set(n[t.isin(list(TYPES))].root_id)
         lab = lab[lab.root_id.isin(want)].groupby("root_id").label.apply(" ".join)
         self.cells = {}                     # (key, side 'L'/'R', glomerulus) -> idx array

@@ -38,8 +38,9 @@ def retino(c):
 def test_column_counts_match_the_real_optic_lobe(retino):
     """~750-800 ommatidia per eye in Drosophila."""
     n = retino.n_columns
-    assert 700 < n["left"] < 850
-    assert 700 < n["right"] < 850
+    hi = 900 if config.MALE_CNS else 850   # MaleCNS counts partial edge columns (879 / 892)
+    assert 700 < n["left"] < hi
+    assert 700 < n["right"] < hi
 
 
 def test_hex_axes_are_oriented_by_real_anatomy(c):
@@ -48,15 +49,21 @@ def test_hex_axes_are_oriented_by_real_anatomy(c):
     column), u = p + q/2 tracks the dorsoventral axis and the orthogonal hex
     axis tracks the anteroposterior axis. Measured, not assumed.
     """
-    ca = pd.read_csv(config.SRC["column_assignment"], dtype={"root_id": np.int64})
     pos = c.neurons.set_index("root_id")[["pos_y_nm", "pos_z_nm"]]
+    if config.MALE_CNS:
+        from brain.sensory.retinotopy import load_malecns_columns
+        ca = load_malecns_columns()                  # u, v from assignedOlHex1/2
+    else:
+        ca = pd.read_csv(config.SRC["column_assignment"], dtype={"root_id": np.int64})
+        ca["u"] = ca["p"] + ca["q"] / 2.0
+        ca["v"] = (np.sqrt(3) / 2) * ca["q"]
     mi1 = ca[ca["type"] == "Mi1"].join(pos, on="root_id").dropna()
     assert len(mi1) > 1500
 
     for hemi in ("left", "right"):
         s = mi1[mi1["hemisphere"] == hemi]
-        u = (s["p"] + s["q"] / 2.0).to_numpy()
-        v = ((np.sqrt(3) / 2) * s["q"]).to_numpy()
+        u = s["u"].to_numpy()
+        v = s["v"].to_numpy()
         # u explains the dorsoventral axis almost perfectly
         assert abs(np.corrcoef(u, s["pos_y_nm"])[0, 1]) > 0.95
 

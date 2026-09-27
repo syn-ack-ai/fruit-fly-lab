@@ -64,16 +64,18 @@ class Retinotopy:
 
     # ------------------------------------------------------------------ build
     def _build_columns(self) -> pd.DataFrame:
-        ca = pd.read_csv(
-            config.SRC["column_assignment"],
-            dtype={"root_id": np.int64, "column_id": np.int32,
-                   "p": np.int32, "q": np.int32},
-        )
-        ca = ca[["root_id", "hemisphere", "type", "column_id", "p", "q"]].copy()
-
-        # Hex axial -> orthogonal lattice cartesian (verified against anatomy).
-        ca["u"] = ca["p"] + ca["q"] / 2.0                 # elevation axis
-        ca["v"] = (np.sqrt(3.0) / 2.0) * ca["q"]          # azimuth axis
+        if config.MALE_CNS:
+            ca = load_malecns_columns()
+        else:
+            ca = pd.read_csv(
+                config.SRC["column_assignment"],
+                dtype={"root_id": np.int64, "column_id": np.int32,
+                       "p": np.int32, "q": np.int32},
+            )
+            ca = ca[["root_id", "hemisphere", "type", "column_id", "p", "q"]].copy()
+            # Hex axial -> orthogonal lattice cartesian (verified against anatomy).
+            ca["u"] = ca["p"] + ca["q"] / 2.0                 # elevation axis
+            ca["v"] = (np.sqrt(3.0) / 2.0) * ca["q"]          # azimuth axis
 
         out = []
         for hemi, s in ca.groupby("hemisphere"):
@@ -159,6 +161,12 @@ class Retinotopy:
             "root_id", "idx", "side", "azimuth_deg", "elevation_deg",
             "rf_radius_deg", "n_input_columns", "input_synapses"])
         self._cache[cell_type] = df
+        if config.MALE_CNS and df["azimuth_deg"].isna().any():
+            # the MaleCNS assigns columns to 15 types (FlyWire: 31), so a few
+            # cells have no column-assigned input: estimate those two synapses
+            # back (receptive_fields_2hop); cells with direct input keep it
+            df = receptive_fields_2hop(self, cell_type, min_direct_columns=1).copy()
+            self._cache[cell_type] = df
         return df
 
 
@@ -219,6 +227,28 @@ def receptive_fields_2hop(rt: "Retinotopy", cell_type: str, min_direct_columns: 
     df = pd.DataFrame(rows)
     rt._cache[key] = df
     return df
+
+
+MALECNS_COLUMNS = "column_assignment_malecns_v1.0.csv.gz"
+
+
+def load_malecns_columns() -> pd.DataFrame:
+    """MaleCNS optic-lobe columns: the release's assignedOlHex1/assignedOlHex2
+    per columnar neuron (Janelia optic-lobe hex coordinates; extracted from
+    body-annotations-male-cns-v1.0 into data/derived/malecns/, 23,720 neurons
+    of 15 types, 879 left / 892 right columns). Lattice axes MEASURED on Mi1
+    (one per column) against MaleCNS soma positions, whose axes follow FAFB's
+    (y ventral, z posterior; checked with the dorsal-rim R8d and the nerve cord):
+        u = hex1 + hex2 -> dorsoventral, |r| with y = 0.97 left / 0.96 right
+        v = hex1 - hex2 -> anteroposterior, r with z = +0.89 / +0.92
+    (u increases dorsally, v posteriorly, as FAFB's u and v). Scale does not
+    matter: the occupied lattice is stretched onto the eye's field of view.
+    tests/test_sensory_and_body.py re-derives these."""
+    ca = pd.read_csv(config.DERIVED_DIR / "malecns" / MALECNS_COLUMNS,
+                     dtype={"root_id": np.int64, "column_id": np.int32})
+    ca["u"] = (ca["hex1"] + ca["hex2"]).astype(float)
+    ca["v"] = (ca["hex1"] - ca["hex2"]).astype(float)
+    return ca[["root_id", "hemisphere", "type", "column_id", "u", "v"]].copy()
 
 
 @lru_cache(maxsize=1)

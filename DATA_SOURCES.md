@@ -74,6 +74,36 @@ asserted by `tests/test_data_provenance.py::test_neuron_positions_span_a_real_fl
 
 ---
 
+## 1b. The default brain since 2026-09-27: Janelia MaleCNS v1.0, gap-filled ("merged")
+
+| field | value |
+|---|---|
+| **Dataset** | Janelia FlyEM MaleCNS -- the complete central nervous system (brain, optic lobes AND ventral nerve cord) of one adult male *Drosophila melanogaster* |
+| **Version** | `v1.0`, files with synapse confidence >= 0.5 (`*-minconf-0.5.feather`) |
+| **Download** | <https://male-cns.janelia.org/download/> (licence CC-BY 4.0) |
+| **Traced neurons used** | 165,122 (status "Traced"; fragments, glia and orphans excluded) |
+| **Connections** | 6,169,278 neuron pairs with >= 5 synapses (the FAFB threshold); 88,816,375 synapses |
+| **Collaboration** | HHMI Janelia, MRC LMB / University of Cambridge, Google Research |
+
+Papers to cite: Berg, S. *et al.* (2026). Sexual dimorphism in the complete
+*Drosophila* male central nervous system connectome. *Cell* (bioRxiv
+10.1101/2025.10.09.680999); optic-lobe columns: Nern, A. *et al.* (2025),
+*Nature*.
+
+Built by this project (all in `data/derived/malecns/` unless noted):
+
+| File | Built by | Contents |
+|---|---|---|
+| `connectome_malecns_v1.0.npz`, `neuron_index_malecns_v1.0.csv.gz` | `brain/connectivity/build_malecns.py` | signed synapse counts and the neuron index (same format as FAFB), incl. `flywire_type`, `manc_type`, `soma_neuromere` |
+| `labels_malecns_v1.0.csv.gz`, `column_assignment_malecns_v1.0.csv.gz`, `dimorphism_malecns_v1.0.csv.gz` | `brain/connectivity/malecns_annotations.py` | instance/type/synonym labels (central-complex glomeruli also as FlyWire labels), optic-lobe hex columns, male-specific / dimorphic annotations |
+| `modality_map.json` | `brain/sensory/crossmap.py` | every sense mapped from its FlyWire definition (type match, and a connectivity fingerprint for the labelled sugar / bitter GRNs) |
+| `data/derived/merged/connectome_merged_v1.npz`, `fill_log*.csv.gz`, `data/metadata/build_manifest_merged.json` | `brain/connectivity/merge.py` | **our brain**: the MaleCNS with demonstrated reconstruction gaps filled (FlyWire FAFB decides what is a gap; nothing is copied from it) and made left/right symmetric; every fill is logged (see `results/complete_brain_2026-09-27/`) |
+
+FAFB remains available (`FLY_DATASET=fafb`) and is used as the reference for
+the gap analysis; `FLY_DATASET=malecns` runs the unfilled male data.
+
+---
+
 ## 2. Computational model
 
 | field | value |
@@ -161,8 +191,8 @@ unknown sign             1,626
 | **Status** | **Not loaded by any code in this project.** |
 
 BANC includes the ventral nerve cord, and therefore the leg and wing motor
-neurons that FAFB lacks. It is the natural way to extend the pipeline past the
-descending neurons to real motor neurons. It is deliberately not wired in yet:
+neurons that FAFB lacks. (Since 2026-09-27 the nerve cord comes from the
+Janelia MaleCNS instead, §1b; BANC would be the female counterpart.) It is not wired in:
 the brief specifies FlyWire FAFB v783 as the primary dataset, and mixing two
 connectomes silently would be exactly the kind of substitution this document
 exists to prevent. See `BIOLOGICAL_ASSUMPTIONS.md` §7.

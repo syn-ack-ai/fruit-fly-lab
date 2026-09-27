@@ -53,6 +53,8 @@ def main():
     ids = np.concatenate([sugar, isn, hug])
     order = np.argsort(ids)
     e = NativeLIFEngine.from_connectome(c, seed=1, threads=4)
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)             # the dataset's calibrated gain (male-based: 0.62)
     apply_dynamics(e, c, "calibrated")
     print(f"sugar GRNs {len(sugar)}, ISN {len(isn)}, Hugin {len(hug)}, proboscis motor neurons {len(mn9)}; {a.seeds} seeds x {a.seconds} s")
     rows = []

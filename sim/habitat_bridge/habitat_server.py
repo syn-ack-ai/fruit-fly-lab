@@ -21,6 +21,11 @@ medium and large house) with the Spot robot as the robot body (kinematic base
 velocity control) and a humanoid that walks to random places at a human walking
 pace (the task's own OracleNavRandCoordAction, slowed from its training speed).
 
+--body rover swaps Spot's footprint for the Waveshare UGV Rover's
+(sim/habitat_bridge/bodies.py): the base moves on the rover's own navmesh, and
+bumps are the rover's rectangle touching the person or the scene (rays at
+three heights), counted by this server instead of Habitat's Spot contacts.
+
     conda run -n habitat python -m sim.habitat_bridge.habitat_server --port 6010
 """
 from __future__ import annotations
@@ -33,6 +38,7 @@ import time
 import numpy as np
 
 from sim.habitat_bridge.authkey import authkey   # before make_env changes directory
+from sim.habitat_bridge.bodies import BODIES
 
 HOUSES = {"small": "small_small", "medium": "medium_medium", "large": "large_large"}
 CTRL_HZ = 120.0                 # env step = 1/120 s (kinematic mode, ac_freq_ratio 1)
@@ -67,12 +73,40 @@ def make_env(house: str, max_seconds: float, habitat_lab_dir: str):
     return habitat.Env(config=cfg)
 
 
+class _RoverNav:
+    """The simulator as the base-velocity action sees it, except that steps
+    are filtered on the rover's navmesh (Habitat's own navmesh is Spot's, and
+    the person's oracle navigation keeps using it)."""
+
+    def __init__(self, sim, srv):
+        self._sim, self._srv = sim, srv
+
+    def __getattr__(self, k):
+        return getattr(self._sim, k)
+
+    def step_filter(self, a, b):
+        import magnum as mn
+        y = self._srv.rover_floor_y         # the action passes points at the base's height
+        end = self._srv.rover_pf.try_step(mn.Vector3(a[0], y, a[2]), mn.Vector3(b[0], y, b[2]))
+        if (mn.Vector3(end[0], y, end[2]) - mn.Vector3(b[0], y, b[2])).length() > 1e-4:
+            self._srv.blocked_steps += 1    # pressed against something: the navmesh clamped the step
+        return mn.Vector3(end[0], a[1], end[2])
+
+
 class Server:
     LIDAR_H_M, LIDAR_MAX_M = 0.20, 8.0      # UGV Rover-like lidar height; range limit
+    CONTACT_H_M = (0.05, 0.15, 0.25)        # rover contact rays: heights above the floor
+    CONTACT_RAYS = 36
+    CONTACT_TOL_M = 0.02                    # within this of the body surface = touching
 
     def __init__(self, house: str, max_seconds: float, hfov_deg: float, habitat_lab_dir: str,
-                 cam_height: float = CAM_HEIGHT_M, cam_pitch: float = 20.0):
+                 cam_height: float = CAM_HEIGHT_M, cam_pitch: float = 20.0, body: str = "spot"):
         self.env = make_env(house, max_seconds, habitat_lab_dir)
+        self.body = body
+        self.rover_pf, self._rover_scene = None, None
+        self.blocked_steps = 0
+        self.scene_contacts = self.scene_bumps = 0
+        self._scene_touching = False
         self.hfov = hfov_deg
         self.cam_height, self.cam_pitch = cam_height, cam_pitch
         self.frames = []
@@ -116,6 +150,8 @@ class Server:
             hits = sim.cast_ray(habitat_sim.geo.Ray(origin, dv.normalized()),
                                 max_distance=float(dv.length()) - 0.3)
             ignore = {human.sim_obj.object_id, robot.sim_obj.object_id}
+            if self.body == "rover":
+                ignore |= self._own_ids(robot)          # Spot's links are not the rover
             visible = not (hits.has_hits() and any(h.object_id not in ignore for h in hits.hits))
         m = self.env.get_metrics()
         out_lidar = self._lidar(sim, robot, rp, yaw) if getattr(self, "lidar_beams", 0) else None
@@ -126,7 +162,10 @@ class Server:
                 "human": [float(hp[0]), float(hp[2])],
                 "over": bool(self.env.episode_over),
                 "collided": self.collisions > 0, "collisions": self.collisions,
-                "scene_contacts": int((m.get("robot_collisions") or {}).get("robot_scene_colls", 0) or 0),
+                "scene_contacts": (self.scene_contacts if self.body == "rover" else
+                                   int((m.get("robot_collisions") or {}).get("robot_scene_colls", 0) or 0)),
+                "scene_bumps": self.scene_bumps if self.body == "rover" else None,
+                "blocked_s": round(self.blocked_steps / CTRL_HZ, 2) if self.body == "rover" else None,
                 "stats": {k: (float(v) if isinstance(v, (int, float, np.floating, np.integer, bool)) else None)
                           for k, v in (m.get("social_nav_stats") or {}).items()}}
 
@@ -136,7 +175,7 @@ class Server:
         body is ignored, the person is seen (their legs). yaw in radians."""
         import habitat_sim
         import magnum as mn
-        own = {robot.sim_obj.object_id} | set(getattr(robot.sim_obj, "link_object_ids", {}).keys())
+        own = self._own_ids(robot)
         origin = mn.Vector3(float(rp[0]), float(rp[1]) + self.LIDAR_H_M, float(rp[2]))
         out = []
         for a in self.lidar_angles:
@@ -152,6 +191,82 @@ class Server:
                         r = min(r, float(h.ray_distance))
             out.append(round(r, 3))
         return out
+
+    @staticmethod
+    def _own_ids(agent) -> set:
+        return {agent.sim_obj.object_id} | set(getattr(agent.sim_obj, "link_object_ids", {}).keys())
+
+    # ------------------------------------------------------------- rover body
+    def _rover_setup(self) -> None:
+        """The rover's navmesh (once per scene) and the base action on it."""
+        import habitat_sim
+        sim = self.env.sim
+        scene = self.env.current_episode.scene_id
+        if self.rover_pf is None or scene != self._rover_scene:
+            b = BODIES["rover"]
+            ns = habitat_sim.nav.NavMeshSettings()
+            ns.set_defaults()
+            ns.agent_radius, ns.agent_height, ns.agent_max_climb = b["nav_r"], b["height"], b["max_climb"]
+            ns.include_static_objects = True
+            pf = habitat_sim.nav.PathFinder()
+            if not sim.recompute_navmesh(pf, ns):
+                raise RuntimeError("rover navmesh failed")
+            self.rover_pf, self._rover_scene = pf, scene
+        act = self.env.task.actions["agent_0_base_velocity"]
+        act._navmesh_offset = [[0.0, 0.0]]          # one circle at the centre (Spot: three along its body)
+        if not isinstance(act._sim, _RoverNav):
+            act._sim = _RoverNav(act._sim, self)
+        robot = sim.agents_mgr[0].articulated_agent
+        p = self.rover_pf.snap_point(robot.base_pos)
+        self.rover_floor_y = float(p[1]) if np.isfinite(p[1]) else float(robot.base_pos[1])
+
+    def _rover_contacts(self) -> tuple:
+        """(touching the person, touching the scene): rays from the rover's
+        centre at CONTACT_H_M heights that hit something within the rectangle
+        (+ CONTACT_TOL_M)."""
+        import habitat_sim
+        import magnum as mn
+        sim = self.env.sim
+        robot = sim.agents_mgr[0].articulated_agent
+        human = sim.agents_mgr[1].articulated_agent
+        own, hum = self._own_ids(robot), self._own_ids(human)
+        rp = np.array(robot.base_pos)
+        fwd = robot.base_transformation.transform_vector(mn.Vector3(1, 0, 0))
+        yaw = math.atan2(-fwd.z, fwd.x)
+        b = BODIES["rover"]
+        person = scene = False
+        for k in range(self.CONTACT_RAYS):
+            a = 2 * math.pi * k / self.CONTACT_RAYS                  # from the heading, CCW
+            c, s_ = abs(math.cos(a)), abs(math.sin(a))
+            edge = min(b["half_len"] / c if c > 1e-9 else np.inf, b["half_wid"] / s_ if s_ > 1e-9 else np.inf)
+            d = mn.Vector3(math.cos(yaw + a), 0.0, -math.sin(yaw + a))
+            for h in self.CONTACT_H_M:
+                o = mn.Vector3(float(rp[0]), float(rp[1]) + h, float(rp[2]))
+                hits = sim.cast_ray(habitat_sim.geo.Ray(o, d), max_distance=edge + self.CONTACT_TOL_M)
+                for hit in (hits.hits if hits.has_hits() else ()):
+                    if hit.object_id in own:
+                        continue
+                    if hit.object_id in hum:
+                        person = True
+                    else:
+                        scene = True
+                if person and scene:
+                    return True, True
+        return person, scene
+
+    def _count_rover_contacts(self) -> None:
+        person, scene = self._rover_contacts()
+        if person and not self._colliding:
+            self.collisions += 1
+        self._colliding = person
+        if scene:
+            self.scene_contacts += 1                # contact steps (10 Hz control)
+            if not self._scene_touching:
+                self.scene_bumps += 1
+        self._scene_touching = scene
+
+    def body_info(self) -> dict:
+        return {"name": self.body, **BODIES[self.body]}
 
     def set_lidar(self, beams: int) -> dict:
         self.lidar_beams = int(beams)
@@ -169,6 +284,11 @@ class Server:
         self.t = 0.0
         self.collisions = 0
         self._colliding = False
+        self.blocked_steps = 0
+        self.scene_contacts = self.scene_bumps = 0
+        self._scene_touching = False
+        if self.body == "rover":
+            self._rover_setup()
         return self.summary()
 
     def step(self, v: float, w: float, n: int, frame: bool = False) -> dict:
@@ -184,12 +304,15 @@ class Server:
             # The task ends an episode when robot and person touch; here a bump
             # is counted (once per contact) and the episode goes on.
             hit = bool(self.env.get_metrics().get("did_collide", False))
-            if hit and not self._colliding:
-                self.collisions += 1
-            self._colliding = hit
+            if self.body == "spot":
+                if hit and not self._colliding:
+                    self.collisions += 1
+                self._colliding = hit
             if self.env.episode_over and hit and self.t < self.max_seconds - 1.0 / CTRL_HZ:
                 self.env._episode_over = False
                 self.env.task.should_end = False
+        if self.body == "rover":
+            self._count_rover_contacts()             # once per control step
         if frame and obs is not None:
             self.frames.append(np.asarray(obs["agent_0_head_rgb"])[..., :3].copy())
         return self.summary()
@@ -212,7 +335,7 @@ class Server:
         geodesic distance and the first path point at least ahead_m away."""
         import habitat_sim
         sim = self.env.sim
-        pf = sim.pathfinder
+        pf = self.rover_pf if self.body == "rover" else sim.pathfinder
         rp = np.array(sim.agents_mgr[0].articulated_agent.base_pos)
         start = pf.snap_point(rp)
         end = pf.snap_point(np.array([goal_xz[0], float(start[1]), goal_xz[1]], np.float32))
@@ -250,8 +373,10 @@ def main():
                     help="field of view the brain gets (deg); 53 = the real robot head")
     ap.add_argument("--cam-pitch", type=float, default=20.0, help="head tilted up (deg)")
     ap.add_argument("--habitat-lab", default=os.path.expanduser("~/habitat-lab"))
+    ap.add_argument("--body", choices=list(BODIES), default="spot",
+                    help="the robot's footprint (sim/habitat_bridge/bodies.py)")
     a = ap.parse_args()
-    srv = Server(a.house, a.max_seconds, a.hfov, a.habitat_lab, cam_pitch=a.cam_pitch)
+    srv = Server(a.house, a.max_seconds, a.hfov, a.habitat_lab, cam_pitch=a.cam_pitch, body=a.body)
     print("habitat server ready on port", a.port, flush=True)
     with Listener(("127.0.0.1", a.port), authkey=authkey()) as lst:
         while True:
@@ -281,6 +406,8 @@ def handle(srv, msg, conn):
         return srv.step(msg["v"], msg["w"], msg.get("n", 12), msg.get("frame", False))
     if cmd == "lidar":
         return srv.set_lidar(msg.get("beams", 90))
+    if cmd == "body":
+        return srv.body_info()
     if cmd == "path":
         return srv.path(msg["goal"], msg.get("ahead", 0.8))
     if cmd == "topdown":

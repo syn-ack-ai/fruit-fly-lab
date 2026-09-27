@@ -27,9 +27,25 @@ def _calibrated_gain() -> float:
     import config
     if os.environ.get("FLY_GAIN"):
         return float(os.environ["FLY_GAIN"])
-    if config.DATASET_KEY == "malecns":
-        return float(json.loads((config.METADATA_DIR / "calibration_malecns.json").read_text())["gain"])
+    if config.MALE_CNS:
+        f = config.METADATA_DIR / ("calibration_%s.json" % config.DATASET_KEY)
+        if not f.exists():                  # merged, before its own calibration: the MaleCNS value
+            f = config.METADATA_DIR / "calibration_malecns.json"
+        return float(json.loads(f.read_text())["gain"])
     return 1.0
+
+
+def apply_calibrated_gain(engine, relative: float = 1.0) -> float:
+    """Set the dataset's calibrated synaptic gain (times `relative`, e.g. the
+    exam's +-30% robustness levels) on a native engine; returns the gain.
+    Every engine that simulates BEHAVIOUR must go through this or make_engine
+    (review 2026-09-27: the exam and several experiments built engines
+    directly and ran the male-based brains at the published gain 1.0 while
+    the pet ran at 0.62)."""
+    g = _calibrated_gain() * float(relative)
+    if g != 1.0:
+        engine.set_gain(g)
+    return g
 
 
 def _edge_positions(connectome, pre_mask, post_mask) -> np.ndarray:
@@ -83,6 +99,17 @@ def bilateral_consensus(connectome, clip=(0.5, 2.0), mult=None) -> np.ndarray:
     n = connectome.neurons
     t = n["primary_type"].fillna("").astype(str).to_numpy()
     sd = n["side"].fillna("").astype(str).to_numpy()
+    import config
+    if config.MALE_CNS:
+        # 409 MaleCNS ORNs have no side label (FlyWire: 30) and the labelled
+        # ones are lopsided (1343 right / 883 left; by wiring 1637 / 994):
+        # balance on the antenna side inferred from their PN targets
+        # (brain/sensory/orn_side.py), or a sixth of the ORN input escapes it.
+        # FAFB keeps its labels so the published calibration is unchanged.
+        from brain.sensory.orn_side import orn_sides
+        o = orn_sides(connectome)
+        is_orn = np.char.startswith(t.astype(str), "ORN_")
+        sd = np.where(is_orn & (o != ""), o, sd)
     scode = np.where(sd == "left", 0, np.where(sd == "right", 1, 2))
     tcode, _ = pd.factorize(t)
     tcode = np.where(t == "", -1, tcode)
@@ -109,6 +136,30 @@ def bilateral_consensus(connectome, clip=(0.5, 2.0), mult=None) -> np.ndarray:
     key = pd.MultiIndex.from_arrays([df.tp, df.sp, df.tq, df.sq])
     out[np.flatnonzero(ok)] = fac_s.reindex(key).to_numpy().astype(np.float32)
     return out
+
+
+def orn_pn_input_normalization(connectome, exponent: float, mult=None, clip=(0.5, 2.0)) -> list:
+    """[(connection positions, multiplier)]: every UNIGLOMERULAR PN's ORN
+    connections scaled by (median total ORN input of uniglomerular PNs / its
+    own) ** exponent, clipped to `clip` like the other corrections, on the
+    effective strengths (see apply_dynamics). Multiglomerular PNs are left
+    alone (their ORN input is not one glomerulus's; review 2026-09-27: without
+    the restriction and the clip, factors reached 327x)."""
+    n = connectome.neurons
+    t = n["primary_type"].fillna("").astype(str).to_numpy()
+    is_orn = np.char.startswith(t.astype(str), "ORN_")
+    is_pn = (n["class"].fillna("").astype(str) == "ALPN").to_numpy()
+    w = connectome.w.tocsr()
+    pre = np.repeat(np.arange(connectome.n), np.diff(w.indptr))
+    eff = np.abs(w.data).astype(np.float64) * (1.0 if mult is None else np.asarray(mult, np.float64))
+    m = is_orn[pre] & is_pn[w.indices]
+    tot = np.bincount(w.indices[m], weights=eff[m], minlength=connectome.n)
+    uni = is_pn & np.array([("PN" in x) and not x.startswith(("M_", "MZ_", "Z_")) for x in t]) & (tot > 0)
+    ref = float(np.median(tot[uni]))
+    fac = np.ones(connectome.n)
+    fac[uni] = np.clip((ref / tot[uni]) ** exponent, *clip)
+    pos = np.flatnonzero(m & uni[w.indices])
+    return [(pos, fac[w.indices[pos]])]
 
 
 def orn_pn_lateral_release(connectome, ratio: float) -> list:
@@ -181,13 +232,25 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
     name = name or os.environ.get("FLY_DYNAMICS", "published")
     if name == "published":
         return None
-    cfg = json.loads((config.METADATA_DIR / f"dynamics_{name}.json").read_text())
+    path = config.METADATA_DIR / f"dynamics_{name}_{config.DATASET_KEY}.json"   # a dataset's own calibration
+    if not path.exists():
+        path = config.METADATA_DIR / f"dynamics_{name}.json"
+    cfg = json.loads(path.read_text())
     n = connectome.neurons
     al_ln = (n["class"].fillna("").astype(str) == "ALLN").to_numpy()
     sign = n["sign"].to_numpy()
     ad, sl = cfg["adaptation"], cfg["slow_inhibition"]
     adapt = np.full(connectome.n, ad["adapt_mV_per_spike"], np.float32)
     adapt[al_ln] += ad.get("extra_al_ln_adapt_mV_per_spike", 0.0)
+    vnc = cfg.get("vnc") or {}
+    if vnc.get("extra_adapt_mV_per_spike"):
+        # the nerve cord (male CNS only; FAFB is brain-only): its motor rhythm
+        # circuits (flight DLM/DVM, abdominal) sustain activity after a stimulus
+        # in a model without their sensory feedback and neuromodulation;
+        # calibrated in cognition/calibrate_merged.py (stage "vnc")
+        sc = n["super_class"].fillna("").astype(str).to_numpy()
+        vmask = np.char.startswith(sc.astype(str), "vnc_") | np.isin(sc, ["ascending_neuron", "efferent_ascending"])
+        adapt[vmask] += vnc["extra_adapt_mV_per_spike"]
     cc = cfg.get("central_complex") or {}
     ring = None
     if cc.get("ring_internal_gain", 1.0) != 1.0 or cc.get("ring_adapt_mV_per_spike") is not None:
@@ -202,6 +265,19 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
         # equal strength per ORN connection within a PN type (Tobin et al. 2017)
         mult = engine.plastic_multipliers()
         for pos, m in orn_pn_compensation(connectome, mult):
+            mult[pos] *= np.float32(m)
+    nrm = cfg.get("orn_pn_input_normalization")
+    if nrm and nrm.get("exponent", 0.0) > 0:
+        # Tobin, Wilson & Lee 2017 (eLife 6:e24838): PNs with more ORN synapses
+        # have larger dendrites and lower input resistance. Generalised across
+        # glomeruli: each PN's ORN input is scaled by (median total ORN input
+        # of uniglomerular PNs / its own) ** exponent (0 = off, 1 = every PN the
+        # same total drive per ORN spike). Needed for the male's enlarged VA1v
+        # (111 ORNs per side, Or47b at 47 Hz spontaneous): without it its PNs
+        # rest at ~100 Hz.
+        mult = engine.plastic_multipliers()
+        for pos, m in orn_pn_input_normalization(connectome, float(nrm["exponent"]), mult,
+                                                 tuple(nrm.get("clip", (0.5, 2.0)))):
             mult[pos] *= np.float32(m)
     bc = cfg.get("bilateral_consensus")
     if bc and bc.get("enabled"):
@@ -253,7 +329,8 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
 def _cx_ring_mask(connectome) -> np.ndarray:
     """E-PG, P-EN1, P-EN2, P-EG and Delta7 neurons (the PB/EB heading ring)."""
     t = connectome.neurons["primary_type"].fillna("").astype(str).to_numpy()
-    return np.isin(t, ["EPG", "PEN_a/PEN1", "PEN_b/PEN2", "PEG", "Delta7"])
+    return np.isin(t, ["EPG", "PEN_a/PEN1", "PEN_b/PEN2", "PEG", "Delta7",
+                       "PEN_a(PEN1)", "PEN_b(PEN2)"])          # the last two: MaleCNS names
 
 
 def make_engine(connectome, params: LIFParams = DEFAULT, seed: int = 0,

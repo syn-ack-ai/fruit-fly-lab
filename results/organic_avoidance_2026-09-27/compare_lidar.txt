@@ -1,0 +1,12 @@
+condition  days bumps  pet  scene/d sbumps/d blk s/d brk s/d piv s/d   m/d   dock meals rest/d  low/d flat recov
+pet          30    25    6      141     18.1    51.4     0.0     0.0  28.6  13/30     9    4.2    1.8    0     -
+petlidar     30    28    4       21      4.7     5.2    55.4     0.0  21.9  18/30     7    3.5    0.0    0     -
+petroute     30    51   12        2      0.3     5.5    42.9     6.1  25.9  16/30     6    5.2    0.0    0     -
+petsteer     30    34    6        4      0.4     4.4    42.0     4.7  26.6  16/30     7    4.0    0.0    0     -
+
+condition  days bumps  pet  scene/d sbumps/d blk s/d brk s/d piv s/d   m/d   dock meals rest/d  low/d flat recov
+pet          30   116   42     3210      nan     nan     0.0     0.0  32.8  20/30    11    2.6    0.0    0     -
+petlidar     30   114   15     1160      nan     nan     0.0     0.0  23.1  20/30     7    1.5    0.0    0     -
+petobst      30   123   18     1803      nan     nan     0.0     0.0  18.9  17/30     8    3.6    0.0    0     -
+petsense     30   121   62     2686      nan     nan     0.0     0.0  29.7  15/30     6    1.9    0.0    0     -
+petttc_stuck   18    21    0     7921      nan     nan     0.0     0.0   2.0   1/18     0    0.5    0.0    0     -

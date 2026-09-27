@@ -50,6 +50,19 @@ def ellipse_body(angles_deg, half_length_m: float, half_width_m: float) -> np.nd
     return 1.0 / np.sqrt((np.cos(a) / half_length_m) ** 2 + (np.sin(a) / half_width_m) ** 2)
 
 
+def rect_body(angles_deg, half_length_m: float, half_width_m: float) -> np.ndarray:
+    """Distance from the lidar (body centre) to a rectangular body's edge, per beam."""
+    a = np.radians(np.asarray(angles_deg, float))
+    with np.errstate(divide="ignore"):
+        return np.minimum(half_length_m / np.abs(np.cos(a)), half_width_m / np.abs(np.sin(a)))
+
+
+def body_profile(angles_deg, body: dict) -> np.ndarray:
+    """Per-beam body surface for a sim/habitat_bridge/bodies.py entry."""
+    f = rect_body if body.get("shape") == "rect" else ellipse_body
+    return f(angles_deg, body["half_len"], body["half_wid"])
+
+
 class LidarScan:
     """The latest scan: ranges (m) at beam angles (deg, + = right); body = the
     body surface's distance from the lidar (scalar or per beam)."""
@@ -189,7 +202,10 @@ class LidarLooming:
 class LidarTouch:
     """Session encoder: near obstacles -> antennal / vibrissal bristles by side."""
 
-    CELL_TYPES = ("BM_Ant", "BM_Vib")
+    # FlyWire: antennal + vibrissal bristles. The MaleCNS does not separate
+    # BM_Ant: its 69 head bristles typed "BM" (a mix of seven FlyWire bristle
+    # types, BM_Ant among them) stand in, with its BM_Vib.
+    CELL_TYPES = ("BM_Ant", "BM_Vib", "BM")
 
     def __init__(self, connectome, scan: LidarScan):
         n = connectome.neurons

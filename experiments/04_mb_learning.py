@@ -63,6 +63,8 @@ def main():
     c = load_connectome(); n = c.neurons
     t = n["primary_type"].fillna("").astype(str)
     e = NativeLIFEngine.from_connectome(c, seed=1, threads=3)
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)             # the dataset's calibrated gain (male-based: 0.62)
     apply_dynamics(e, c, "calibrated")
     mb = MushroomBody(c, e, plastic=True, kc_mbon_gain=KC_MBON_GAIN)
     odour = {o: _odour(o, n, t) for o in (ODOUR_A, ODOUR_B)}

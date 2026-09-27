@@ -39,6 +39,8 @@ def main():
     ids = np.concatenate([orn, bm])
     order = np.argsort(ids)
     e = NativeLIFEngine.from_connectome(c, seed=1, threads=4)
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)             # the dataset's calibrated gain (male-based: 0.62)
     apply_dynamics(e, c, "calibrated")
     cell = lambda ty, sd: np.flatnonzero((t == ty) & (side == sd))
     print(f"BM_Ant+BM_Vib: {len(bm)} ({bm_right.sum()} right); {a.seeds} seeds x {a.seconds} s at {a.hz} Hz")

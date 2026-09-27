@@ -5,6 +5,19 @@
 > lower brain is the fly connectome** and whose higher functions are a small learned
 > "neocortex". Additions (MIT licence, see LICENSE; upstream code keeps its author's
 > copyright):
+> - **Default brain since 2026-09-27: our "complete" male CNS** (`FLY_DATASET=merged`,
+>   `brain/connectivity/merge.py`): the Janelia MaleCNS v1.0 (brain + ventral nerve
+>   cord) with its demonstrated reconstruction gaps filled (left-antenna smell
+>   neurons, Johnston's organ, head bristles; FlyWire FAFB decides what counts as a
+>   gap) and made exactly left/right balanced, with dynamics refitted to it. Fly exam
+>   30-31/32 on three seed sets (all 21 held-out tests and all constraints pass;
+>   odour-steering tests are a documented open limitation), and no left/right
+>   steering bias -- FAFB's wiring has one. `results/complete_brain_2026-09-27/`.
+>   FAFB remains available with `FLY_DATASET=fafb`.
+> - Lidar obstacle avoidance for the robot pet (`robot/avoid.py`, `robot/lidar.py`,
+>   `cortex/obstacle_map.py`): a steering reflex bends the fly brain's own steering
+>   toward open space (98% fewer furniture bumps on a rover-sized body in Habitat).
+>   `results/organic_avoidance_2026-09-27/`.
 > - `native/` - C engine (NEON / plain C, multi-threaded) and a CUDA engine,
 >   bit-exact with the published Python model; ~5x real time on an RTX 3080 Ti.
 > - Calibrated dynamics (`data/metadata/dynamics_calibrated.json`, applied in
@@ -26,9 +39,12 @@
 >   `sim/habitat_bridge/` (the brain driving a robot in Meta Habitat 3.0 homes),
 >   `cortex/` (the prototype neocortex that biases the fly brain top-down).
 >
-> At run time no language model is involved (connectome -> differential equations ->
-> spikes; the cortex is a small learned map, drives and a TD critic). The code in this
-> fork was written with AI coding assistance (Anthropic's Claude) under human direction.
+> The brain and the neocortex use no language model (connectome -> differential
+> equations -> spikes; the cortex is a small learned map, drives and a TD critic). An
+> optional personality layer (`cortex/personality.py`) uses a local language model for
+> speech and intentions only -- it never reaches the motors or the safety layer. The code
+> in this fork was written with AI coding assistance (Anthropic's Claude) under human
+> direction.
 
 
 An interactive simulation of an adult female *Drosophila melanogaster* built on
@@ -41,9 +57,10 @@ it comes out of real LC4 and LPLC2 neurons driving the real Giant Fibre through
 the real wiring diagram. Silence those 314 neurons and the escape disappears
 entirely.
 
-**No large language model is used anywhere in this project.** No transformer,
+**No large language model is used in the brain simulation.** No transformer,
 no chatbot, no agent, no RAG, no LLM-generated rules. The pipeline is
-connectome → differential equations → spikes.
+connectome → differential equations → spikes. (This fork's optional robot
+personality layer is the one exception, and it sits outside the simulation.)
 
 ---
 

@@ -1,0 +1,5 @@
+dataset merged, dynamics calibrated, 8 seeds x 1.0 s
+  rest     DNa01 L-R  +0.50 (sd 1.87, p 0.50) | DNa02 L-R  +0.00 (sd 2.35, p 1.00) | DN mean   2.4 Hz | turn idx L-R  -0.11 (sd 0.15, p 0.10)
+  odour    DNa01 L-R  +0.00 (sd 1.73, p 1.00) | DNa02 L-R  +0.62 (sd 1.41, p 0.28) | DN mean   2.4 Hz | turn idx L-R  -0.01 (sd 0.14, p 0.83)
+  looming  DNa01 L-R  +0.00 (sd 0.00, p 1.00) | DNa02 L-R  +0.25 (sd 0.66, p 0.35) | DN mean   0.1 Hz | turn idx L-R  -0.00 (sd 0.04, p 0.98)
+  walk     DNa01 L-R  +0.00 (sd 1.94, p 1.00) | DNa02 L-R  +1.25 (sd 1.71, p 0.09) | DN mean   3.8 Hz | turn idx L-R  -0.04 (sd 0.07, p 0.15)

@@ -202,6 +202,8 @@ class Critic:
 class CortexV0:
     N_FOURIER = 16
     naps = False             # set per instance (cortex kind "pet"); class default for partial construction
+    obstacles = None         # cortex/obstacle_map.ObstacleMap: routes around remembered obstacles (--route)
+    ROUTE_S = 0.5            # replan the route this often (or when the target moves)
 
     def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False,
                  manners: bool = False, naps: bool = False):
@@ -243,6 +245,9 @@ class CortexV0:
             # control: everything learned about places is wiped, including the
             # critic (its inputs include position, so it holds a value map)
             self.map, self.owner_prior = CognitiveMap(), {}
+            if self.obstacles is not None:
+                from cortex.obstacle_map import ObstacleMap
+                self.obstacles = ObstacleMap(self.obstacles.body_radius)
             self.critic = Critic(self._n_features(), int(self.rng.integers(1 << 30)))
         self.hunger, self.social = 0.6, 0.5          # a new day: hungry, wants company
         self.sleepy, self.resting, self.want_rest = 0.2, False, False
@@ -264,6 +269,7 @@ class CortexV0:
         self.day_log = {"goals": {}, "rpe_pos": 0, "rpe_neg": 0, "new_cells": 0, "manners_s": {}}
         self.cells_at_start = len(self.map.nodes)
         self.replay = []                             # (phi, cmd, reward) for the world model
+        self._route_cache = None
 
     def know_place(self, xz, kind: str = "food", value: float = 0.5) -> None:
         """A place known without having walked there: the robot's charging dock
@@ -387,9 +393,10 @@ class CortexV0:
             self.next_plan = t_s + REPLAN_S
             self._plan(c, t_s, sweet)
         cmd = {"goal_deg": None, "goal_gain": 0.0, "rpe": rpe_drive}
+        target = None                                # the point the goal direction aims at
         if self.goal is not None:
             gcell, kind, util, t_set = self.goal
-            wp = self._waypoint(c, gcell, (x, z), kind)
+            wp = target = self._waypoint(c, gcell, (x, z), kind)
             cmd["goal_deg"] = bearing_deg((x, z), wp)
             cmd["goal_gain"] = float(np.clip(util / 0.5, 0.3, 1.0))
         # meal mode (battery pet): while a meal is on, other goals wait; if the
@@ -403,12 +410,18 @@ class CortexV0:
                 fx, fz = min(fps, key=lambda p: math.hypot(p[0] - x, p[1] - z))
                 if math.hypot(fx - x, fz - z) > 0.35:
                     cmd["goal_deg"], cmd["goal_gain"] = bearing_deg((x, z), (fx, fz)), 1.0
+                    target = (fx, fz)
                 else:
+                    target = None
                     # at the bowl: settle between feeding bursts (fewer spontaneous
                     # walking bouts: ER5 + the body's nerve-cord stand-in)
                     cmd["goal_deg"], cmd["goal_gain"], cmd["rest"] = None, 0.0, MEAL_SETTLE
             self.goal = None
             self.day_log["meal_s"] = self.day_log.get("meal_s", 0.0) + dt
+        if self.obstacles is not None and target is not None and cmd["goal_deg"] is not None:
+            rp = self._route((x, z), target, t_s)
+            if rp is not None:
+                cmd["goal_deg"] = bearing_deg((x, z), rp)   # around remembered obstacles
         if self.manners:
             cmd = self._manners(cmd, x, z, t_s, dt)
             if in_meal:
@@ -569,6 +582,25 @@ class CortexV0:
             self.day_log["goals"][kind] = self.day_log["goals"].get(kind, 0) + 1
         self._dist = dist
 
+    def enable_route(self, body_radius_m: float) -> None:
+        """Remember obstacles and plan routes around them (kept across days)."""
+        from cortex.obstacle_map import ObstacleMap
+        self.obstacles = getattr(self, "_saved_obstacles", None) or ObstacleMap(body_radius_m)
+
+    def observe_scan(self, pose, ranges, angles_deg) -> None:
+        """A lidar scan (brain_client, every control step) into the obstacle map."""
+        if self.obstacles is not None and ranges:
+            self.obstacles.update(pose, ranges, angles_deg)
+
+    def _route(self, pos, target, t_s):
+        r = getattr(self, "_route_cache", None)
+        if (r is None or t_s - r[0] >= self.ROUTE_S or t_s < r[0]
+                or math.hypot(target[0] - r[1][0], target[1] - r[1][1]) > 0.25):
+            rp = self.obstacles.route_point(pos, target)
+            self._route_cache = r = (t_s, target, rp)
+            self.day_log["routes"] = self.day_log.get("routes", 0) + (rp is not None)
+        return r[2]
+
     def _waypoint(self, here, gcell, pos=None, kind=None):
         if gcell not in self.map.nodes:               # a step into new ground
             return centre(gcell)
@@ -603,7 +635,9 @@ class CortexV0:
                 "hunger_end": round(self.hunger, 2), "social_end": round(self.social, 2),
                 "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()},
                 "rest_s": round(self.day_log.get("rest_s", 0.0), 1), "naps": self.day_log.get("naps", {}),
-                "meal_s": round(self.day_log.get("meal_s", 0.0), 1)}
+                "meal_s": round(self.day_log.get("meal_s", 0.0), 1),
+                **({"routes": self.day_log.get("routes", 0),
+                    "obstacle_cells": int(self.obstacles.occupied().sum())} if self.obstacles is not None else {})}
 
     def save(self) -> None:
         self.days += 1
@@ -613,7 +647,7 @@ class CortexV0:
         with open(os.path.join(self.state_path, "cortex.pkl"), "wb") as fh:
             pickle.dump({"map": self.map, "owner_prior": self.owner_prior, "days": self.days,
                          "critic": self.critic.net.state_dict(), "lifetime": self.lifetime,
-                         "freq": self.freq, "phase": self.phase}, fh)
+                         "freq": self.freq, "phase": self.phase, "obstacles": self.obstacles}, fh)
         if self.replay:
             P = np.array([p for p, _, _ in self.replay], np.float32)
             A = np.array([a for _, a, _ in self.replay], np.float32)
@@ -627,3 +661,4 @@ class CortexV0:
         self.map, self.owner_prior, self.days = s["map"], s["owner_prior"], s["days"]
         self.critic.net.load_state_dict(s["critic"])
         self.lifetime, self.freq, self.phase = s["lifetime"], s["freq"], s["phase"]
+        self._saved_obstacles = s.get("obstacles")      # restored by enable_route()

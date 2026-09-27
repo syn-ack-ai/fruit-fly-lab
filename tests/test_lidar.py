@@ -1,7 +1,7 @@
 """2D lidar as fly senses (robot/lidar.py)."""
 import numpy as np
 
-from robot.lidar import LidarLooming, LidarScan, LidarTouch, beam_angles, ellipse_body
+from robot.lidar import LidarLooming, LidarScan, LidarTouch, beam_angles, body_profile, ellipse_body, rect_body
 
 
 def _scan():
@@ -48,6 +48,18 @@ def test_touch_is_felt_on_the_side_of_the_obstacle():
     r = touch.rates_hz(0.0)
     left = r[~touch._right]
     assert left.max() > 50 and r[touch._right].max() == 0
+
+
+def test_rect_body_rover():
+    import math
+    # the rover (sim/habitat_bridge/bodies.py): front 0.127, side 0.116, corner 0.172
+    from sim.habitat_bridge.bodies import BODIES
+    b = rect_body([0.0, 90.0, 180.0, -90.0], 0.127, 0.116)
+    assert np.allclose(b, [0.127, 0.116, 0.127, 0.116])
+    corner = math.degrees(math.atan2(0.116, 0.127))
+    assert abs(rect_body([corner], 0.127, 0.116)[0] - math.hypot(0.127, 0.116)) < 1e-9
+    assert np.allclose(body_profile([0.0, 90.0], BODIES["rover"]), [0.127, 0.116])
+    assert np.allclose(body_profile([0.0, 90.0], BODIES["spot"]), [0.55, 0.25])
 
 
 def test_ellipse_body():
@@ -217,3 +229,50 @@ def test_touch_from_straight_behind_is_felt_on_both_sides():
     rr[ang.index(-180.0)] = 0.25
     scan.update(rr, 0.0)
     assert touch.levels()[0] > 0 and touch.levels()[1] > 0
+
+
+def test_ttc_checks_turning_and_backing_up():
+    from robot.safety import ttc_scale
+    L, W = 0.55, 0.25
+    wall_ahead = np.array([[1.0, y] for y in np.linspace(-0.5, 0.5, 11)])
+    assert ttc_scale(wall_ahead, 0.5, 0.0, L, W) < 1.0          # driving at it: slowed
+    assert ttc_scale(wall_ahead, -0.3, 0.0, L, W) == 1.0        # backing away: free
+    behind = np.array([[-0.7, 0.0]])
+    assert ttc_scale(behind, -0.3, 0.0, L, W) < 1.0             # backing into it: slowed
+    corner = np.array([[0.45, -0.40]])                           # right of the nose
+    assert ttc_scale(corner, 0.0, -1.0, L, W) < 1.0             # turning right swings the nose into it
+    assert ttc_scale(corner, 0.0, 1.0, L, W) == 1.0             # turning left: free
+
+
+def test_ttc_never_freezes_a_pet_that_is_touching_a_wall():
+    """Regression: the first version stopped whenever anything was inside the
+    footprint, and the pet froze against furniture."""
+    from robot.safety import ttc_filter
+    L, W = 0.55, 0.25
+    touching = np.array([[0.56, y] for y in np.linspace(-0.3, 0.3, 7)])   # nose on a wall
+    v, w = ttc_filter(touching, 0.3, 0.0, L, W)
+    assert v == 0.0                                              # not further into it
+    v, w = ttc_filter(touching, -0.2, 0.0, L, W)
+    assert v == -0.2                                             # backing away: allowed
+    # turning while touching can be unsafe for this long body (the filter alone
+    # may then stop it); the CollisionMonitor's recovery gets it out within
+    # STUCK_S (review 2026-09-27: the old assertion here could never fail)
+    from robot.safety import CollisionMonitor
+    cm = CollisionMonitor(L, W)
+    outs = [cm(touching, 0.3, 1.0, 0.1) for _ in range(int(CollisionMonitor.STUCK_S / 0.1) + 2)]
+    assert any(o != (0.0, 0.0) for o in outs)                    # some way out, not frozen
+
+
+def test_collision_monitor_recovers_from_a_corner():
+    """A long body in a corner: forward and turning in place are unsafe; after
+    STUCK_S the monitor backs out."""
+    from robot.safety import CollisionMonitor, motion_safe
+    L, W = 0.55, 0.25
+    wall_front = [[0.60, y] for y in np.linspace(-0.6, 0.6, 13)]
+    wall_right = [[x, -0.30] for x in np.linspace(-0.6, 0.6, 13)]
+    pts = np.array(wall_front + wall_right)
+    assert not motion_safe(pts, 0.2, 0.0, L, W) and not motion_safe(pts, 0.0, -0.8, L, W)
+    cm = CollisionMonitor(L, W)
+    out = [cm(pts, 0.3, -0.5, 0.1) for _ in range(30)]
+    assert any(v < 0 or abs(w) > 0 for v, w in out[15:])        # it moves again
+    assert cm.recoveries >= 1

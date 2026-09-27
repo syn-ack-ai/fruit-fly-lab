@@ -1,0 +1,317 @@
+{
+  "dataset": "merged MaleCNS (gaps filled)",
+  "version": "1",
+  "base": "Janelia MaleCNS v1.0 (brain/connectivity/build_malecns.py)",
+  "reference": "FlyWire FAFB v783 (decides what is a gap; nothing copied from it)",
+  "built_utc": "2026-09-27T19:05:21.891634+00:00",
+  "rules": {
+    "COUNT_GAP_IN_FAMILY": 0.6,
+    "FAMILY_GAP": 0.5,
+    "FAFB_SYM": 0.5,
+    "FAFB_FAMILY_SYM": 0.2,
+    "MIN_CELLS": 6,
+    "MAX_FILL": 8.0,
+    "FAMILY_MIN_TYPES": 5,
+    "GROUP_GAP": 1.2
+  },
+  "population_gaps": [
+    {
+      "type": "ORN_DA1",
+      "family": "ORN",
+      "flywire_type": "ORN_DA1",
+      "deficient_side": "left",
+      "n_deficient": 64,
+      "n_other": 140,
+      "fafb_left": 60,
+      "fafb_right": 67,
+      "factor": 2.1875
+    },
+    {
+      "type": "ORN_DA3",
+      "family": "ORN",
+      "flywire_type": "ORN_DA3",
+      "deficient_side": "left",
+      "n_deficient": 12,
+      "n_other": 22,
+      "fafb_left": 14,
+      "fafb_right": 16,
+      "factor": 1.8333333333333333
+    },
+    {
+      "type": "ORN_DA4l",
+      "family": "ORN",
+      "flywire_type": "ORN_DA4l",
+      "deficient_side": "left",
+      "n_deficient": 11,
+      "n_other": 22,
+      "fafb_left": 19,
+      "fafb_right": 21,
+      "factor": 2.0
+    },
+    {
+      "type": "ORN_DM3",
+      "family": "ORN",
+      "flywire_type": "ORN_DM3",
+      "deficient_side": "left",
+      "n_deficient": 24,
+      "n_other": 38,
+      "fafb_left": 32,
+      "fafb_right": 29,
+      "factor": 1.5833333333333333
+    },
+    {
+      "type": "ORN_DM5",
+      "family": "ORN",
+      "flywire_type": "ORN_DM5",
+      "deficient_side": "left",
+      "n_deficient": 10,
+      "n_other": 25,
+      "fafb_left": 21,
+      "fafb_right": 21,
+      "factor": 2.5
+    },
+    {
+      "type": "ORN_V",
+      "family": "ORN",
+      "flywire_type": "ORN_V",
+      "deficient_side": "left",
+      "n_deficient": 16,
+      "n_other": 39,
+      "fafb_left": 34,
+      "fafb_right": 33,
+      "factor": 2.4375
+    },
+    {
+      "type": "ORN_VA1d",
+      "family": "ORN",
+      "flywire_type": "ORN_VA1d",
+      "deficient_side": "left",
+      "n_deficient": 25,
+      "n_other": 107,
+      "fafb_left": 51,
+      "fafb_right": 46,
+      "factor": 4.28
+    },
+    {
+      "type": "ORN_VA1v",
+      "family": "ORN",
+      "flywire_type": "ORN_VA1v",
+      "deficient_side": "left",
+      "n_deficient": 19,
+      "n_other": 111,
+      "fafb_left": 51,
+      "fafb_right": 43,
+      "factor": 5.842105263157895
+    },
+    {
+      "type": "ORN_VA3",
+      "family": "ORN",
+      "flywire_type": "ORN_VA3",
+      "deficient_side": "left",
+      "n_deficient": 8,
+      "n_other": 22,
+      "fafb_left": 15,
+      "fafb_right": 14,
+      "factor": 2.75
+    },
+    {
+      "type": "ORN_VA5",
+      "family": "ORN",
+      "flywire_type": "ORN_VA5",
+      "deficient_side": "left",
+      "n_deficient": 3,
+      "n_other": 13,
+      "fafb_left": 6,
+      "fafb_right": 6,
+      "factor": 4.333333333333333
+    },
+    {
+      "type": "ORN_VL1",
+      "family": "ORN",
+      "flywire_type": "ORN_VL1",
+      "deficient_side": "left",
+      "n_deficient": 21,
+      "n_other": 61,
+      "fafb_left": 41,
+      "fafb_right": 39,
+      "factor": 2.9047619047619047
+    },
+    {
+      "type": "ORN_VL2a",
+      "family": "ORN",
+      "flywire_type": "ORN_VL2a",
+      "deficient_side": "left",
+      "n_deficient": 26,
+      "n_other": 71,
+      "fafb_left": 33,
+      "fafb_right": 38,
+      "factor": 2.730769230769231
+    },
+    {
+      "type": "ORN_VL2p",
+      "family": "ORN",
+      "flywire_type": "ORN_VL2p",
+      "deficient_side": "left",
+      "n_deficient": 15,
+      "n_other": 30,
+      "fafb_left": 14,
+      "fafb_right": 14,
+      "factor": 2.0
+    },
+    {
+      "type": "ORN_VM3",
+      "family": "ORN",
+      "flywire_type": "ORN_VM3",
+      "deficient_side": "left",
+      "n_deficient": 16,
+      "n_other": 27,
+      "fafb_left": 19,
+      "fafb_right": 18,
+      "factor": 1.6875
+    },
+    {
+      "type": "ORN_VM4",
+      "family": "ORN",
+      "flywire_type": "ORN_VM4",
+      "deficient_side": "left",
+      "n_deficient": 13,
+      "n_other": 65,
+      "fafb_left": 35,
+      "fafb_right": 40,
+      "factor": 5.0
+    },
+    {
+      "type": "ORN_VM6l",
+      "family": "ORN",
+      "flywire_type": "ORN_VM6l",
+      "deficient_side": "left",
+      "n_deficient": 2,
+      "n_other": 12,
+      "fafb_left": 10,
+      "fafb_right": 11,
+      "factor": 6.0
+    },
+    {
+      "type": "ORN_VM6v",
+      "family": "ORN",
+      "flywire_type": "ORN_VM6v",
+      "deficient_side": "left",
+      "n_deficient": 9,
+      "n_other": 24,
+      "fafb_left": 13,
+      "fafb_right": 13,
+      "factor": 2.6666666666666665
+    }
+  ],
+  "reference_population_gaps": [
+    {
+      "group": "JO-AB",
+      "side": "left",
+      "male_output_syn": 31273,
+      "fafb_output_syn_scaled": 65807,
+      "factor": 2.104
+    },
+    {
+      "group": "JO-AB",
+      "side": "right",
+      "male_output_syn": 1093,
+      "fafb_output_syn_scaled": 46429,
+      "factor": 8.0
+    },
+    {
+      "group": "JO-CE",
+      "side": "right",
+      "male_output_syn": 36533,
+      "fafb_output_syn_scaled": 75270,
+      "factor": 2.06
+    },
+    {
+      "group": "JO-other",
+      "side": "left",
+      "male_output_syn": 18107,
+      "fafb_output_syn_scaled": 26913,
+      "factor": 1.486
+    },
+    {
+      "group": "JO-other",
+      "side": "right",
+      "male_output_syn": 8587,
+      "fafb_output_syn_scaled": 20928,
+      "factor": 2.437
+    },
+    {
+      "group": "BM",
+      "side": "left",
+      "male_output_syn": 80544,
+      "fafb_output_syn_scaled": 148700,
+      "factor": 1.846
+    },
+    {
+      "group": "BM",
+      "side": "right",
+      "male_output_syn": 69744,
+      "fafb_output_syn_scaled": 115287,
+      "factor": 1.653
+    }
+  ],
+  "connection_groups_raised": 1085,
+  "symmetrization": {
+    "groups_paired": 1115226,
+    "groups_one_sided_mirrored": 487616,
+    "groups_unmirrorable": 25525,
+    "gap_groups_dropped_deficient_only": 939,
+    "gap_synapses_dropped": 25317,
+    "synapses_in_unmirrorable_pct": 0.659,
+    "synapses_without_side_pct": 1.892,
+    "mirror_connections_added": 576910,
+    "groups_total_corrected": 81815
+  },
+  "evidence_2026_09_27": {
+    "male_groups_lopsided_where_fafb_symmetric": 3640,
+    "fafb_groups_lopsided_where_male_symmetric": 4135,
+    "type_pairs_male_4x_below_female": 37864,
+    "type_pairs_female_4x_below_male": 77044,
+    "orn_by_wiring_male_left_right": [
+      994,
+      1637
+    ],
+    "orn_fafb_left_right": [
+      1117,
+      1132
+    ]
+  },
+  "protected_types": 479,
+  "n_neurons": 165122,
+  "n_neuron_pairs": 6736114,
+  "n_synapses": 89376657,
+  "synapses_before": 88816375,
+  "synapses_changed_pct": 0.631,
+  "super_class_counts": {
+    "ol_intrinsic": 89390,
+    "cb_intrinsic": 32160,
+    "vnc_intrinsic": 13151,
+    "visual_projection": 9201,
+    "vnc_sensory": 6365,
+    "cb_sensory": 4868,
+    "ol_sensory": 4114,
+    "ascending_neuron": 1846,
+    "descending_neuron": 1314,
+    "vnc_motor": 708,
+    "visual_centrifugal": 563,
+    "sensory_ascending": 537,
+    "cb_motor": 107,
+    "vnc_efferent": 94,
+    "cb_endocrine": 72,
+    "ENS": 47,
+    "vnc_endocrine": 22,
+    "sensory_descending": 12,
+    "vnc_sensory_tbc": 9,
+    "efferent_ascending": 8,
+    "cb_sensory_tbc": 5,
+    "cb_efferent": 4,
+    "efferent_descending": 4,
+    "visual_projection_tbc": 2,
+    "sensory_ascending_tbc": 2,
+    "vnc_tbc": 1
+  }
+}

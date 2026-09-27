@@ -93,3 +93,121 @@ def obstacle_limit(clearance_m, angles_deg, v: float, v_free: float = V_FREE) ->
     near = float(c.min())
     f = (near - OBST_STOP_M) / (OBST_FREE_M - OBST_STOP_M)
     return min(v, OBST_V_MIN + (v_free - OBST_V_MIN) * min(1.0, max(0.0, f)))
+
+
+# ------------------------------------------- footprint time-to-collision (lidar)
+# The Nav2 Collision Monitor "approach" idea (the rover will run the real Nav2
+# node): project the commanded (v, w) forward TTC_S seconds and sweep the
+# robot's footprint along that arc against the lidar points. Rule: never get
+# closer than CLEAR_M to anything; if already closer (e.g. brushing a wall),
+# never get closer than now -- so backing or turning away is always allowed.
+# (The first version stopped whenever anything was inside the footprint, and a
+# long body in a cluttered house then froze in place.)
+TTC_S = 1.0
+TTC_STEPS = 10
+CLEAR_M = 0.05
+
+
+def footprint_clearance(points_robot, half_len: float, half_wid: float) -> float:
+    """Smallest distance from a rectangular footprint (robot frame: x forward,
+    y left) to any point; negative inside."""
+    P = np.asarray(points_robot, float).reshape(-1, 2)
+    if len(P) == 0:
+        return np.inf
+    dx, dy = np.abs(P[:, 0]) - half_len, np.abs(P[:, 1]) - half_wid
+    outside = np.hypot(np.maximum(dx, 0.0), np.maximum(dy, 0.0))
+    inside = np.minimum(np.maximum(dx, dy), 0.0)
+    return float(np.min(np.where((dx > 0) | (dy > 0), outside, inside)))
+
+
+def _future(P, v, w, t):
+    th = w * t
+    if abs(w) > 1e-6:
+        dx, dy = v / w * np.sin(th), v / w * (1 - np.cos(th))
+    else:
+        dx, dy = v * t, 0.0
+    c, s = np.cos(th), np.sin(th)
+    qx, qy = P[:, 0] - dx, P[:, 1] - dy
+    return np.stack([c * qx + s * qy, -s * qx + c * qy], axis=1)
+
+
+def motion_safe(points_robot, v: float, w: float, half_len: float, half_wid: float,
+                ttc_s: float = TTC_S) -> bool:
+    P = np.asarray(points_robot, float).reshape(-1, 2)
+    if len(P) == 0 or (v == 0 and w == 0):
+        return True
+    floor = min(footprint_clearance(P, half_len, half_wid), CLEAR_M) - 1e-3
+    for t in np.linspace(ttc_s / TTC_STEPS, ttc_s, TTC_STEPS):
+        if footprint_clearance(_future(P, v, w, t), half_len, half_wid) < floor:
+            return False
+    return True
+
+
+def ttc_filter(points_robot, v: float, w: float, half_len: float, half_wid: float) -> tuple:
+    """The brain's command, slowed as little as needed to be safe; else a turn
+    in place if that is safe; else stop."""
+    for s in (1.0, 0.75, 0.5, 0.25):
+        if motion_safe(points_robot, s * v, s * w, half_len, half_wid):
+            return s * v, s * w
+    for s in (1.0, 0.5):
+        if motion_safe(points_robot, 0.0, s * w, half_len, half_wid):
+            return 0.0, s * w
+    return 0.0, 0.0
+
+
+def ttc_scale(points_robot, v: float, w: float, half_len: float, half_wid: float,
+              ttc_s: float = TTC_S) -> float:
+    """Largest of 1, .75, .5, .25, 0 such that (s*v, s*w) is safe (tests / reporting)."""
+    for s in (1.0, 0.75, 0.5, 0.25):
+        if motion_safe(points_robot, s * v, s * w, half_len, half_wid, ttc_s):
+            return s
+    return 0.0
+
+
+def scan_points_robot(ranges, angles_deg) -> np.ndarray:
+    """Lidar hits in the robot frame (x forward, y left); angles + = right."""
+    r = np.asarray(ranges, float)
+    a = np.radians(np.asarray(angles_deg, float))
+    ok = np.isfinite(r)
+    return np.stack([r[ok] * np.cos(a[ok]), -r[ok] * np.sin(a[ok])], axis=1)
+
+
+class CollisionMonitor:
+    """ttc_filter with a recovery reflex (as Nav2's recovery behaviours / a
+    robot vacuum): if the safety layer has held the robot still for STUCK_S
+    while the brain wants to move, it backs up a little or turns the other way,
+    whichever is safe, for RECOVER_S. A long body next to a wall cannot turn in
+    place (its corners would swing into the wall) and the fly brain rarely
+    walks backwards, so without this it stays stuck."""
+
+    STUCK_S, RECOVER_S = 1.5, 1.2
+    RECOVERIES = ((-0.12, 0.0), (0.0, 0.8), (0.0, -0.8), (-0.1, 0.6), (-0.1, -0.6))
+
+    def __init__(self, half_len: float, half_wid: float):
+        self.L, self.W = half_len, half_wid
+        self.stuck_s, self.recover_until, self.t = 0.0, -1.0, 0.0
+        self.recoveries = 0
+        self._rec = (0.0, 0.0)
+
+    def reset(self) -> None:
+        """A new day: no recovery in progress, and the count restarts (it is
+        reported per day; review 2026-09-27: it used to run on across days)."""
+        self.stuck_s, self.recover_until, self.t = 0.0, -1.0, 0.0
+        self.recoveries = 0
+
+    def __call__(self, points_robot, v: float, w: float, dt: float) -> tuple:
+        self.t += dt
+        if self.t < self.recover_until and motion_safe(points_robot, *self._rec, self.L, self.W):
+            return self._rec
+        fv, fw = ttc_filter(points_robot, v, w, self.L, self.W)
+        wants = abs(v) > 0.02 or abs(w) > 0.1
+        held = abs(fv) < 0.01 and abs(fw) < 0.05
+        self.stuck_s = self.stuck_s + dt if (wants and held) else 0.0
+        if self.stuck_s >= self.STUCK_S:
+            self.stuck_s = 0.0
+            for rv, rw in self.RECOVERIES:
+                if motion_safe(points_robot, rv, rw, self.L, self.W):
+                    self._rec, self.recover_until = (rv, rw), self.t + self.RECOVER_S
+                    self.recoveries += 1
+                    return self._rec
+        return fv, fw

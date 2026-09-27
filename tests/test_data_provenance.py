@@ -17,6 +17,10 @@ import pytest
 import config
 from brain.neurons.registry import load_connectome
 
+# these check the FlyWire FAFB v783 files themselves (root-ID prefix, counts,
+# checksums); run them with FLY_DATASET=fafb
+pytestmark = pytest.mark.skipif(config.DATASET_KEY != "fafb", reason="FlyWire FAFB provenance checks (FLY_DATASET=fafb)")
+
 
 # Published FlyWire FAFB v783 reference figures.
 PUBLISHED_NEURON_COUNT = 139255

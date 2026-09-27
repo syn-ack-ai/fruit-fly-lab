@@ -21,9 +21,10 @@ B. PUBLISHED :
 C. OUR APPROXIMATIONS :
    - Odour = a still-air halo around each source, c = strength * exp(-d/L),
      L = 1.2 m (room scale), sampled at two "antennae" 0.10 m left and right
-     of a point 0.45 m ahead of the robot base (Spot is ~1 m long). No walls
+     of a point 0.45 m ahead of the robot base (Spot is ~1 m long; the rover:
+     0.15 m, sim/habitat_bridge/bodies.py). No walls
      block the odour (indoor air mixes around furniture).
-   - Taste = contact: the robot base within EAT_R_M (0.6 m) of the bowl/plant.
+   - Taste = contact: the robot base within EAT_R_M (0.6 m; rover 0.35 m) of the bowl/plant.
      "Eating" is counted while the proboscis channel (MN9 motor neurons) holds
      the proboscis extended, which also stops the body (ForagingBody).
    - The owner: when the pet is within 1.5 m and sees them, each second there
@@ -61,8 +62,14 @@ PUNISH_DANS = ("PPL101", "PPL103")
 
 class HomeWorld:
     def __init__(self, pet_rate: float = 0.15, treat_rate: float = 0.05, plant: bool = True,
-                 seed: int = 0, battery=None, hunger_senses: bool = True):
+                 seed: int = 0, battery=None, hunger_senses: bool = True, body: str = "spot",
+                 odour: bool = True):
+        from sim.habitat_bridge.bodies import BODIES
         self.pet_rate, self.treat_rate = pet_rate, treat_rate
+        self.antenna_ahead, self.eat_r = BODIES[body]["antenna_ahead"], BODIES[body]["eat_r"]
+        # odour=False: the real rover has no nose -- the ORNs fire at their
+        # spontaneous rates only (no odour halo around the dock or plant)
+        self.odour = odour
         self.battery = battery
         self.docked_by_nav = False              # set by the client's emergency return
         self.hunger_senses = hunger_senses      # False: control, the dock is sensed at full strength
@@ -110,11 +117,13 @@ class HomeWorld:
         # (-sin a, cos a) in (x, -z), i.e. in (x, z):
         fx, fz = math.cos(a), -math.sin(a)
         lx, lz = -math.sin(a), -math.cos(a)
-        hx, hz = x + ANTENNA_AHEAD_M * fx, z + ANTENNA_AHEAD_M * fz
+        hx, hz = x + self.antenna_ahead * fx, z + self.antenna_ahead * fz
         for side, s in (("L", 1.0), ("R", -1.0)):
             ax, az_ = hx + s * ANTENNA_HALF_SEP_M * lx, hz + s * ANTENNA_HALF_SEP_M * lz
             self.conc[side] = np.array([st * math.exp(-math.hypot(ax - p[0], az_ - p[1]) / ODOUR_L_M)
                                         for _, p, _, st, _ in self.sources])
+            if not self.odour:
+                self.conc[side] = np.zeros(len(self.sources))
         self.taste = None
         st = self.stats
         for name, p, _, _, taste in self.sources:
@@ -122,7 +131,7 @@ class HomeWorld:
             if name == "bowl":
                 if d < 1.0:
                     st["near_bowl_s"] += dt
-                if d < EAT_R_M:
+                if d < self.eat_r:
                     if st["first_bowl_s"] is None:
                         st["first_bowl_s"] = round(self.t, 1)
                         self.events.append((round(self.t, 1), "reached bowl"))
@@ -132,15 +141,15 @@ class HomeWorld:
                         # eating although satiated: at or above FULL and not in a meal
                         if self.battery is not None and self.battery.soc >= 0.9 and not self.battery.meal:
                             st["eating_when_full_s"] += dt
-            elif d < EAT_R_M:
+            elif d < self.eat_r:
                 st["at_plant_s"] += dt
-            if d < EAT_R_M:
+            if d < self.eat_r:
                 self.taste = taste
         if self.battery is not None:
             d_dock = math.hypot(x - BOWL_XZ[0], z - BOWL_XZ[1])
             self.battery.step(dt, speed, resting,
-                              charging=d_dock < EAT_R_M and (proboscis > 0.5 or self.docked_by_nav),
-                              feeding=d_dock < EAT_R_M and proboscis > 0.5)
+                              charging=d_dock < self.eat_r and (proboscis > 0.5 or self.docked_by_nav),
+                              feeding=d_dock < self.eat_r and proboscis > 0.5)
         # the owner
         if obs["dist"] < OWNER_R_M:
             st["near_person_s"] += dt

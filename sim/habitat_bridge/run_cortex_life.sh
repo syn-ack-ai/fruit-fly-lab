@@ -13,11 +13,19 @@
 #   petlidar the battery pet + a simulated 2D lidar -> looming, antennal touch and obstacle speed limit
 #   petobst  ablation: lidar used only for the obstacle speed limit
 #   petsense ablation: lidar used only for the fly's looming and touch senses
+#   petttc   lidar senses + a footprint time-to-collision filter (Nav2 Collision Monitor "approach")
+#   petsteer petlidar + steering toward open space before obstacles (robot/avoid.py)
+#   petroute petsteer + the neocortex's obstacle map and routes around it (cortex/obstacle_map.py)
 #   pettalk  the battery pet + personality + scripted talking person
 # SAFE_SPEED=1 adds the robot's near-person speed limit (robot/safety.py) to every condition.
 # SPEECH=1 lets the scripted person talk in every condition (only "talk" listens).
 # FACE_URL=http://127.0.0.1:8010/state shows the face (robot/face_server.py); one pet only.
 # PORT0 (default 6040) sets the first Habitat port.
+# REAL=1: only the real rover's senses (camera, lidar, odometry, battery, dock
+# contacts): no odour, no owner petting/treats, no bitter plant (--real-senses).
+# DATASET=merged|malecns|fafb picks the brain (default: config.py's default).
+# BODY=rover gives the pet the Waveshare UGV Rover's footprint instead of Spot's
+# (sim/habitat_bridge/bodies.py); bumps are then measured on the rover's body.
 # SEEDS="1 2" runs 2 x 3 lifetimes (one Habitat server each). Linux box, CUDA engine.
 set -u
 cd "$(dirname "$0")/../.."
@@ -31,6 +39,8 @@ CONDS=(${CONDS:-none v0 amnesic})
 SAFE=""; [ "${SAFE_SPEED:-0}" = 1 ] && SAFE=--safe-speed
 [ "${SPEECH:-0}" = 1 ] && SAFE="$SAFE --speech"
 [ -n "${FACE_URL:-}" ] && SAFE="$SAFE --face $FACE_URL"
+[ "${REAL:-0}" = 1 ] && SAFE="$SAFE --real-senses"
+[ -n "${DATASET:-}" ] && export FLY_DATASET=$DATASET
 LLM_URL=${LLM_URL:-http://127.0.0.1:1234/v1/chat/completions}
 mkdir -p $OUT
 JOBS=()
@@ -41,7 +51,7 @@ stop() { for j in "${JOBS[@]}"; do set -- $j; pkill -f "^[^ ]*python -m sim.habi
 trap stop EXIT
 stop; sleep 1
 for j in "${JOBS[@]}"; do set -- $j
-  nohup $HAB -m sim.habitat_bridge.habitat_server --port $1 --hfov $HFOV --house small --max-seconds $SECS > /tmp/hserver_$1.log 2>&1 &
+  nohup $HAB -m sim.habitat_bridge.habitat_server --port $1 --hfov $HFOV --house small --max-seconds $SECS --body ${BODY:-spot} > /tmp/hserver_$1.log 2>&1 &
 done
 for j in "${JOBS[@]}"; do set -- $j; for i in $(seq 1 240); do grep -q "server ready" /tmp/hserver_$1.log && break; sleep 1; done; done
 export PYTHONPATH=. FLY_DYNAMICS=calibrated FLY_DT=0.1 FLY_THREADS=2 PYTHONUNBUFFERED=1
@@ -59,12 +69,15 @@ life() {  # port condition seed
   [ $2 = petlidar ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar"
   [ $2 = petobst ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --lidar-use limit"
   [ $2 = petsense ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --lidar-use senses"
+  [ $2 = petsteer ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --avoid"
+  [ $2 = petroute ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --avoid --route"
+  [ $2 = petttc ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --lidar-use ttc"
   [ $2 = pettalk ] && cx=pet && extra="--battery ${BATTERY:-0.7} --personality $LLM_URL --speech"
   [ "$SEEDS" != "1" ] && d=$OUT/seed$3/$2
   mkdir -p $d; rm -rf $d/state $d/mb_weights.npy
   .venv/bin/python -m sim.habitat_bridge.brain_client --port $1 --mode brain --home --learning on \
       --weights $d/mb_weights.npy --cortex $cx --cortex-state $d/state --seed $3 \
-      --episodes $DAYS --seconds $SECS --out $d $SAFE $extra \
+      --episodes $DAYS --seconds $SECS --out $d --body ${BODY:-spot} $SAFE $extra \
       2>&1 | grep --line-buffered -v Warn > $d/lifetime.log
 }
 PIDS=()

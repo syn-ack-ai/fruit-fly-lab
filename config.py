@@ -54,17 +54,30 @@ CONNECTOME_NPZ = DERIVED_DIR / "connectome_v783.npz"
 NEURON_INDEX   = DERIVED_DIR / "neuron_index_v783.csv.gz"
 BUILD_MANIFEST = METADATA_DIR / "build_manifest.json"
 
-# --- Alternative dataset: Janelia MaleCNS v1.0 (brain + nerve cord) --------
-# FLY_DATASET=malecns loads the build of brain/connectivity/build_malecns.py
-# instead. FlyWire-specific checks (root-ID prefix, neuron count, FlyWire
+# --- Alternative datasets: Janelia MaleCNS v1.0 (brain + nerve cord) -------
+# FLY_DATASET=malecns loads the build of brain/connectivity/build_malecns.py;
+# FLY_DATASET=merged the "complete map" of brain/connectivity/merge.py (the
+# MaleCNS with its reconstruction gaps filled from its mirror side and from
+# FlyWire FAFB; same neurons in the same order, so every MaleCNS lookup file
+# serves both). FlyWire-specific checks (root-ID prefix, neuron count, FlyWire
 # source files) apply to the default FAFB dataset only.
-DATASET_KEY = os.environ.get("FLY_DATASET", "fafb")
-if DATASET_KEY == "malecns":
+# default (2026-09-27): our brain, the merged male CNS; FlyWire FAFB with FLY_DATASET=fafb
+DATASET_KEY = os.environ.get("FLY_DATASET", "merged")
+MALE_CNS = DATASET_KEY in ("malecns", "merged")   # the MaleCNS neuron set (brain + VNC)
+LABELS_CSV = FLYWIRE_DIR / "labels.csv.gz"      # free-text neuron labels (FlyWire community)
+if MALE_CNS:
     CONNECTOME_NPZ = DERIVED_DIR / "malecns" / "connectome_malecns_v1.0.npz"
     NEURON_INDEX   = DERIVED_DIR / "malecns" / "neuron_index_malecns_v1.0.csv.gz"
     BUILD_MANIFEST = METADATA_DIR / "build_manifest_malecns.json"
+    # instance / type / synonyms per neuron, with the central-complex
+    # glomeruli written as FlyWire labels ("EPG_L5"), built from
+    # body-annotations-male-cns-v1.0 (see brain/connectivity/build_malecns.py)
+    LABELS_CSV = DERIVED_DIR / "malecns" / "labels_malecns_v1.0.csv.gz"
+    if DATASET_KEY == "merged":
+        CONNECTOME_NPZ = DERIVED_DIR / "merged" / "connectome_merged_v1.npz"
+        BUILD_MANIFEST = METADATA_DIR / "build_manifest_merged.json"
 elif DATASET_KEY != "fafb":
-    raise ValueError("FLY_DATASET must be 'fafb' or 'malecns', not %r" % DATASET_KEY)
+    raise ValueError("FLY_DATASET must be 'fafb', 'malecns' or 'merged', not %r" % DATASET_KEY)
 CHECKSUM_FILE  = METADATA_DIR / "flywire_v783_checksums.txt"
 
 for _d in (DERIVED_DIR, METADATA_DIR, OUTPUT_DIR):

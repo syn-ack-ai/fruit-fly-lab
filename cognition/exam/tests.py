@@ -39,8 +39,15 @@ def _ms(quick, q, f):
     return q if quick else f
 
 
+SEED_OFFSET = int(__import__("os").environ.get("FLY_EXAM_SEED_OFFSET", "0"))
+
+
 def _seeds(quick, nq=2, nf=4):
-    return tuple(range(1, (nq if quick else nf) + 1))
+    """Trial seeds. FLY_EXAM_SEED_OFFSET shifts them, so a calibration can be
+    confirmed on seeds it was not fitted on (cognition/calibrate_merged.py
+    --validate; 2026-09-27: a candidate passed odour_lateralization on the
+    exam's seeds and was at chance on fresh ones)."""
+    return tuple(range(1 + SEED_OFFSET, (nq if quick else nf) + 1 + SEED_OFFSET))
 
 
 # ------------------------------------------------------------------- shiu
@@ -82,9 +89,10 @@ def sugar_ir94e(ctx, quick):
 
 
 def contralateral_mn9(ctx, quick):
-    """All labelled sugar GRNs are left-side: MN9 right should fire more."""
+    """Sugar at the LEFT GRNs only (in FlyWire all labelled sugar GRNs are
+    left-side): MN9 right should fire more."""
     g = core.groups()
-    r = ctx.rates([(g["sugar"], 100.0)], _ms(quick, 500, 1000), _seeds(quick))
+    r = ctx.rates([(g["sugar_L"], 100.0)], _ms(quick, 500, 1000), _seeds(quick))
     L, R = float(r[g["mn9_L"]].mean()), float(r[g["mn9_R"]].mean())
     return {"value": R - L, "mn9_left_hz": round(L, 1), "mn9_right_hz": round(R, 1)}
 

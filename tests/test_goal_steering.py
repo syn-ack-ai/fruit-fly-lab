@@ -29,6 +29,8 @@ def setup():
     c = load_connectome()
     cx = Compass(c)
     e = lif_native.NativeLIFEngine.from_connectome(c, seed=1)
+    from simulation.engine.session import apply_calibrated_gain
+    apply_calibrated_gain(e)             # the dataset's calibrated gain (male-based: 0.62)
     apply_dynamics(e, c, "calibrated")
     return e, CompassDrive(cx, 270.0), GoalDrive(GoalCircuit(c, cx), peak_hz=120.0), RestingOlfaction(c)
 

@@ -248,10 +248,27 @@ ALL_MODALITIES = VISUAL + CHEMICAL + MECHANICAL + THERMAL
 BY_KEY = {m.key: m for m in ALL_MODALITIES}
 
 
+_MALECNS_MAP = None
+
+
+def _malecns_map() -> dict:
+    global _MALECNS_MAP
+    if _MALECNS_MAP is None:
+        import json
+        import config
+        _MALECNS_MAP = json.loads((config.DERIVED_DIR / "malecns" / "modality_map.json").read_text())
+    return _MALECNS_MAP
+
+
 def resolve_neurons(modality: Modality, connectome) -> np.ndarray:
     """Simulation indices of the real neurons a modality drives."""
     if not modality.supported:
         return np.empty(0, dtype=np.int64)
+    import config
+    if config.MALE_CNS:
+        m = _malecns_map().get(modality.key)
+        if m is not None:                  # mapped from FlyWire (brain/sensory/crossmap.py)
+            return np.asarray(m["idx"], dtype=np.int64)
     if modality.label_group:
         from brain.neurons.labels import functional_group
         rids = functional_group(modality.label_group)

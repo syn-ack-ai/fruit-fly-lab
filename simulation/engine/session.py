@@ -154,7 +154,16 @@ def orn_pn_input_normalization(connectome, exponent: float, mult=None, clip=(0.5
     eff = np.abs(w.data).astype(np.float64) * (1.0 if mult is None else np.asarray(mult, np.float64))
     m = is_orn[pre] & is_pn[w.indices]
     tot = np.bincount(w.indices[m], weights=eff[m], minlength=connectome.n)
-    uni = is_pn & np.array([("PN" in x) and not x.startswith(("M_", "MZ_", "Z_")) for x in t]) & (tot > 0)
+    uni = is_pn & np.array([("PN" in x) and "+" not in x and not x.startswith(("M_", "MZ_", "Z_")) for x in t]) & (tot > 0)
+    # ... and really one glomerulus: >= 90% of its ORN input from one ORN type
+    # (review 2026-09-27: 30 of 345 "uniglomerular" PNs took >= 10% from others)
+    import pandas as pd
+    post, pre_t = w.indices[m], t[pre[m]]
+    by = pd.DataFrame({"post": post, "orn": pre_t, "c": eff[m]}).groupby(["post", "orn"])["c"].sum()
+    top = by.groupby(level=0).max() / by.groupby(level=0).sum()
+    single = np.zeros(connectome.n, bool)
+    single[top.index[top >= 0.9].to_numpy()] = True
+    uni &= single
     ref = float(np.median(tot[uni]))
     fac = np.ones(connectome.n)
     fac[uni] = np.clip((ref / tot[uni]) ** exponent, *clip)
@@ -250,6 +259,10 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
         # calibrated in cognition/calibrate_merged.py (stage "vnc")
         sc = n["super_class"].fillna("").astype(str).to_numpy()
         vmask = np.char.startswith(sc.astype(str), "vnc_") | np.isin(sc, ["ascending_neuron", "efferent_ascending"])
+        if vnc.get("include_descending"):
+            # the brain <-> nerve-cord loop is closed by descending neurons
+            # (e.g. DNg33 at 155 Hz with no input, driving the Giant Fibre at rest)
+            vmask |= np.isin(sc, ["descending_neuron", "efferent_descending"])
         adapt[vmask] += vnc["extra_adapt_mV_per_spike"]
     cc = cfg.get("central_complex") or {}
     ring = None

@@ -32,10 +32,11 @@ Pivot (body reflex): pinned at an obstacle (the safety brake stopped it) while
 still walking forward, the fly brain's turn toward open space is weak and
 flips side to side (smoke test 2026-09-27: 4 s of wiggling at a wall with the
 phantom object at 90 deg). In a real fly the nerve cord's local leg reflexes
-take part in such turns; the pet runs on the FAFB brain, which has no nerve
-cord (the male CNS connectome, FLY_DATASET=malecns, has one but is not yet
-wired to the pet's body readout), so the body turns in place toward the side chosen here (pivot()), at PIVOT_W, until
-the way ahead opens. Counted, so it can be reported.
+take part in such turns. The pet's body is driven from the brain's descending
+steering neurons; the default brain (the complete male CNS) has a nerve cord,
+but its leg-level turning readout is not yet usable (see
+results/complete_brain_2026-09-27), so the body turns in place toward the
+side chosen here (pivot()), at PIVOT_W, until the way ahead opens. Counted, so it can be reported.
 
 C. APPROXIMATIONS: not a fly circuit. The brain-only connectome's own
 obstacle responses (looming escape, antennal touch slowing) do not steer

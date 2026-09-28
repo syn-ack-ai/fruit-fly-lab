@@ -15,7 +15,7 @@ trap stop EXIT
 stop; sleep 1
 for spec in "6010 53" "6011 150"; do
   set -- $spec
-  nohup $HAB -m sim.habitat_bridge.habitat_server --port $1 --hfov $2 --house small --max-seconds $SECS > /tmp/hserver_$1.log 2>&1 &
+  nohup $HAB -m sim.habitat_bridge.habitat_server --port $1 --hfov $2 --house small --max-seconds $SECS --video > /tmp/hserver_$1.log 2>&1 &
 done
 for p in 6010 6011; do for i in $(seq 1 90); do grep -q "server ready" /tmp/hserver_$p.log && break; sleep 1; done; done
 export PYTHONPATH=. FLY_DYNAMICS=calibrated FLY_DT=0.1 FLY_THREADS=8

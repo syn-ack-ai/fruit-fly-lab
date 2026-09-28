@@ -45,9 +45,11 @@ def test_calibrated_gain_follows_the_dataset(monkeypatch):
 def test_merged_is_left_right_balanced():
     """Every connection group with >= 50 synapses matches its mirror image per
     postsynaptic cell to within 10% (integer counts leave tiny groups off)."""
-    from brain.connectivity.merge import _edges, _load, _ncell, _sides
+    from brain.connectivity.merge import _edges, _load, _ncell, _sides, symmetry_types
     n, w = _load(MERGED, config.DERIVED_DIR / "malecns" / "neuron_index_malecns_v1.0.csv.gz")
-    t = n.primary_type.fillna("").astype(str).to_numpy()
+    # the identity merge.py mirrors by (sense groups as a whole: their subtypes
+    # are typed unevenly per side)
+    t = symmetry_types(n.primary_type.fillna("").astype(str).to_numpy())
     sd = _sides(n, w)
     E = _edges(w, t, sd)
     E = E[(E.tp != "") & (E.tq != "") & E.sp.isin(["left", "right"]) & E.sq.isin(["left", "right"])]
@@ -86,3 +88,47 @@ def test_held_out_seed_offset_shifts_exam_seeds(monkeypatch):
     finally:
         monkeypatch.delenv("FLY_EXAM_SEED_OFFSET")
         importlib.reload(tests)
+
+
+@needs_merged
+@pytest.mark.skipif(config.DATASET_KEY != "merged", reason="the merged brain's own modality balance")
+def test_every_sense_is_balanced_left_right():
+    """Review 2026-09-27: one-sided JO subtypes kept 'other JO' 2.8x lopsided
+    while the per-group test passed. For every mapped sense (and the filled
+    families), the input each RECEIVING cell gets from the left sense organ must
+    equal what its mirror cell gets from the right (summed over receiving cell
+    types present on both sides), within 5%. Raw totals are not the criterion:
+    receiving types present on one side only cannot be mirrored."""
+    import pandas as pd
+    from brain.connectivity.merge import _load, _ncell, _sides
+    from brain.neurons.registry import load_connectome
+    from brain.sensory.modalities import ALL_MODALITIES, resolve_neurons
+    c = load_connectome()
+    n, w = _load(MERGED, config.DERIVED_DIR / "malecns" / "neuron_index_malecns_v1.0.csv.gz")
+    sd = _sides(n, w)
+    t = n.primary_type.fillna("").astype(str).to_numpy()
+    nc = _ncell(t, sd)
+    groups = {m.key: resolve_neurons(m, c) for m in ALL_MODALITIES if m.supported}
+    for fam in ("ORN_", "JO-", "BM"):
+        groups[fam] = np.flatnonzero(np.char.startswith(t.astype(str), fam))
+    W = abs(w).tocsr()
+    for key, idx in groups.items():
+        if len(idx) < 10:
+            # e.g. heat: 7 thermosensory neurons with a one-neuron subtype on one
+            # side cannot be mirrored (13% off; the robot has no heat sense)
+            continue
+        per = {}
+        for side in ("left", "right"):
+            pre = idx[sd[idx] == side]
+            sub = W[pre].tocoo()
+            df = pd.DataFrame({"tq": t[sub.col], "sq": sd[sub.col], "c": sub.data})
+            df = df[df.sq.isin(["left", "right"]) & (df.tq != "")]
+            g = df.groupby(["tq", "sq"])["c"].sum()
+            per[side] = g / nc.reindex(g.index).to_numpy()
+        flip = {"left": "right", "right": "left"}
+        L = per["left"]
+        R = per["right"].rename(index=flip, level=1)            # right organ -> mirror-image receivers
+        both = L.index.intersection(R.index)
+        if len(both) == 0 or L[both].sum() == 0:
+            continue
+        assert abs(np.log(L[both].sum() / R[both].sum())) < np.log(1.05), (key, L[both].sum(), R[both].sum())

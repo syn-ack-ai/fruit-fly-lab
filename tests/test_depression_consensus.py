@@ -91,7 +91,8 @@ def test_calibrated_orn_input_is_bilaterally_balanced(c):
     import json
     import config
     from simulation.engine.session import apply_dynamics
-    cfg = json.loads((config.METADATA_DIR / "dynamics_calibrated.json").read_text())
+    own = config.METADATA_DIR / ("dynamics_calibrated_%s.json" % config.DATASET_KEY)   # the dataset's own calibration
+    cfg = json.loads((own if own.exists() else config.METADATA_DIR / "dynamics_calibrated.json").read_text())
     cfg["orn_pn_lateral_release"]["enabled"] = False
     cfg["orn_short_term_depression"]["enabled"] = False
     path = config.METADATA_DIR / "dynamics_zz_test_balance.json"

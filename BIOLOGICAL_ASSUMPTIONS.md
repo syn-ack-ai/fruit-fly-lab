@@ -251,8 +251,10 @@ and the evidence are in `results/complete_brain_2026-09-27/README.md`.
 
 What changes against §7: the nerve cord is present, so leg and wing motor
 neurons, leg sensory neurons and the descending -> nerve cord -> motor neuron
-path exist (`experiments/vnc_turn_test.py`: the steering neuron DNa02 turns the
-legs' coxa movers left or right, every seed). The fly is male; sex differences
+path exist. A leg-level turning readout is NOT yet usable: with the final
+calibration, DNa02 moves the legs' coxa turn index weakly and with mixed signs
+across seeds (`experiments/vnc_turn_test.py`, results/complete_brain_2026-09-27);
+the robot's body is driven from the brain's steering descending neurons. The fly is male; sex differences
 are concentrated in higher brain centres and the sensory/motor periphery is
 largely isomorphic (Berg et al. 2026), which the gap filling relies on.
 
@@ -262,11 +264,12 @@ reconstruction gap, never where the two animals merely differ:
    (FAFB 1,117 / 1,132). The deficient side's connection groups become the
    mirror image of the complete side ("template"); groups found only on the
    deficient side are dropped (939 groups, 25k synapses).
-2. *Johnston's organ and head bristles*, short on both sides against FAFB's
-   counts (connected JO-A/B 75 left / 9 right vs 207 / 169; published ~480 JO
-   neurons per antenna, Kamikouchi et al. 2006): each side's total output is
-   raised to FAFB's times the overall synapse ratio (1.24), at most 8x.
-   Fewer, stronger synapses stand in for the missing neurons.
+2. *Hearing, wind, other Johnston's organ, head bristles*, short on both sides
+   against FAFB (connected JO-A/B 75 left / 9 right vs 207 / 169; published
+   ~480 JO neurons per antenna, Kamikouchi et al. 2006): each is mirrored as a
+   whole group from its better side, raised to max(its own output, FAFB's x
+   the synapse ratio 1.24). Fewer, stronger synapses stand in for the missing
+   neurons.
 3. *Left/right symmetrisation* of every connection group (per postsynaptic
    cell), so the robot cannot drift or favour a side. Unmirrorable groups
    (cell types present on one side only): 0.66% of synapses; neurons without
@@ -275,8 +278,8 @@ Male-specific and (potentially) dimorphic cell types are never filled.
 
 **Dynamics refitted for this brain** (`data/metadata/dynamics_calibrated_merged.json`,
 gain in `calibration_merged.json`, fitted with `cognition/calibrate_merged.py`
-against the fly exam and checked on held-out seeds), including two new
-mechanisms:
+on the exam's fit and constraint tests only, held-out tests and a held-out seed
+set reported, never optimised), including two new mechanisms:
 - *nerve-cord adaptation*: extra spike-frequency adaptation in nerve-cord and
   ascending neurons. Without it the flight and abdominal motor circuits
   sustain activity after a stimulus -- in the real fly they are held by sensory

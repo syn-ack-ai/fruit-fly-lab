@@ -17,7 +17,7 @@ stop() { for p in 6020 6021; do pkill -f "^[^ ]*python -m sim.habitat_bridge.hab
 trap stop EXIT
 stop; sleep 1
 for p in 6020 6021; do
-  nohup $HAB -m sim.habitat_bridge.habitat_server --port $p --hfov $HFOV --house small --max-seconds $SECS > /tmp/hserver_$p.log 2>&1 &
+  nohup $HAB -m sim.habitat_bridge.habitat_server --port $p --hfov $HFOV --house small --max-seconds $SECS ${VIDEO:+--video} > /tmp/hserver_$p.log 2>&1 &
 done
 for p in 6020 6021; do for i in $(seq 1 120); do grep -q "server ready" /tmp/hserver_$p.log && break; sleep 1; done; done
 export PYTHONPATH=. FLY_DYNAMICS=calibrated FLY_DT=0.1 FLY_THREADS=4

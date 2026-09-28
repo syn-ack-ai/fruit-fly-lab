@@ -118,6 +118,8 @@ def test_giant_fibre_receives_antennal_mechanosensory_input(c):
         assert jo_b > 0
     if MALECNS:
         assert max(jo.values()) > 100 and min(jo.values()) > 0, jo
+        if config.DATASET_KEY == "merged":             # gap-filled and symmetrised
+            assert abs(np.log(jo["left"] / jo["right"])) < np.log(1.05), jo
 
 
 def test_lc4_and_lplc2_connections_to_giant_fibre_are_excitatory(c):

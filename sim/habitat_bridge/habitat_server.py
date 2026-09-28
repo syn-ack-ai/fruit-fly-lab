@@ -49,7 +49,18 @@ TARGET_HEIGHT_M = 1.45          # above the floor (humanoid is 1.66 m; base is a
 CAM_HEIGHT_M = 0.35             # the pet's head camera above the floor
 
 
-def make_env(house: str, max_seconds: float, habitat_lab_dir: str):
+# Cameras: the brain gets ray-cast geometry, never images, so by default the
+# task's 12 cameras (Spot's head/arm/jaw RGB, depth, stereo, panoptic and the
+# humanoid's) and its image-based measurement sensors are all removed: a
+# 100 ms control step then takes 33 ms instead of 176 ms (measured on the RTX
+# 3080 Ti box, 2026-09-27). video=True keeps Spot's head RGB camera for videos.
+# Habitat adds the "agent_0_" prefix to sensor names only when the simulator is
+# built (review 2026-09-27: filtering on prefixed names removed everything).
+VIDEO_SENSORS = {"agent_0": ("head_rgb_sensor",)}
+
+
+def make_env(house: str, max_seconds: float, habitat_lab_dir: str, full_sensors: bool = False,
+             video: bool = False):
     import habitat
     from habitat.config import read_write
     from habitat.config.default import get_config
@@ -70,6 +81,21 @@ def make_env(house: str, max_seconds: float, habitat_lab_dir: str):
     ])
     with read_write(cfg):
         cfg.habitat.dataset.split = "train"
+        if not full_sensors:
+            cfg.habitat.simulator.concur_render = False
+            ls = cfg.habitat.task.lab_sensors
+            for k in list(ls.keys()):
+                if "humanoid_detector" in k or "stereo_depth" in k:
+                    del ls[k]
+            for agent in ("agent_0", "agent_1"):
+                keep = VIDEO_SENSORS.get(agent, ()) if video else ()
+                sens = cfg.habitat.simulator.agents[agent].sim_sensors
+                for k in list(sens.keys()):
+                    if k not in keep:
+                        del sens[k]
+                missing = [k for k in keep if k not in sens]
+                if missing:
+                    raise KeyError("camera sensors not in the config: %s (have %s)" % (missing, list(sens.keys())))
     return habitat.Env(config=cfg)
 
 
@@ -100,8 +126,10 @@ class Server:
     CONTACT_TOL_M = 0.02                    # within this of the body surface = touching
 
     def __init__(self, house: str, max_seconds: float, hfov_deg: float, habitat_lab_dir: str,
-                 cam_height: float = CAM_HEIGHT_M, cam_pitch: float = 20.0, body: str = "spot"):
-        self.env = make_env(house, max_seconds, habitat_lab_dir)
+                 cam_height: float = CAM_HEIGHT_M, cam_pitch: float = 20.0, body: str = "spot",
+                 full_sensors: bool = False, video: bool = False):
+        self.env = make_env(house, max_seconds, habitat_lab_dir, full_sensors, video)
+        self.video = video or full_sensors
         self.body = body
         self.rover_pf, self._rover_scene = None, None
         self.blocked_steps = 0
@@ -314,6 +342,8 @@ class Server:
         if self.body == "rover":
             self._count_rover_contacts()             # once per control step
         if frame and obs is not None:
+            if "agent_0_head_rgb" not in obs:
+                raise RuntimeError("video frames need the head camera: start the server with --video")
             self.frames.append(np.asarray(obs["agent_0_head_rgb"])[..., :3].copy())
         return self.summary()
 
@@ -373,10 +403,14 @@ def main():
                     help="field of view the brain gets (deg); 53 = the real robot head")
     ap.add_argument("--cam-pitch", type=float, default=20.0, help="head tilted up (deg)")
     ap.add_argument("--habitat-lab", default=os.path.expanduser("~/habitat-lab"))
+    ap.add_argument("--full-sensors", action="store_true",
+                    help="keep all of the task's cameras (5x slower; nothing reads them)")
+    ap.add_argument("--video", action="store_true", help="keep the robot's head camera for videos")
     ap.add_argument("--body", choices=list(BODIES), default="spot",
                     help="the robot's footprint (sim/habitat_bridge/bodies.py)")
     a = ap.parse_args()
-    srv = Server(a.house, a.max_seconds, a.hfov, a.habitat_lab, cam_pitch=a.cam_pitch, body=a.body)
+    srv = Server(a.house, a.max_seconds, a.hfov, a.habitat_lab, cam_pitch=a.cam_pitch, body=a.body,
+                 full_sensors=a.full_sensors, video=a.video)
     print("habitat server ready on port", a.port, flush=True)
     with Listener(("127.0.0.1", a.port), authkey=authkey()) as lst:
         while True:

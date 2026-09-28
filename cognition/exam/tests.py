@@ -181,7 +181,7 @@ def _mixture_sets(ctx, quick):
     sets, latch = [], []
     for idx, rate, _ in mixes:
         o = np.argsort(idx)
-        ctx.e.reset(seed=3)
+        ctx.e.reset(seed=3 + SEED_OFFSET)
         _relesion(ctx)
         ctx.set_inputs([(idx[o], rate[o])])
         sc = ctx.window(500)
@@ -220,7 +220,7 @@ def glomerulus_specificity(ctx, quick):
     for glom in (("DM1", "DL5") if quick else ("DM1", "DL5", "VA2", "DA1")):
         orn = np.flatnonzero(t == "ORN_" + glom)
         own = pn & np.char.startswith(t.astype(str), glom + "_")
-        sc = ctx.trial([(orn, 60.0)], 500, seed=1)
+        sc = ctx.trial([(orn, 60.0)], 500, seed=1 + SEED_OFFSET)
         tot = sc[pn].sum()
         vals.append(float(sc[own].sum() / tot) if tot else 0.0)
     return {"value": float(np.mean(vals))}
@@ -335,7 +335,7 @@ def compass_tracking(ctx, quick):
     errs = []
     for h in ((45.0, 200.0) if quick else (0.0, 90.0, 180.0, 270.0)):
         drive.set_heading(h)
-        ctx.e.reset(seed=3)
+        ctx.e.reset(seed=3 + SEED_OFFSET)
         _relesion(ctx)
         ctx.set_inputs([(drive.indices, drive.rates_hz())])
         ctx.window(200)
@@ -407,7 +407,7 @@ def mb_conditioning(ctx, quick):
     mb = MushroomBody(c, ctx.e, plastic=True, kc_mbon_gain=8.0, dan_modulatory=True)
 
     def present(od, seed, with_dan=False):
-        ctx.e.reset(seed=seed); _relesion(ctx); mb.reset_activity()
+        ctx.e.reset(seed=seed + SEED_OFFSET); _relesion(ctx); mb.reset_activity()
         ctx.set_inputs([od])
         tot = np.zeros(c.n)
         for ms in range(500):
@@ -499,7 +499,7 @@ def health_saturation(ctx, quick):
 def health_rate_cv(ctx, quick):
     """Population-rate variability (CV over 50 ms bins) at rest: runaway or bursting gives a high CV."""
     ri, rr = core.resting()
-    ctx.e.reset(seed=5)
+    ctx.e.reset(seed=5 + SEED_OFFSET)
     _relesion(ctx)
     ctx.set_inputs([(ri, rr)])
     ctx.window(300)

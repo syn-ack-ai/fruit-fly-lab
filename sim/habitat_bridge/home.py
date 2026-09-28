@@ -132,7 +132,7 @@ class HomeWorld:
                 if d < 1.0:
                     st["near_bowl_s"] += dt
                 if d < self.eat_r:
-                    if st["first_bowl_s"] is None:
+                    if st["first_bowl_s"] is None and not self.docked_by_nav:   # its own arrival, not the nav rescue
                         st["first_bowl_s"] = round(self.t, 1)
                         self.events.append((round(self.t, 1), "reached bowl"))
                     st["at_bowl_s"] += dt

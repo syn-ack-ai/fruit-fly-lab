@@ -30,6 +30,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
+
 import config
 
 BASE = config.METADATA_DIR / "dynamics_calibrated_merged.json"
@@ -136,7 +138,7 @@ def run_candidate(k: int, overrides: dict, workers: int, out_dir: Path, seed_off
             env["FLY_GAIN"] = str(v)                 # read by session._calibrated_gain
         else:
             _set(cfg, key, v)
-    name = f"cand{k}"
+    name = f"cand{os.getpid()}_{seed_offset}_{k}"
     path = config.METADATA_DIR / f"dynamics_{name}_{config.DATASET_KEY}.json"
     path.write_text(json.dumps(cfg, indent=1))
     out = out_dir / name
@@ -145,12 +147,18 @@ def run_candidate(k: int, overrides: dict, workers: int, out_dir: Path, seed_off
         subprocess.run([sys.executable, "-m", "cognition.exam", "--dynamics", name, "--workers", str(workers),
                         "--no-robustness", "--out", str(out)], check=True, capture_output=True, env=env)
         d = json.loads((out / f"exam_{name}_real.json").read_text())
-        res = {r["test"]: (r["pass"], r["value"]) for r in d["results"] if r["cfg"].get("wiring") == "real"
-               and "edge_drop" not in r["cfg"]}
+        from cognition.exam.tests import ROLES
+        base = [r for r in d["results"] if r["cfg"].get("wiring") == "real" and len(r["cfg"]) <= 2]
+        res = {r["test"]: (r["pass"], r["value"], r.get("score", float(r["pass"]))) for r in base}
+        # selection uses ONLY the tests calibration may use (fit, constraint);
+        # held-out tests are reported, never optimised (review 2026-09-27)
+        usable = [t for t in res if ROLES.get(t) in ("fit", "constraint")]
         return {"k": k, "overrides": overrides, "passed": d["card"]["passed"], "of": d["card"]["of"],
+                "fc_passed": sum(res[t][0] for t in usable), "fc_of": len(usable),
+                "fc_score": float(np.mean([res[t][2] for t in usable])) if usable else 0.0,
                 "score": d["card"]["overall"], "roles": d["card"]["roles"],
-                "failed": sorted(t for t, (p, _) in res.items() if not p),
-                "values": {t: v for t, (_, v) in res.items()}, "seconds": round(time.time() - t0)}
+                "failed": sorted(t for t, (p, _, _) in res.items() if not p),
+                "values": {t: v for t, (_, v, _) in res.items()}, "seconds": round(time.time() - t0)}
     finally:
         path.unlink(missing_ok=True)
 
@@ -203,25 +211,31 @@ def main():
         for r in ex.map(lambda kv: run_candidate(kv[0], kv[1], a.workers, out), enumerate(cands)):
             results.append(r)
             print(f"{r['passed']}/{r['of']} score {r['score']:.3f} {r['overrides']} failed {r['failed']}", flush=True)
-    results.sort(key=lambda r: (-r["passed"], -r["score"]))
+    exempt = set(x for x in a.exempt.split(",") if x)
+    def fc_key(r):                                  # fit + constraint tests only, exempt ones aside
+        fails = [f for f in r["failed"] if f in FC_TESTS and f not in exempt]
+        return (len(fails), -r["fc_score"])
+    from cognition.exam.tests import ROLES
+    FC_TESTS = {t for t, role in ROLES.items() if role in ("fit", "constraint")}
+    results.sort(key=fc_key)
     (out / "results.json").write_text(json.dumps(results, indent=1, default=float))
     print("\nbest on the fitting seeds:", json.dumps(results[0]["overrides"]), results[0]["passed"], results[0]["failed"])
-    # held-out seeds: a pass must not depend on the particular trial seeds
+    # a second seed set (+100) for CHOOSING; +200 is never used here -- it is
+    # the report set (run the exam with FLY_EXAM_SEED_OFFSET=200 afterwards)
     top = results[:a.validate]
     held = []
     with ThreadPoolExecutor(a.parallel) as ex:
-        jobs = [(r, off) for r in top for off in (100, 200)]
-        for (r, off), v in zip(jobs, ex.map(lambda ro: run_candidate(1000 + ro[1] + ro[0]["k"], ro[0]["overrides"],
+        jobs = [(r, off) for r in top for off in (100,)]
+        for (r, off), v in zip(jobs, ex.map(lambda ro: run_candidate(ro[0]["k"], ro[0]["overrides"],
                                                                     a.workers, out / f"heldout{ro[1]}", ro[1]), jobs)):
             held.append({"k": r["k"], "offset": off, "passed": v["passed"], "failed": v["failed"]})
-    exempt = set(x for x in a.exempt.split(",") if x)
     for r in top:
         hv = [h for h in held if h["k"] == r["k"]]
         r["heldout_min_passed"] = min([r["passed"]] + [h["passed"] for h in hv])
         r["heldout_failed"] = sorted(set(f for h in hv for f in h["failed"]) | set(r["failed"]))
         # required tests failed on ANY seed set (the exempt ones reported, not ranked)
-        r["required_failed"] = sorted(set(r["heldout_failed"]) - exempt)
-    top.sort(key=lambda r: (len(r["required_failed"]), -r["heldout_min_passed"], -r["score"]))
+        r["required_failed"] = sorted((set(r["heldout_failed"]) & FC_TESTS) - exempt)
+    top.sort(key=lambda r: (len(r["required_failed"]), -r["fc_score"]))
     (out / "results_heldout.json").write_text(json.dumps(top, indent=1, default=float))
     for r in top:
         print(f"held-out: required failed {r['required_failed']} | worst {r['heldout_min_passed']}/{r['of']}, any-seed fails {r['heldout_failed']} {r['overrides']}", flush=True)

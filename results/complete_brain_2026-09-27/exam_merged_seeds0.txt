@@ -1,53 +1,53 @@
 FLY EXAM  dynamics=calibrated wiring=real
 
-  [x] sugar_activates_MN9               19.4  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
+  [x] sugar_activates_MN9               18.8  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
   [x] sugar_dose_monotonic                 1  target: MN9 rate rises with sugar GRN rate (10/50/200 Hz)
-  [x] bitter_no_MN9                    0.125  target: bitter GRNs -> MN9 silent (constraint)
-  [x] bitter_inhibits_sugar          0.00645  target: sugar + strong bitter -> MN9 strongly reduced
-  [x] ir94e_reduces_not_abolishes      0.381  target: sugar + Ir94e -> MN9 reduced but not eliminated
-  [x] contralateral_MN9                  3.5  target: unilateral sugar -> contralateral MN9 stronger
-  [x] sugar_pathway_responders           0.9  target: 10 named 2nd-order/premotor types respond to sugar
+  [x] bitter_no_MN9                        0  target: bitter GRNs -> MN9 silent (constraint)
+  [x] bitter_inhibits_sugar          0.00667  target: sugar + strong bitter -> MN9 strongly reduced
+  [x] ir94e_reduces_not_abolishes       0.42  target: sugar + Ir94e -> MN9 reduced but not eliminated
+  [x] contralateral_MN9                 2.75  target: unilateral sugar -> contralateral MN9 stronger
+  [x] sugar_pathway_responders             1  target: 10 named 2nd-order/premotor types respond to sugar
   [x] named_sufficiency                  0.9  target: 50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)
   [x] named_necessity                      1  target: silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts
-  [x] rest_uPN_Hz                       7.49  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
-  [x] rest_LN_Hz                        6.78  target: AL local neurons 4.6 +- 2.8 Hz
-  [x] rest_KC_Hz                      0.0287  target: Kenyon cells 0.1 +- 0.4 Hz
-  [x] rest_LHN_Hz                       2.09  target: lateral horn neurons low (spontaneous spikes suppressed)
-  [x] rest_GF_silent                  0.0833  target: Giant Fibre silent at rest (fit)
-  [x] rest_MBON_Hz                       2.2  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
-  [x] kc_mixture_sparseness           0.0473  target: ~5-10% of KCs per odour
-  [x] kc_mixture_overlap               0.109  target: distinct KC codes for different odours
-  [x] no_latching                     0.0465  target: activity decays after odour offset (fit)
-  [x] pn_odour_transform                   1  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)
-  [x] glomerulus_specificity           0.534  target: single receptor type drives mostly its own PNs (fit)
-  [x] looming_drives_GF                  242  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
-  [x] odour_lateralization            0.0102  target: odour at right antenna steers right vs left (fit)
-  [x] pursuit_sign                     0.639  target: LC10a target right steers right vs left
-  [x] compass_tracking_deg              5.37  target: E-PG bump reads back the heading
-  [x] goal_steering_sign                42.5  target: goal clockwise -> DNa02 right > left
+  [x] rest_uPN_Hz                       8.72  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
+  [x] rest_LN_Hz                        7.15  target: AL local neurons 4.6 +- 2.8 Hz
+  [x] rest_KC_Hz                      0.0258  target: Kenyon cells 0.1 +- 0.4 Hz
+  [x] rest_LHN_Hz                       2.11  target: lateral horn neurons low (spontaneous spikes suppressed)
+  [ ] rest_GF_silent                   0.333  target: Giant Fibre silent at rest (fit)
+  [x] rest_MBON_Hz                      1.83  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
+  [x] kc_mixture_sparseness           0.0578  target: ~5-10% of KCs per odour
+  [x] kc_mixture_overlap               0.112  target: distinct KC codes for different odours
+  [x] no_latching                     0.0134  target: activity decays after odour offset (fit)
+  [x] pn_odour_transform               0.933  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)
+  [x] glomerulus_specificity           0.536  target: single receptor type drives mostly its own PNs (fit)
+  [x] looming_drives_GF                  201  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
+  [x] odour_lateralization            0.0173  target: odour at right antenna steers right vs left (fit)
+  [x] pursuit_sign                     0.642  target: LC10a target right steers right vs left
+  [x] compass_tracking_deg              6.74  target: E-PG bump reads back the heading
+  [x] goal_steering_sign                35.8  target: goal clockwise -> DNa02 right > left
   [x] sound_startle                        1  target: JO-A/B burst -> DNp11 up, walking command down (fit)
-  [x] mb_conditioning                  0.468  target: paired odour's MBON11 drops more than unpaired
-  [x] symmetry_looming                 0.947  target: mirror-image GF responses to left/right looming
-  [x] symmetry_pursuit                 0.951  target: left/right pursuit responses of similar size
-  [ ] symmetry_odour                   0.229  target: left/right odour steering of similar size (fit)
+  [x] mb_conditioning                  0.401  target: paired odour's MBON11 drops more than unpaired
+  [x] symmetry_looming                 0.985  target: mirror-image GF responses to left/right looming
+  [x] symmetry_pursuit                 0.972  target: left/right pursuit responses of similar size
+  [x] symmetry_odour                   0.827  target: left/right odour steering of similar size (fit)
   [x] health_saturation             1.21e-05  target: almost no neurons pinned >250 Hz
-  [x] health_rate_cv                   0.392  target: steady population rate at rest
+  [x] health_rate_cv                   0.337  target: steady population rate at rest
 
   shiu      9/9 passed, score 1.00
-  rest      6/6 passed, score 1.00
+  rest      5/6 passed, score 0.99
   calib     12/12 passed, score 1.00
-  symmetry  2/3 passed, score 0.79
+  symmetry  3/3 passed, score 1.00
   health    2/2 passed, score 1.00
-  OVERALL   31/32 passed, score 0.98
+  OVERALL   31/32 passed, score 1.00
     held_out   21/21
     constraint 3/3
     fit        7/8
 
   ROBUSTNESS (core tests pass rate per level; AUC = mean)
   wsyn         AUC 0.85  {'0.7': 0.8, '0.85': 1.0, '1.15': 1.0, '1.3': 0.6}
-  edge_drop    AUC 0.93  {'0.05': 1.0, '0.1': 0.8, '0.2': 1.0}
-  nt_flip      AUC 0.80  {'0.03': 1.0, '0.07': 0.8, '0.13': 0.6}
-  lesion       AUC 0.93  {'0.01': 1.0, '0.03': 1.0, '0.05': 0.8}
-  sensor_drop  AUC 0.87  {'0.2': 1.0, '0.5': 1.0, '0.8': 0.6}
-  sensor_gain  AUC 0.80  {'0.3': 0.8, '0.5': 0.8, '2.0': 0.8}
-  mean robustness AUC 0.86
+  edge_drop    AUC 1.00  {'0.05': 1.0, '0.1': 1.0, '0.2': 1.0}
+  nt_flip      AUC 0.93  {'0.03': 1.0, '0.07': 1.0, '0.13': 0.8}
+  lesion       AUC 1.00  {'0.01': 1.0, '0.03': 1.0, '0.05': 1.0}
+  sensor_drop  AUC 0.80  {'0.2': 1.0, '0.5': 0.8, '0.8': 0.6}
+  sensor_gain  AUC 0.93  {'0.3': 0.8, '0.5': 1.0, '2.0': 1.0}
+  mean robustness AUC 0.92

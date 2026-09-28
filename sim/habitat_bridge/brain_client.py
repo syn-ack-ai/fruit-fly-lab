@@ -303,10 +303,11 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             else:
                 from robot.safety import obstacle_limit
                 v = obstacle_limit(ses.lidar[0].clearance(), ses.lidar[0].angles, v)   # forward cone
-                if getattr(ses, "avoid", None) is not None:
+                if getattr(ses, "avoid", None) is not None and not emergency["active"]:
                     from robot.avoid import pivot
                     w, pivoted = pivot(ses.avoid.last, v_pre, v, w)       # pinned: turn in place to the open side
                     ses.avoid.last["pivot"] = pivoted
+        v_lidar = v                               # after the lidar layer (the "brake" it applied)
         if home is not None and home.battery is not None and home.battery.flat:
             v, w = 0.0, 0.0                       # a flat battery: the robot stops
         last_v = v
@@ -342,7 +343,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                                 "touch": L[2].last, "min_clear": round(float(L[0].clearance().min()), 2),
                                 "raw": [round(raw[0], 3), round(math.degrees(raw[1]), 1)],
                                 "recoveries": getattr(getattr(ses, "cmon", None), "recoveries", None),
-                                "brake": round(max(v_pre - v, 0.0), 3)}
+                                "brake": round(max(v_pre - v_lidar, 0.0), 3)}
             if getattr(ses, "avoid", None) is not None:
                 log[-1]["lidar"]["avoid"] = dict(ses.avoid.last)       # a copy: later steps must not rewrite it
         if home is not None:

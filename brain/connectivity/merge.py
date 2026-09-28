@@ -83,12 +83,7 @@ MAX_FILL = 8.0
 # difference), so the comparison is the group's TOTAL output per side against
 # FAFB's times the overall male/FAFB synapse ratio S (median over well-connected
 # type pairs); each side is raised to that (x at most MAX_REF_FILL), never lowered.
-REFERENCE_GROUPS = {
-    "JO-AB": ("JO-A", "JO-B"),
-    "JO-CE": ("JO-C", "JO-E"),
-    "JO-other": ("JO-",),
-    "BM": ("BM",),
-}
+REFERENCE_GROUPS = ("sound", "wind", "JO-other", "BM")   # senses (brain/sensory/modality_map.json), rest of JO, head bristles
 # (Not listed: photoreceptors R1-R8, 0.1-0.4 of FAFB, because the male dataset
 # reconstructs only part of their axons and the model never drives them; ORNs
 # are handled by rule 1.)
@@ -151,6 +146,29 @@ def _l2(c):
     return np.log2((c["left"] + 1.0) / (c["right"] + 1.0))
 
 
+def sense_groups(t_male) -> np.ndarray:
+    """Rule 2's groups for each MaleCNS neuron: "sound" / "wind" (the senses
+    as mapped from FlyWire, modality_map.json), "JO-other", "BM", or ""."""
+    import json as _json
+    mmap = _json.loads((config.DERIVED_DIR / "malecns" / "modality_map.json").read_text())
+    t = np.asarray(t_male).astype(str)
+    g = np.full(len(t), "", object)
+    g[np.asarray(mmap["sound"]["idx"])] = "sound"
+    g[np.asarray(mmap["wind"]["idx"])] = "wind"
+    g[(g == "") & np.char.startswith(t, "JO-")] = "JO-other"
+    g[(g == "") & np.char.startswith(t, "BM")] = "BM"
+    return g
+
+
+def symmetry_types(t_male) -> np.ndarray:
+    """The cell identity used for mirroring: the type, except that rule 2's
+    sense groups are mirrored as whole groups."""
+    g = sense_groups(t_male)
+    out = np.asarray(t_male).astype(object).copy()
+    out[g != ""] = np.array(["REF_" + x for x in g[g != ""]], dtype=object)
+    return out.astype(str)
+
+
 def _synapse_scale(wm, tm, sdm, ftm, wf, tf, sdf) -> float:
     """Male / FAFB synapses per postsynaptic cell, median over FlyWire-matched
     type pairs with >= 5 per cell in both (1.24 on 2026-09-27)."""
@@ -199,7 +217,7 @@ def population_gaps(tm, sdm, ftm, tf, sdf, protected) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def symmetrize(W, t, sd, template=None):
+def symmetrize(W, t, sd, template=None, sign=None):
     """Left/right balance (the robot must not drift or favour a side): for
     every connection group (pre type, side) -> (post type, side) the input per
     postsynaptic cell is set equal to its mirror image's, exact to within half
@@ -273,8 +291,13 @@ def symmetrize(W, t, sd, template=None):
     npost_e = nc.reindex(pd.MultiIndex.from_arrays([Ea.tq, Ea.sq])).to_numpy()
     nmpost_e = nc.reindex(pd.MultiIndex.from_arrays([Ea.tq, [flip[x] for x in Ea.sq]])).to_numpy()
     share = np.where(np.array([x in template for x in Ea.tp.to_numpy()]), 1.0, 0.5)
-    wa = np.maximum(np.rint(share * Ea.c.to_numpy() * nmpost_e / npost_e), 1.0) * Ea.s.to_numpy()
-    A = sp.csr_matrix((wa, (mp, mq)), shape=W.shape)
+    # a mirror copy transmits with ITS presynaptic neuron's own sign; neurons
+    # with no known transmitter (sign 0) send nothing (review 2026-09-27: the
+    # source neuron's sign gave 16 sign-0 neurons 1,530 synapses)
+    ms = np.sign(sign[mp]) if sign is not None else Ea.s.to_numpy()
+    wa = np.maximum(np.rint(share * Ea.c.to_numpy() * nmpost_e / npost_e), 1.0) * ms
+    keep_a = wa != 0
+    A = sp.csr_matrix((wa[keep_a], (mp[keep_a], mq[keep_a])), shape=W.shape)
     W2 = (W1 + A).tocsr()
     W2.sum_duplicates()
     W2.eliminate_zeros()
@@ -284,9 +307,14 @@ def symmetrize(W, t, sd, template=None):
              "groups_unmirrorable": int(unpaired.sum()),
              "gap_groups_dropped_deficient_only": int(drop.sum()),
              "gap_synapses_dropped": int(g.to_numpy()[drop].sum()),
+             "gap_synapses_dropped_by_group": {
+                 str(k): int(v) for k, v in pd.Series(g.to_numpy()[drop], index=[
+                     (x[4:] if x.startswith("REF_") else x.split("_")[0]) for x in np.asarray(tp_)[drop]
+                 ]).groupby(level=0).sum().items()},
              "synapses_in_unmirrorable_pct": round(100 * float(g.to_numpy()[unpaired].sum() / np.abs(W.data).sum()), 3),
              "synapses_without_side_pct": round(100 * float(E.c[~ok].sum() / E.c.sum()), 3),
-             "mirror_connections_added": int(len(Ea)),
+             "mirror_connections_added": int(keep_a.sum()),
+             "mirror_connections_skipped_sign0": int((~keep_a).sum()),
              "groups_total_corrected": fixed}
     return W2, stats
 
@@ -355,26 +383,36 @@ def build() -> dict:
     fac = np.ones(len(nm))
     for g in gaps.itertuples():
         fac[(tm == g.type) & (sdm == g.deficient_side)] = g.factor
-    # rule 2: reference population gaps (see REFERENCE_GROUPS)
-    def ref_group(t):
-        g = np.full(len(t), "", object)
-        for name, pre in REFERENCE_GROUPS.items():            # first match wins (JO-other last)
-            g[(g == "") & np.array([x.startswith(pre) for x in t])] = name
-        return g
-    gm_, gf_ = ref_group(tm), ref_group(tf)
+    # rule 2: reference population gaps, per SENSE (see REFERENCE_GROUPS):
+    # hearing (sound), wind, other Johnston's organ, head bristles. The side
+    # with more real output is the template; it is raised to the target --
+    # the larger over the sides of max(its own output, FAFB's x S) -- and
+    # symmetrize() then gives the other side its mirror image. No side is ever
+    # lowered, and the mirror makes the two sides match per cell exactly.
+    import json as _json
+    mmap = _json.loads((mdir / "modality_map.json").read_text())
+    gm_ = sense_groups(tm)
+    gf_ = np.full(len(tf), "", object)
+    gf_[np.isin(tf, mmap["sound"]["fafb_types"])] = "sound"
+    gf_[np.isin(tf, mmap["wind"]["fafb_types"])] = "wind"
+    gf_[(gf_ == "") & np.char.startswith(tf.astype(str), "JO-")] = "JO-other"
+    gf_[(gf_ == "") & np.char.startswith(tf.astype(str), "BM")] = "BM"
     out_m = np.asarray(abs(wm).sum(1)).ravel()
     out_f = np.asarray(abs(wf).sum(1)).ravel()
     S = _synapse_scale(wm, tm, sdm, ftm, wf, tf, sdf)
-    ref = []
+    ref, template = [], {}
     for name in REFERENCE_GROUPS:
-        for side in ("left", "right"):
-            mm_, mf_ = (gm_ == name) & (sdm == side), (gf_ == name) & (sdf == side)
-            tot_m, tot_f = float(out_m[mm_].sum()), float(out_f[mf_].sum()) * S
-            if tot_m > 0 and tot_f > tot_m:
-                f = min(tot_f / tot_m, MAX_REF_FILL)
-                fac[mm_] *= f
-                ref.append({"group": name, "side": side, "male_output_syn": int(tot_m),
-                            "fafb_output_syn_scaled": int(tot_f), "factor": round(f, 3)})
+        raw = {sd_: float(out_m[(gm_ == name) & (sdm == sd_)].sum()) for sd_ in ("left", "right")}
+        ref_f = {sd_: float(out_f[(gf_ == name) & (sdf == sd_)].sum()) * S for sd_ in ("left", "right")}
+        target = max(max(raw[x], ref_f[x]) for x in ("left", "right"))
+        tside = max(raw, key=raw.get)
+        f = min(target / raw[tside], MAX_REF_FILL) if raw[tside] > 0 else 1.0
+        fac[(gm_ == name) & (sdm == tside)] *= f
+        template["REF_" + name] = tside
+        ref.append({"group": name, "template_side": tside,
+                    "male_output_syn": {k: int(v) for k, v in raw.items()},
+                    "fafb_output_syn_scaled": {k: int(v) for k, v in ref_f.items()},
+                    "target": int(target), "template_factor": round(f, 3)})
     _log("reference population gaps: %s" % ref)
     pre = np.repeat(np.arange(wm.shape[0]), np.diff(wm.indptr))
     data = np.sign(wm.data) * np.rint(np.abs(wm.data) * fac[pre])
@@ -408,20 +446,18 @@ def build() -> dict:
                 zip(g.index, per.to_numpy(), mper, raise_) if r]
         _log("connection groups raised to their mirror inside gap families: %d" % len(glog))
     W.eliminate_zeros()
-    # template side per gap type: rule 1 -> the family's complete side; rule 2
-    # -> the side with more male output before filling
-    template = {}
+    # template side per gap type: rule 2's sense groups (set above) plus rule
+    # 1's ORN types -> the family's complete side
+    template = dict(template)
     famv = np.array([family(x) if x else "" for x in tm])
     if len(gaps):
         for fam, dside in gaps.groupby("family")["deficient_side"].agg(lambda s: s.mode().iat[0]).items():
             for ty in set(tm[famv == fam]) - {""}:
                 template[ty] = "right" if dside == "left" else "left"
-    for name in REFERENCE_GROUPS:
-        tot = {sd_: float(out_m[(gm_ == name) & (sdm == sd_)].sum()) for sd_ in ("left", "right")}
-        for ty in set(tm[gm_ == name]) - {""}:
-            template.setdefault(ty, max(tot, key=tot.get))
-    _log("template sides: %s" % {k: template[k] for k in sorted(template)[:6]})
-    W, sym = symmetrize(W, tm, sdm, template)
+    # the sense groups are mirrored as WHOLE groups (their subtypes are typed
+    # unevenly per side -- JO-A3 2/0, JO-mz 11/0 ...; review 2026-09-27)
+    sign_m = nm["sign"].fillna(0).astype(int).to_numpy()
+    W, sym = symmetrize(W, symmetry_types(tm), sdm, template, sign=sign_m)
     _log("symmetrized: %s" % sym)
     W.eliminate_zeros()
     W.sort_indices()

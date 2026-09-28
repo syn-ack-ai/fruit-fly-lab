@@ -2,53 +2,53 @@ leg motor neurons: 500 {('left', 'T1'): 87, ('left', 'T2'): 87, ('left', 'T3'): 
 dataset merged, dynamics calibrated, 8 seeds x 1.0 s, commands at 80.0 Hz
 
 mean leg MN rate (Hz), L / R per segment; active = MNs > 1 Hz
-none           T1  0.87/ 0.92  T2  1.69/ 1.66  T3  0.83/ 0.88  active 150  DNs DNg100_l=3 DNg100_r=3 DNa02_l=4 DNa02_r=3 DNa01_l=3 DNa01_r=2 MDN=3
-walk           T1  1.29/ 1.28  T2  2.37/ 2.39  T3  1.75/ 1.98  active 196  DNs DNg100_l=68 DNg100_r=71 DNa02_l=8 DNa02_r=7 DNa01_l=3 DNa01_r=2 MDN=8
-walk+DNa02 L   T1  2.47/ 2.56  T2  2.59/ 2.49  T3  1.91/ 2.07  active 220  DNs DNg100_l=59 DNg100_r=61 DNa02_l=78 DNa02_r=3 DNa01_l=2 DNa01_r=2 MDN=15
-walk+DNa02 R   T1  1.12/ 1.18  T2  2.42/ 2.45  T3  1.84/ 2.02  active 189  DNs DNg100_l=67 DNg100_r=71 DNa02_l=5 DNa02_r=78 DNa01_l=2 DNa01_r=2 MDN=6
-walk+DNa01 L   T1  1.22/ 1.17  T2  2.64/ 2.49  T3  1.76/ 1.95  active 193  DNs DNg100_l=67 DNg100_r=72 DNa02_l=6 DNa02_r=5 DNa01_l=81 DNa01_r=2 MDN=8
-walk+DNa01 R   T1  2.09/ 2.18  T2  2.47/ 2.44  T3  1.69/ 2.10  active 216  DNs DNg100_l=60 DNg100_r=64 DNa02_l=4 DNa02_r=6 DNa01_l=1 DNa01_r=73 MDN=14
-back (MDN)     T1  1.37/ 1.32  T2  1.95/ 1.88  T3  1.13/ 1.38  active 188  DNs DNg100_l=4 DNg100_r=4 DNa02_l=3 DNa02_r=2 DNa01_l=3 DNa01_r=2 MDN=83
+none           T1  0.69/ 0.72  T2  1.52/ 1.54  T3  0.91/ 0.91  active 150  DNs DNg100_l=4 DNg100_r=4 DNa02_l=4 DNa02_r=3 DNa01_l=2 DNa01_r=2 MDN=4
+walk           T1  0.99/ 0.93  T2  2.18/ 2.24  T3  1.59/ 1.79  active 179  DNs DNg100_l=68 DNg100_r=72 DNa02_l=6 DNa02_r=5 DNa01_l=3 DNa01_r=3 MDN=8
+walk+DNa02 L   T1  1.64/ 1.63  T2  2.52/ 2.28  T3  1.72/ 1.82  active 209  DNs DNg100_l=65 DNg100_r=71 DNa02_l=78 DNa02_r=5 DNa01_l=2 DNa01_r=2 MDN=11
+walk+DNa02 R   T1  1.18/ 1.15  T2  2.59/ 2.60  T3  1.79/ 2.13  active 199  DNs DNg100_l=69 DNg100_r=69 DNa02_l=6 DNa02_r=77 DNa01_l=4 DNa01_r=2 MDN=11
+walk+DNa01 L   T1  1.14/ 0.99  T2  2.39/ 2.25  T3  1.77/ 1.98  active 194  DNs DNg100_l=70 DNg100_r=70 DNa02_l=6 DNa02_r=5 DNa01_l=80 DNa01_r=2 MDN=8
+walk+DNa01 R   T1  1.07/ 0.99  T2  2.41/ 2.34  T3  1.62/ 1.89  active 189  DNs DNg100_l=70 DNg100_r=74 DNa02_l=5 DNa02_r=5 DNa01_l=3 DNa01_r=76 MDN=7
+back (MDN)     T1  0.74/ 0.73  T2  1.57/ 1.53  T3  0.97/ 1.14  active 158  DNs DNg100_l=2 DNg100_r=2 DNa02_l=2 DNa02_r=2 DNa01_l=2 DNa01_r=2 MDN=81
 
 DNa02: leg MN types whose L-R difference follows the steering side (effect = half of [L-R | DNa02 left] - [L-R | DNa02 right], Hz)
-   T1 ADNM1 MN                           -5.81 Hz  paired p = 0.000
-   T2 Sternal anterior rotator MN        +4.88 Hz  paired p = 0.000
-   T3 Sternal anterior rotator MN        +3.97 Hz  paired p = 0.001
-   T1 MNnm11                             +3.44 Hz  paired p = 0.007
-   T3 MNhm03                             +2.44 Hz  paired p = 0.001
-   T2 Sternal posterior rotator MN       -1.64 Hz  paired p = 0.002
-   T1 FNM2                               +1.62 Hz  paired p = 0.007
-   T1 MNnm10                             +1.50 Hz  paired p = 0.014
-   T1 MNnm14                             +1.31 Hz  paired p = 0.006
-   T1 MNnm13                             +1.31 Hz  paired p = 0.061
-   T2 Pleural remotor/abductor MN        -1.29 Hz  paired p = 0.017
-   T3 MNhl59                             +1.19 Hz  paired p = 0.001
-   T3 Sternal posterior rotator MN       -1.17 Hz  paired p = 0.075
-   T1 Fe reductor MN                     +1.01 Hz  paired p = 0.003
-   T3 Fe reductor MN                     -1.00 Hz  paired p = 0.075
+   T1 ADNM1 MN                           -5.19 Hz  paired p = 0.001
+   T2 Sternal anterior rotator MN        +4.25 Hz  paired p = 0.000
+   T3 Sternal anterior rotator MN        +3.47 Hz  paired p = 0.001
+   T1 MNnm11                             +2.31 Hz  paired p = 0.013
+   T3 MNhm03                             +2.00 Hz  paired p = 0.011
+   T3 MNhl62                             +1.06 Hz  paired p = 0.195
+   T3 MNhl59                             +1.00 Hz  paired p = 0.001
+   T2 hg1 MN                             +0.88 Hz  paired p = 0.031
+   T2 hg4 MN                             +0.81 Hz  paired p = 0.129
+   T2 Sternotrochanter MN                +0.81 Hz  paired p = 0.168
+   T1 MNnm10                             +0.81 Hz  paired p = 0.148
+   T2 Pleural remotor/abductor MN        -0.73 Hz  paired p = 0.040
+   T1 Sternal anterior rotator MN        +0.69 Hz  paired p = 0.020
+   T3 Ti extensor MN                     +0.66 Hz  paired p = 0.019
+   T2 MNml82                             +0.62 Hz  paired p = 0.257
 
 DNa01: leg MN types whose L-R difference follows the steering side (effect = half of [L-R | DNa01 left] - [L-R | DNa01 right], Hz)
-   T3 Pleural remotor/abductor MN        +2.56 Hz  paired p = 0.000
-   T3 Fe reductor MN                     +1.28 Hz  paired p = 0.025
-   T3 MNhl62                             -1.06 Hz  paired p = 0.069
-   T3 MNhm03                             -0.94 Hz  paired p = 0.209
-   T2 Ti extensor MN                     -0.88 Hz  paired p = 0.047
-   T1 MNnm08                             +0.81 Hz  paired p = 0.160
-   T3 Sternal posterior rotator MN       +0.78 Hz  paired p = 0.018
-   T2 Tr flexor MN                       +0.77 Hz  paired p = 0.019
-   T3 Sternal anterior rotator MN        -0.75 Hz  paired p = 0.127
-   T1 Pleural remotor/abductor MN        -0.72 Hz  paired p = 0.087
-   T3 MNhl01                             +0.56 Hz  paired p = 0.026
-   T1 Tergopleural/Pleural promotor MN   +0.50 Hz  paired p = 0.025
-   T2 Sternotrochanter MN                -0.50 Hz  paired p = 0.301
-   T1 MNnm09                             +0.50 Hz  paired p = 0.316
-   T2 Pleural remotor/abductor MN        +0.48 Hz  paired p = 0.044
+   T3 Pleural remotor/abductor MN        +1.12 Hz  paired p = 0.003
+   T2 hg3 MN                             -0.94 Hz  paired p = 0.035
+   T3 MNhm42                             +0.75 Hz  paired p = 0.119
+   T2 Ti extensor MN                     -0.72 Hz  paired p = 0.065
+   T2 tpn MN                             +0.69 Hz  paired p = 0.147
+   T2 Pleural remotor/abductor MN        +0.65 Hz  paired p = 0.109
+   T2 hg4 MN                             -0.62 Hz  paired p = 0.106
+   T2 MNwm35                             -0.62 Hz  paired p = 0.140
+   T2 MNml82                             -0.62 Hz  paired p = 0.199
+   T3 MNhl62                             -0.62 Hz  paired p = 0.488
+   T3 Fe reductor MN                     +0.56 Hz  paired p = 0.076
+   T1 MNnm09                             +0.50 Hz  paired p = 0.138
+   T2 Tr flexor MN                       +0.49 Hz  paired p = 0.138
+   T1 Pleural remotor/abductor MN        -0.47 Hz  paired p = 0.403
+   T1 Sternal anterior rotator MN        +0.44 Hz  paired p = 0.111
 
 fixed readout: coxa movers 29 left / 27 right; turn index (R-L)/(R+L) per seed (+ = right legs drive harder = turning LEFT)
-   none           -0.036 +0.053 +0.095 +0.095 -0.171 +0.114 -0.037 -0.034   mean +0.010  stride drive 35
-   walk           +0.019 -0.057 -0.016 +0.043 -0.026 -0.045 -0.110 -0.141   mean -0.042  stride drive 107
-   walk+DNa02 L   +0.042 -0.052 -0.009 -0.071 -0.041 -0.019 -0.045 -0.213   mean -0.051  stride drive 174
-   walk+DNa02 R   +0.125 +0.044 -0.025 -0.024 +0.072 -0.009 +0.016 -0.035   mean +0.020  stride drive 117
-   walk+DNa01 L   +0.007 -0.031 -0.029 -0.108 -0.083 -0.097 -0.152 -0.055   mean -0.069  stride drive 105
-   walk+DNa01 R   +0.050 -0.008 +0.026 -0.014 +0.015 -0.017 +0.048 +0.001   mean +0.013  stride drive 156
-   back (MDN)     +0.034 -0.009 -0.058 +0.022 +0.064 +0.174 +0.071 +0.036   mean +0.042  stride drive 76
+   none           +0.152 -0.167 -0.182 -0.085 -0.034 +0.115 -0.086 -0.199   mean -0.061  stride drive 35
+   walk           -0.062 +0.084 +0.026 -0.007 -0.084 -0.031 -0.062 -0.071   mean -0.026  stride drive 98
+   walk+DNa02 L   -0.056 -0.091 -0.077 -0.064 -0.130 -0.123 -0.153 -0.042   mean -0.092  stride drive 130
+   walk+DNa02 R   +0.031 +0.137 +0.002 +0.062 +0.055 -0.014 +0.082 +0.138   mean +0.062  stride drive 113
+   walk+DNa01 L   -0.038 -0.080 -0.027 +0.004 -0.176 -0.100 -0.050 -0.247   mean -0.089  stride drive 104
+   walk+DNa01 R   +0.022 -0.011 +0.037 -0.020 -0.040 -0.036 -0.078 +0.037   mean -0.011  stride drive 99
+   back (MDN)     -0.043 +0.078 -0.147 -0.053 -0.143 -0.069 +0.046 +0.066   mean -0.033  stride drive 41

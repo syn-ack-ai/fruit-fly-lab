@@ -1,5 +1,5 @@
 {
   "dataset": "merged",
-  "gain": 0.974,
+  "gain": 0.976,
   "method": "cognition/calibrate_merged.py: fitted with the dynamics against the fly exam"
 }

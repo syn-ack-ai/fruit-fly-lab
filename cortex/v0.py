@@ -585,7 +585,10 @@ class CortexV0:
     def enable_route(self, body_radius_m: float) -> None:
         """Remember obstacles and plan routes around them (kept across days)."""
         from cortex.obstacle_map import ObstacleMap
-        self.obstacles = getattr(self, "_saved_obstacles", None) or ObstacleMap(body_radius_m)
+        saved = getattr(self, "_saved_obstacles", None)
+        # a saved map is reused only for the same body (its obstacle margin depends on it)
+        self.obstacles = saved if saved is not None and abs(saved.body_radius - body_radius_m) < 1e-6 \
+            else ObstacleMap(body_radius_m)
 
     def observe_scan(self, pose, ranges, angles_deg) -> None:
         """A lidar scan (brain_client, every control step) into the obstacle map."""

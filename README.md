@@ -9,10 +9,10 @@
 >   `brain/connectivity/merge.py`): the Janelia MaleCNS v1.0 (brain + ventral nerve
 >   cord) with its demonstrated reconstruction gaps filled (left-antenna smell
 >   neurons, Johnston's organ, head bristles; FlyWire FAFB decides what counts as a
->   gap) and made exactly left/right balanced, with dynamics refitted to it. Fly exam
->   30-31/32 on three seed sets (all 21 held-out tests and all constraints pass;
->   odour-steering tests are a documented open limitation), and no left/right
->   steering bias -- FAFB's wiring has one. `results/complete_brain_2026-09-27/`.
+>   gap) and made left/right balanced, with dynamics refitted to it. Fly exam 31/32
+>   on a seed set never used for fitting (21/21 held-out tests, 3/3 constraints;
+>   odour steering is a documented open limitation), robustness 0.92, and no
+>   left/right steering bias -- FAFB's wiring has one. `results/complete_brain_2026-09-27/`.
 >   FAFB remains available with `FLY_DATASET=fafb`.
 > - Lidar obstacle avoidance for the robot pet (`robot/avoid.py`, `robot/lidar.py`,
 >   `cortex/obstacle_map.py`): a steering reflex bends the fly brain's own steering

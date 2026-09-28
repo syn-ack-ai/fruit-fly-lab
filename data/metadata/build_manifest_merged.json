@@ -3,7 +3,7 @@
   "version": "1",
   "base": "Janelia MaleCNS v1.0 (brain/connectivity/build_malecns.py)",
   "reference": "FlyWire FAFB v783 (decides what is a gap; nothing copied from it)",
-  "built_utc": "2026-09-27T19:05:21.891634+00:00",
+  "built_utc": "2026-09-28T00:11:32.945097+00:00",
   "rules": {
     "COUNT_GAP_IN_FAMILY": 0.6,
     "FAMILY_GAP": 0.5,
@@ -205,66 +205,81 @@
   ],
   "reference_population_gaps": [
     {
-      "group": "JO-AB",
-      "side": "left",
-      "male_output_syn": 31273,
-      "fafb_output_syn_scaled": 65807,
-      "factor": 2.104
+      "group": "sound",
+      "template_side": "left",
+      "male_output_syn": {
+        "left": 31273,
+        "right": 1093
+      },
+      "fafb_output_syn_scaled": {
+        "left": 65807,
+        "right": 46429
+      },
+      "target": 65807,
+      "template_factor": 2.104
     },
     {
-      "group": "JO-AB",
-      "side": "right",
-      "male_output_syn": 1093,
-      "fafb_output_syn_scaled": 46429,
-      "factor": 8.0
-    },
-    {
-      "group": "JO-CE",
-      "side": "right",
-      "male_output_syn": 36533,
-      "fafb_output_syn_scaled": 75270,
-      "factor": 2.06
+      "group": "wind",
+      "template_side": "left",
+      "male_output_syn": {
+        "left": 75077,
+        "right": 25106
+      },
+      "fafb_output_syn_scaled": {
+        "left": 87985,
+        "right": 78550
+      },
+      "target": 87985,
+      "template_factor": 1.172
     },
     {
       "group": "JO-other",
-      "side": "left",
-      "male_output_syn": 18107,
-      "fafb_output_syn_scaled": 26913,
-      "factor": 1.486
-    },
-    {
-      "group": "JO-other",
-      "side": "right",
-      "male_output_syn": 8587,
-      "fafb_output_syn_scaled": 20928,
-      "factor": 2.437
-    },
-    {
-      "group": "BM",
-      "side": "left",
-      "male_output_syn": 80544,
-      "fafb_output_syn_scaled": 148700,
-      "factor": 1.846
+      "template_side": "left",
+      "male_output_syn": {
+        "left": 44272,
+        "right": 20014
+      },
+      "fafb_output_syn_scaled": {
+        "left": 26799,
+        "right": 17647
+      },
+      "target": 44272,
+      "template_factor": 1.0
     },
     {
       "group": "BM",
-      "side": "right",
-      "male_output_syn": 69744,
-      "fafb_output_syn_scaled": 115287,
-      "factor": 1.653
+      "template_side": "left",
+      "male_output_syn": {
+        "left": 80544,
+        "right": 69744
+      },
+      "fafb_output_syn_scaled": {
+        "left": 148700,
+        "right": 115287
+      },
+      "target": 148700,
+      "template_factor": 1.846
     }
   ],
   "connection_groups_raised": 1085,
   "symmetrization": {
-    "groups_paired": 1115226,
-    "groups_one_sided_mirrored": 487616,
-    "groups_unmirrorable": 25525,
-    "gap_groups_dropped_deficient_only": 939,
-    "gap_synapses_dropped": 25317,
-    "synapses_in_unmirrorable_pct": 0.659,
-    "synapses_without_side_pct": 1.892,
-    "mirror_connections_added": 576910,
-    "groups_total_corrected": 81815
+    "groups_paired": 1113774,
+    "groups_one_sided_mirrored": 486422,
+    "groups_unmirrorable": 24944,
+    "gap_groups_dropped_deficient_only": 631,
+    "gap_synapses_dropped": 13710,
+    "gap_synapses_dropped_by_group": {
+      "BM": 1569,
+      "JO-other": 1641,
+      "ORN": 9925,
+      "sound": 43,
+      "wind": 532
+    },
+    "synapses_in_unmirrorable_pct": 0.623,
+    "synapses_without_side_pct": 1.893,
+    "mirror_connections_added": 574820,
+    "mirror_connections_skipped_sign0": 1008,
+    "groups_total_corrected": 81785
   },
   "evidence_2026_09_27": {
     "male_groups_lopsided_where_fafb_symmetric": 3640,
@@ -282,10 +297,10 @@
   },
   "protected_types": 479,
   "n_neurons": 165122,
-  "n_neuron_pairs": 6736114,
-  "n_synapses": 89376657,
+  "n_neuron_pairs": 6735132,
+  "n_synapses": 89413617,
   "synapses_before": 88816375,
-  "synapses_changed_pct": 0.631,
+  "synapses_changed_pct": 0.672,
   "super_class_counts": {
     "ol_intrinsic": 89390,
     "cb_intrinsic": 32160,

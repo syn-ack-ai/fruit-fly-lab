@@ -2,8 +2,9 @@
 import math
 
 import numpy as np
+import pytest
 
-from cortex.obstacle_map import ObstacleMap
+from cortex.obstacle_map import ObstacleMap, SIZE
 from robot.lidar import beam_angles
 
 # a 6 x 6 m room with a 1.2 x 1.2 m table in the middle (world x, z)
@@ -61,6 +62,27 @@ def test_straight_line_when_nothing_is_in_the_way():
     m = _mapped()
     rp = m.route_point((-2.0, -2.0), (-2.0, 2.0))
     assert rp is not None and abs(rp[0] + 2.0) < 0.15
+
+
+def test_route_cannot_squeeze_diagonally_between_occupied_cells():
+    m = ObstacleMap(0.116)
+    m.origin = (0.0, 0.0)
+    # Four walls surround the start. The diagonal cells are empty, but the
+    # body cannot pass through the touching corners of the wall cells.
+    for i, j in ((199, 200), (201, 200), (200, 199), (200, 201)):
+        m.logodds[i, j] = 3.5
+    assert m.plan(m.centre(200, 200), m.centre(205, 205)) is None
+
+
+@pytest.mark.parametrize("start,goal", [
+    ((-1, 200), (1, 200)), ((SIZE, 200), (SIZE - 2, 200)),
+    ((200, -1), (200, 1)), ((200, SIZE), (200, SIZE - 2)),
+])
+def test_route_rejects_start_outside_map(start, goal):
+    m = ObstacleMap(0.116)
+    m.origin = (0.0, 0.0)
+    assert m.route_point(m.centre(*start), m.centre(*goal)) is None
+    assert m.last == {"route": False}
 
 
 def test_moved_furniture_is_forgotten():

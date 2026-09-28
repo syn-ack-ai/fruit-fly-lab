@@ -120,8 +120,10 @@ class ObstacleMap:
         """A* path (world points) from start to goal, or None."""
         if self.origin is None:
             return None
-        blocked = self.inflated()
         si, sj = (int(v) for v in self.cell(*start_xz))
+        if not self._inside(si, sj):
+            return None
+        blocked = self.inflated()
         gx, gz = goal_xz
         w = int(WINDOW_M / RES_M)
         # a goal beyond the window: aim at the window's edge toward it
@@ -159,6 +161,8 @@ class ObstacleMap:
                     continue
                 if occ[ii, jj]:
                     continue                           # the obstacle itself
+                if di and dj and (occ[i + di, j] or occ[i, j + dj]):
+                    continue                           # no passage through an occupied cell's corner
                 # within the body's margin: allowed only at a high cost (so a
                 # pet already brushing something can still plan its way out)
                 ng = g + c * (1.0 if seen[ii, jj] else UNKNOWN_COST) * (MARGIN_COST if blocked[ii, jj] else 1.0)

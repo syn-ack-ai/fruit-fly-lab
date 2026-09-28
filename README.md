@@ -173,6 +173,12 @@ To obtain it from scratch:
    python -m brain.connectivity.build_connectome
    ```
 
+   This command always writes the FAFB artefacts, regardless of `FLY_DATASET`.
+   To run the FAFB experiments below, set `FLY_DATASET=fafb` (`export FLY_DATASET=fafb`
+   on macOS/Linux; `$env:FLY_DATASET = "fafb"` in PowerShell). The default `merged`
+   brain also requires a MaleCNS build and `python -m brain.connectivity.merge`;
+   see [dataset provenance](DATA_SOURCES.md#1b-the-default-brain-since-2026-09-27-janelia-malecns-v10-gap-filled-merged).
+
    Expected output ends with:
 
    ```

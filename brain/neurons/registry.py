@@ -138,9 +138,15 @@ class Connectome:
 @lru_cache(maxsize=1)
 def load_connectome() -> Connectome:
     """Load the built connectome. Raises if the build has not been run."""
-    if not config.CONNECTOME_NPZ.exists() or not config.NEURON_INDEX.exists():
+    if not all(p.exists() for p in (config.CONNECTOME_NPZ, config.NEURON_INDEX, config.BUILD_MANIFEST)):
+        build = {
+            "fafb": "python -m brain.connectivity.build_connectome",
+            "malecns": "python -m brain.connectivity.build_malecns /path/to/malecns_v1.0",
+            "merged": ("python -m brain.connectivity.merge "
+                       "(requires the FAFB and MaleCNS builds first)"),
+        }[config.DATASET_KEY]
         raise FileNotFoundError(
-            "Connectome not built. Run:  python -m brain.connectivity.build_connectome"
+            f"Connectome for FLY_DATASET={config.DATASET_KEY} not built. Run:  {build}"
         )
     z = np.load(config.CONNECTOME_NPZ, allow_pickle=False)
     shape = tuple(int(x) for x in z["shape"])

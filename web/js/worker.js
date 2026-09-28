@@ -108,8 +108,8 @@ function loop() {
   if (frames.length) {
     const f = frames[frames.length - 1];
     f.wall_ms = Math.round(wall * 100) / 100;
-    f.realtime_factor = (f.t_ms / 1000) / Math.max(1e-6, totalWall / 1000);
     totalWall += wall;
+    f.realtime_factor = (f.t_ms / 1000) / Math.max(1e-6, totalWall / 1000);
     // sparse list of currently active neurons for the 3D view
     const ws = session.windowSum, act = [];
     for (let i = 0; i < ws.length && act.length < 3000; i++) if (ws[i]) act.push(i);

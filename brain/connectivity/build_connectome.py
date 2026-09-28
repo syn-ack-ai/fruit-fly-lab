@@ -21,6 +21,7 @@ C. OUR APPROXIMATION (documented, counted, reported in the build manifest):
    - a neuron's "primary neuropil" is the neuropil holding most of its synapses.
 
 Run:  python -m brain.connectivity.build_connectome
+Always builds the FAFB artefacts, regardless of FLY_DATASET.
 """
 from __future__ import annotations
 
@@ -233,9 +234,9 @@ def main():
     )
     signed.sort_indices()
 
-    _log("saving %s ..." % config.CONNECTOME_NPZ.name)
+    _log("saving %s ..." % config.FAFB_CONNECTOME_NPZ.name)
     np.savez_compressed(
-        config.CONNECTOME_NPZ,
+        config.FAFB_CONNECTOME_NPZ,
         root_ids=root_ids.astype(np.int64),
         indptr=signed.indptr.astype(np.int64),
         indices=signed.indices.astype(np.int32),
@@ -244,8 +245,8 @@ def main():
         dataset=np.array(["%s v%s" % (config.DATASET_NAME, config.DATASET_VERSION)]),
     )
 
-    _log("saving %s ..." % config.NEURON_INDEX.name)
-    df.to_csv(config.NEURON_INDEX, index=False, compression="gzip")
+    _log("saving %s ..." % config.FAFB_NEURON_INDEX.name)
+    df.to_csv(config.FAFB_NEURON_INDEX, index=False, compression="gzip")
 
     manifest = {
         "dataset": config.DATASET_NAME,
@@ -270,7 +271,7 @@ def main():
             "Shiu et al. 2024, Nature 634:210-219, doi:10.1038/s41586-024-07763-9"
         ),
     }
-    config.BUILD_MANIFEST.write_text(json.dumps(manifest, indent=2))
+    config.FAFB_BUILD_MANIFEST.write_text(json.dumps(manifest, indent=2))
     keys = ("n_neurons", "n_neuron_pairs", "n_synapses",
             "excitatory_neurons", "inhibitory_neurons", "unknown_sign_neurons")
     _log("manifest: " + json.dumps({k: manifest[k] for k in keys}, indent=2))

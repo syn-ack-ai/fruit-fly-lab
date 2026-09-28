@@ -301,6 +301,8 @@ class Runner:
     def camera_on(self) -> dict:
         if self.camera is not None and self.camera.alive:
             return {"ok": True, "camera": self.camera.state()}
+        if self.camera is not None:
+            self.camera_off()        # release the dead feed and detach its encoder before replacing it
         from brain.sensory.camera import CameraFeed
         feed = CameraFeed(yaw_deg=float(os.environ.get("FLY_CAMERA_YAW", 0)),
                           pitch_deg=float(os.environ.get("FLY_CAMERA_PITCH", 0)),
@@ -541,6 +543,13 @@ def api_speed(value: float):
     return {"sim_ms_per_tick": RUNNER.sim_ms_per_tick}
 
 
+# Register the literal control before the catch-all stimulus name.
+@app.post("/api/stimulus/clear")
+def api_clear():
+    RUNNER.clear_stimuli()
+    return {"ok": True}
+
+
 @app.post("/api/stimulus/{kind}")
 async def api_stimulus(kind: str, payload: dict = None):
     res = RUNNER.apply_stimulus(kind, payload or {})
@@ -572,12 +581,6 @@ def api_camera_preview():
         return Response(status_code=204)
     return Response(content=jpg, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store"})
-
-
-@app.post("/api/stimulus/clear")
-def api_clear():
-    RUNNER.clear_stimuli()
-    return {"ok": True}
 
 
 @app.post("/api/silence/{cell_type}/{on}")

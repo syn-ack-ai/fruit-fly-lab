@@ -50,9 +50,14 @@ DERIVED_DIR   = DATA_DIR / "derived"
 METADATA_DIR  = DATA_DIR / "metadata"
 OUTPUT_DIR    = PROJECT_ROOT / "simulation" / "outputs"
 
-CONNECTOME_NPZ = DERIVED_DIR / "connectome_v783.npz"
-NEURON_INDEX   = DERIVED_DIR / "neuron_index_v783.csv.gz"
-BUILD_MANIFEST = METADATA_DIR / "build_manifest.json"
+# Build destinations stay tied to FAFB even when another dataset is selected
+# below for simulation. A FAFB rebuild must never overwrite MaleCNS/merged data.
+FAFB_CONNECTOME_NPZ = DERIVED_DIR / "connectome_v783.npz"
+FAFB_NEURON_INDEX   = DERIVED_DIR / "neuron_index_v783.csv.gz"
+FAFB_BUILD_MANIFEST = METADATA_DIR / "build_manifest.json"
+CONNECTOME_NPZ = FAFB_CONNECTOME_NPZ
+NEURON_INDEX   = FAFB_NEURON_INDEX
+BUILD_MANIFEST = FAFB_BUILD_MANIFEST
 
 # --- Alternative datasets: Janelia MaleCNS v1.0 (brain + nerve cord) -------
 # FLY_DATASET=malecns loads the build of brain/connectivity/build_malecns.py;

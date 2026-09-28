@@ -20,10 +20,13 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
 
 ## 1. Moving like something alive
 
-- **now** Motor dynamics (`robot/motion.py`): a lag on the brain's speed and
-  turn commands, so Milo stops twitching (its heading flipped about 3 times a
-  second). Validation on held-out seeds for 1.0 s vs 1.5 s is running; the
-  choice will favour aliveness.
+- **done** Motor dynamics (`robot/motion.py`): a 0.3 s speed / 1.5 s turn lag
+  on the brain's commands is now the default. On held-out seeds, heading
+  reversals fell from ~185 to ~2 per minute and aliveness from 56% to 82%,
+  with no significant safety cost.
+- **next** Turning toward the person when they appear is still only about 50%
+  (the lag slows the first turn). Try a faster turn lag only for orienting, or
+  saccade-like turns.
 - **next** Speed smoothness: the complete brain's speed varies too much
   (CV 0.75 vs an ideal 0.3-0.7). Try a longer speed lag.
 - **next** Push the aliveness score as high as it will go, one change at a
@@ -111,12 +114,23 @@ decides the *words*.
 - Odour steering is weak (DNa02 near threshold, and the male's VA1v pheromone
   channel is suppressed by fruit odour). Milo has no nose, so this is
   documented rather than urgent.
-- Giant Fibre stray spikes at rest from a brain-nerve cord loop (DNg33,
-  AN09A005).
+- Giant Fibre stray spikes at rest: the two DNg33 cells excite each other
+  (~750 synapses each way in the male CNS, FAFB ~140) and latch at 130-140 Hz.
+  These are single spikes, below the takeoff threshold, so there is no
+  behaviour. Descending-neuron adaptation was tried and not adopted: it costs
+  steering. Open: a better mechanism, for example short-term depression at
+  high-rate synapses.
+- **next** Merge bug: `merge.py` creates 281 autapses (1,496 synapses; raw
+  data 26). Fix, then rebuild, re-run the exam and re-calibrate if needed.
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
 
 ## Done recently (2026-09-27)
 
+- Stray startles fixed: the long-mode takeoff reads its looming DNs as a
+  population. Two spikes of DNp11, driven by the pursuit pathway, launched
+  Milo 2.7 times a day with no threat; real looms still trigger it.
+- PR #2 merged: FAFB builds can no longer overwrite the merged brain; lab
+  controls, route planner and telemetry fixes.
 - The complete male-CNS brain became the default: gap-filled, left/right
   balanced, exam 31/32 on unseen seeds.
 - Proboscis readout fixed for male brains: the pet could not eat before.

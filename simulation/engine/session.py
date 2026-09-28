@@ -264,6 +264,16 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
             # (e.g. DNg33 at 155 Hz with no input, driving the Giant Fibre at rest)
             vmask |= np.isin(sc, ["descending_neuron", "efferent_descending"])
         adapt[vmask] += vnc["extra_adapt_mV_per_spike"]
+    if vnc.get("descending_adapt_mV_per_spike"):
+        # descending neurons, their own (smaller) extra adaptation: in the male
+        # CNS the two DNg33 excite each other through ~750 synapses each way
+        # (FAFB ~140) and latch at 130 Hz with no input, driving the Giant
+        # Fibre at rest; adaptation grows with the rate. Off by default: the
+        # sweep (0.1-0.8 mV, 6 seeds) lowered DNg33 140 -> 24 Hz but GF stray
+        # spikes only 12 -> 5 per 36 s (the GF has other drivers) and cut
+        # pursuit steering (DNa02 L-R) by up to 40% (2026-09-27)
+        sc = n["super_class"].fillna("").astype(str).to_numpy()
+        adapt[np.isin(sc, ["descending_neuron", "efferent_descending"])] += vnc["descending_adapt_mV_per_spike"]
     cc = cfg.get("central_complex") or {}
     ring = None
     if cc.get("ring_internal_gain", 1.0) != 1.0 or cc.get("ring_adapt_mV_per_spike") is not None:

@@ -5,10 +5,10 @@
 #   none     the fly brain alone
 #   v0       fly brain + neocortex (map, drives, critic -> dopamine), memories kept across days
 #   amnesic  the same neocortex, but its place memories are wiped every night
-#   manners  v0 with cat-like manners around its person (CONDS="none v0 manners")
+#   manners  v0 with animal-like manners around its person (CONDS="none v0 manners")
 #   talk     v0 with manners + the LLM personality (cortex/personality.py) and a scripted
 #            talking person; needs the model at LLM_URL (default: the NVIDIA PAIR router on the box, port 1234)
-#   pet      battery pet: the bowl is a charging dock, hunger = charge, cat-like naps
+#   pet      battery pet: the bowl is a charging dock, hunger = charge, animal-like naps
 #   petreflex  control: the battery pet with the old always-on feeding reflex at the dock
 #   petlidar the battery pet + a simulated 2D lidar -> looming, antennal touch and obstacle speed limit
 #   petobst  ablation: lidar used only for the obstacle speed limit

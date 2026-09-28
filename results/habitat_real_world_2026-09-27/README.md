@@ -178,8 +178,75 @@ lag without anti-windup, scored with the pre-review metrics):
 | 2 x 0.35 s | 28 | 59% | 53% | 63% |
 | 2 x 0.5 s | 16 | 72% | 64% | 70% |
 
-Safety differences in this table are noisy (9 days per arm). Validation of
-1.0 s and 1.5 s against no lag on held-out seeds 21-23 (10 days, petlidar and
-petsteer, fixed code) is running (`simulation/outputs/habitat/heldout_motor`).
-Per the user, aliveness is favoured over the safety score when choosing. The
-hard safety layers are not part of that trade.
+Safety differences in this table are noisy (9 days per arm).
+
+**Held-out validation.** Held-out seeds 21-23, 10 days, petlidar and petsteer,
+code after the review fixes, complete brain (`score_motor_heldout.txt`,
+`stats_motor_heldout_none_vs_1p5.txt`). Lidar conditions:
+
+| | no lag | 1.0 s | **1.5 s** |
+|---|---|---|---|
+| heading reversals / active min | 184 | 13 | **2** |
+| aliveness | 56% | 68% | **82%** |
+| safety | 73% | 69% | 75% |
+| total | 68.5% | 70.2% | **77.0%** |
+| total without aliveness | 74.1% | 71.0% | **75.0%** |
+
+With 1.5 s the twitching disappears (REAL: p = 3e-11, all seeds apart). There
+is no significant change in furniture bumps, person bumps, braking, pinned
+time or turning toward the person (p = 0.07-0.8). **0.3 s speed / 1.5 s turn
+is now the default** (`brain_client.MOTOR_TAU_DEFAULT`; `FLY_MOTOR_TAU=0`
+turns it off). Aliveness was favoured when choosing, per the user; here it
+cost nothing. The hard safety layers are not part of that trade. These runs
+used the long-mode escape readout from before the fix below, equally in all
+three arms.
+
+## Stray startles
+
+In the brain-comparison runs the complete brain started a long-mode takeoff
+2.7 times a day with no looming object, no touch and no person nearby.
+FAFB's escapes all coincided with a lidar loom.
+
+**Diagnosis** (the escape DNs logged at every step, 3 seeds x 2 days):
+
+- DNp11 was active at 14 of 21 escapes, almost always while the pet headed
+  for its person.
+- The body read each long-mode DN per cell over its 50 ms window, so two
+  spikes of one DNp11 launched a takeoff.
+- In the male CNS, DNp11 receives 107 synapses from LC10a, the pursuit
+  neurons the neocortex drives toward the person. FAFB has 5. This comes from
+  the raw male data (41 and 65 per side), not from the merge.
+
+**Fix** (`brain/motor/descending.py`, `POOLED_ALWAYS`): the long-mode takeoff
+is read from the pooled rate of its looming DNs (DNp02, DNp04, DNp11, both
+sides). It is a population behaviour (von Reyn et al. 2014; Ache et al. 2019).
+The Giant Fibre, one command cell, keeps the single-cell reading.
+
+Real looms still trigger it: LC4/LPLC2 at 20-150 Hz, both sides or one, fire
+it in 57-60 of 60 windows on both brains. Two spikes of one cell now read 0.10
+(threshold 0.30).
+
+**Habitat check** (the same 3 seeds x 2 days; `tests/test_escape_readout.py`):
+
+| | before | after |
+|---|---|---|
+| no lidar | 21 escapes, 15 with no cause | **0 escapes** |
+| lidar steering | - | 6 at real looms (1/day) and 1 other |
+
+The other one was a Giant Fibre takeoff with an obstacle 20 cm away, which is
+plausibly real even though the lidar's loom flag did not mark it.
+
+**Giant Fibre stray spikes at rest.** These come from DNg33: the left and right
+cells excite each other through about 750 synapses each way (FAFB about 140)
+and latch at 130-140 Hz with no input. The stray spikes are single spikes,
+below the body's takeoff threshold, and none of the Habitat escapes came from
+the Giant Fibre.
+
+A rate-dependent adaptation of descending neurons
+(`vnc.descending_adapt_mV_per_spike`, off by default) lowers DNg33
+(140 -> 24 Hz). But it only reduces the GF spikes 12 -> 5 per 36 s, and it
+weakens pursuit steering by up to 40%, so it was not adopted.
+
+**Side finding:** the merge creates 281 autapses (a neuron wired to itself;
+1,496 synapses) where the raw male data has 26. The number is small, but it
+is a merge bug (open; see ROADMAP.md).

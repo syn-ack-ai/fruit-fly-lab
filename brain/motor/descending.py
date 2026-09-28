@@ -245,6 +245,16 @@ POPULATION_EXTRA = (
     ),
 )
 POOLED_CHANNELS = ("turn", "forward_walk", "backward_walk", "landing", "flight_power", "halt")
+# The long-mode (GF-independent) takeoff is read from the pooled rate of its
+# looming DNs (DNp02, DNp04, DNp11, both sides) in every readout mode: it is a
+# population behaviour (von Reyn et al. 2014, Nat Neurosci 17:962; Ache et al.
+# 2019), while the Giant Fibre is one command cell and keeps the single-cell
+# reading. Review 2026-09-27: read per cell over the 50 ms window, two spikes
+# of one DNp11 launched the robot -- in the male CNS DNp11 gets 107 synapses
+# from the pursuit neurons LC10a (FAFB 5), which the neocortex drives when the
+# pet heads for its person: 2.7 takeoffs a day with no threat in Habitat.
+# Pooled, looms still trigger (LC4/LPLC2 at 20-150 Hz, both sides or one).
+POOLED_ALWAYS = ("escape_long_mode",)
 
 CHANNELS = tuple(sorted({d.channel for d in DN_COMMANDS + POPULATION_EXTRA}))
 # cell types reported individually (lr_<type>, hz_<type>) by channels()
@@ -402,6 +412,13 @@ class DescendingReadout:
                 # right-minus-left activation (e.g. forward_walk_lr: DNp09
                 # turns ipsilaterally; flight_power_lr: DNg02 asymmetry)
                 res[ch + "_lr"] = sum(rv) / len(rv) - sum(lv) / len(lv)
+        for ch in POOLED_ALWAYS:
+            if ch in self._chan_groups:
+                g = self._chan_groups[ch][0] + self._chan_groups[ch][1]
+                if g:
+                    cells = [1.0 / (self._gscale[i] * 1e-3) for i in g]
+                    pooled = sum(hz[i] * k for i, k in zip(g, cells)) / sum(cells)
+                    res[ch] = pooled / (pooled + CHANNEL_HALF_MAX_HZ)
         # per cell type: right-minus-left activation and mean rate (Hz), for
         # readouts that treat the types differently (e.g. DNa02 transient,
         # DNa01 sustained steering; Rayshubskiy et al. 2025, eLife 102230)
@@ -431,7 +448,7 @@ class DescendingReadout:
             if not (L or R):
                 res[ch] = 0.0
                 continue
-            if ch not in POOLED_CHANNELS:
+            if ch not in POOLED_CHANNELS + POOLED_ALWAYS:
                 res[ch] = max(act[i] for i in L + R)
                 if L and R:
                     res[ch + "_lr"] = (sum(act[i] for i in R) / len(R) - sum(act[i] for i in L) / len(L))

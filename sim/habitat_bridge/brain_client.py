@@ -49,6 +49,7 @@ SPEED_SCALE = 0.3 / 12.0        # m/s per fly mm/s
 V_MIN, V_MAX = -0.3, 0.5        # m/s
 TURN_SCALE = 0.5
 W_MAX_DEG = 120.0
+MOTOR_TAU_DEFAULT = "0.3,1.5"   # robot/motion.MotorLag (s): speed, turn rate
 
 
 class SimClock:
@@ -215,12 +216,15 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             cortex.know_place(BOWL_XZ)              # born on its dock: it knows where it is
             cortex._dock_known = True
     emergency = {"active": False, "s": 0.0, "events": 0}
-    # motor dynamics (robot/motion.py): FLY_MOTOR_TAU="tau_v,tau_w[,stages]" (seconds); off by default
-    # (one value = the same tau for speed and turning)
+    # motor dynamics (robot/motion.py): FLY_MOTOR_TAU="tau_v,tau_w[,stages]" (seconds;
+    # one value = the same tau for both; "0" = off). Default 0.3 s speed, 1.5 s
+    # turning: on held-out seeds (results/habitat_real_world_2026-09-27) heading
+    # reversals fell from ~185 to ~2 per active minute and aliveness 56 -> 82%,
+    # with no significant change in bumps, braking or pinned time.
     motor, mtau = None, None
-    if mode == "brain" and os.environ.get("FLY_MOTOR_TAU"):
+    if mode == "brain":
         from robot.motion import MotorLag
-        mtau = [float(x) for x in os.environ["FLY_MOTOR_TAU"].split(",")]
+        mtau = [float(x) for x in os.environ.get("FLY_MOTOR_TAU", MOTOR_TAU_DEFAULT).split(",")]
         if len(mtau) == 1:
             mtau = mtau * 2
         if max(mtau[:2]) > 0:
@@ -282,7 +286,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             if motor is not None and not str(ses.body.state.behaviour).startswith("escape"):
                 v, w = motor(v, w, period_ms / 1000.0)      # a startle escape is not smoothed
             dn = {kk: round(vv, 1) for kk, vv in fr["dn_rates"].items()
-                  if kk.startswith(("DNa01", "DNa02", "DNg100", "DNp09", "DNp01", "MDN", "DNge078"))}
+                  if kk.startswith(("DNa01", "DNa02", "DNg100", "DNp09", "DNp01", "DNp02", "DNp04", "DNp11", "MDN", "DNge078"))}
             tb = round(fr["channels"].get("turn_bias", 0.0), 3)
         elif mode == "body_only":
             for i in range(int(period_ms)):

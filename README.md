@@ -5,7 +5,8 @@
 > robot whose lower brain is the connectome of a real fruit fly** and whose higher
 > functions are a small learned "neocortex" and an optional language-model
 > personality. Milo is a robot and says so: it never presents itself as a cat or any
-> animal (robot face and sounds, honesty checks in `cortex/llm_bench.py`). Additions (MIT licence, see LICENSE; upstream code keeps its author's
+> animal (robot face and sounds, honesty checks in `cortex/llm_bench.py`). Plans:
+> `ROADMAP.md`. Additions (MIT licence, see LICENSE; upstream code keeps its author's
 > copyright):
 > - **Default brain since 2026-09-27: our "complete" male CNS** (`FLY_DATASET=merged`,
 >   `brain/connectivity/merge.py`): the Janelia MaleCNS v1.0 (brain + ventral nerve

@@ -39,6 +39,12 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
   itself.
 - **done** Speed smoothness: 0.56-0.58 in the latest held-out runs (ideal
   0.3-0.7).
+- **next** Why does the complete male brain walk so little? With the same
+  robot layers it walks ~3x less than FAFB (7-9 vs 20-28 m/day), which costs it
+  the "life" score (total 79.0% vs FAFB 82.5%) while it is far safer
+  (`results/unstuck_2026-09-28/`). Suspects: the forward-walking command DNg100
+  at rest (3.8 Hz), the refit's gain (0.962) and nerve-cord adaptation, P1
+  excitement slowing walking, and the male touch pathway.
 - **next** Push the aliveness score as high as it will go, one change at a
   time. Tune on tuning seeds, confirm on held-out seeds, and report with
   `sim/habitat_bridge/score_pets.py`.

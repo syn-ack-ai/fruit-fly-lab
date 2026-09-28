@@ -103,3 +103,41 @@ In the final arm, pet-caused person bumps total **16, as before (16)** across
 both conditions. They shifted from lidar alone (15 -> 10) to lidar steering
 (1 -> 6); neither shift is significant (p = 0.16). All of them happen while
 greeting or yielding, as before.
+
+## Both brains with today's robot
+
+This is the fair version of the 2026-09-27 comparison. The FlyWire FAFB
+female brain ran with the same robot layers:
+
+- adapting touch, the unstick reflex, the motor lag, the orienting reflex, the
+  pooled long-mode escape;
+- no voice, since FAFB has no P1 or pIP10.
+
+Held-out seeds 41-43, 10 days (`score_fafb_vs_ours_same_robot.txt`,
+`stats_fafb_vs_ours_same_robot.txt`). Pairs are lidar / lidar steering:
+
+| | FAFB | complete male brain |
+|---|---|---|
+| safety-layer brake s/day | 57 / 34 | **1.3 / 0.7** (REAL) |
+| pinned / pressing s/day | 6.5 / 8.7 | **1.3 / 0.6** (REAL) |
+| furniture bumps/day | 0.43 / 0.10 | 0.27 / 0.00 |
+| pet-caused person bumps/day | 0.20 / 0.37 | 0.33 / 0.20 (n.s.) |
+| stuck s/day | 27.8 / 0.2 | 15.2 / 2.3 |
+| walked m/day | **20 / 28** | 7 / 9 (REAL) |
+| near the person s/day | 13 / 21 | 15 / 15 |
+| turns toward the person | 80% / 76% | 78% / 79% |
+| heading reversals / active min | **2.0 / 2.8** | 3.5 / 3.6 (REAL with lidar) |
+| docked days (of 30) | 12 / 19 | 11 / 10 |
+| aliveness | 92% / 90% | 90% / 90% |
+| **total** | **82.5%** | 79.0% |
+
+With the same robot, the female brain scores higher overall. The difference
+is almost all in "life": it walks ~3x further and so reaches its dock and its
+person more often.
+
+The male brain is far safer. It needs the lidar brake ~40x less and is pinned
+5-15x less. It is equally alive by the aliveness score, twitching a little
+more (3.5 vs 2 reversals a minute).
+
+The male brain's low activity is now the main gap (ROADMAP.md).
+

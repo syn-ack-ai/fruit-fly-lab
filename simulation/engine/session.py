@@ -488,6 +488,8 @@ class Session:
     #: simulated second (used on the Pi, where it competes with the engine for
     #: memory bandwidth). Must be a whole number of engine steps.
     RATE_UPDATE_MS = float(os.environ.get("FLY_BLOCK_MS", "1.0"))
+    #: channels also reported as their mean over each advance() call
+    STEP_MEAN_KEYS = ("song", "hz_pIP10")
 
     def __init__(self, connectome, params: LIFParams = DEFAULT, seed: int = 0,
                  window_ms: float = 50.0, engine: str | None = None,
@@ -682,6 +684,8 @@ class Session:
             return []
         n_blocks = max(1, int(round(duration_ms / self.RATE_UPDATE_MS)))
         steps = int(round(self.RATE_UPDATE_MS / self.p.dt))
+        self._step_sum = dict.fromkeys(self.STEP_MEAN_KEYS, 0.0)
+        self._step_n = 0
 
         t_start = time.perf_counter()
         # The mushroom body writes synaptic multipliers and APL drive after each
@@ -717,6 +721,10 @@ class Session:
         wall = (time.perf_counter() - t_start) / n_blocks
 
         frame = self._telemetry(spk, wall)
+        # channel means over the whole call (every 1 ms block), for readouts
+        # that one 50 ms window samples too coarsely (the song: pIP10 is one
+        # cell per side -- review 2026-09-28)
+        frame["step_means"] = {k: v / max(self._step_n, 1) for k, v in self._step_sum.items()}
         self.history.append(frame)
         if len(self.history) > self.HISTORY_MAX:
             del self.history[:len(self.history) - self.HISTORY_MAX]
@@ -738,6 +746,10 @@ class Session:
                 self._raster.extend((rt, i) for i in hit[:200].tolist())
 
         self._channels = self.readout.channels(None, win, sums=rec.group_sum)
+        if getattr(self, "_step_sum", None) is not None:
+            for k in self.STEP_MEAN_KEYS:
+                self._step_sum[k] += self._channels.get(k, 0.0)
+            self._step_n += 1
         self._laterality = self.readout.escape_laterality(None, sums=rec.group_sum)
         self._prob = self.readout.proboscis_drive_from_total(rec.proboscis_sum, win)
 

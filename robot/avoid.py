@@ -46,6 +46,8 @@ the missing visual obstacle avoidance. The corridor is a straight strip
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 MARGIN_M = 0.06               # beyond the body's half width, each side
@@ -169,3 +171,78 @@ def pivot(avoid_last: dict, v_brain: float, v: float, w: float) -> tuple:
     if np.sign(w) == side and abs(w) >= PIVOT_W:
         return w, True                                     # already turning that way, fast enough
     return float(side * PIVOT_W), True
+
+
+# the unstick reflex (2026-09-28): the robot sat within touch distance of a wall
+# or furniture, barely moving, for 26% of all simulated time on the held-out
+# runs (19% without the motor lag): at a wall the fly brain alternates backing
+# away from the touch (head bristles -> MDN) and walking back toward its goal,
+# and the motor lag averages that into nothing; pivot() never engaged, as the
+# brain was not asking to go forward. When stuck, the robot layer points the
+# goal and attention to the most open direction for UNSTICK_S -- the fly brain
+# then turns itself out (as the orienting reflex does, it biases, never drives).
+STUCK_NEAR_M = 0.15           # an obstacle this close to the body (lidar "touch")
+STUCK_WINDOW_S = 3.0          # ... for this long ...
+STUCK_MOVE_M = 0.10           # ... while the body moved less than this
+UNSTICK_S = 2.5               # then pull toward the most open direction this long
+UNSTICK_COOLDOWN_S = 2.0      # before it may trigger again
+OPEN_DEG = np.arange(-180.0, 180.0, 10.0)
+
+
+class Unstick:
+    """Detects being stuck near an obstacle and, while active, returns the
+    WORLD direction (goal_deg convention: CCW, as the neocortex's goals) of the
+    most open corridor found when it triggered. (Review 2026-09-28: a target
+    kept relative to the body turned with it, so the robot turned on past the
+    open way -- up to 130 deg.)"""
+
+    def __init__(self, half_len: float, half_wid: float):
+        self.L, self.W = half_len, half_wid
+        self.reset()
+
+    def reset(self) -> None:
+        self.hist = []                 # (t, x, z, near)
+        self.until = self.cool = -1e9
+        self.goal = None
+        self.events = 0
+        self.active_s = 0.0
+
+    def cancel(self) -> None:
+        """Stop a running pull (the robot rests, docks or yields) and forget
+        the window."""
+        self.until, self.hist = -1e9, []
+
+    def step(self, t: float, xz, near_m: float, points_robot, dt: float, heading_deg: float,
+             may_trigger: bool = True) -> float | None:
+        """t (s), body position (m), nearest obstacle distance from the body
+        surface (m), lidar points in the robot frame, heading (deg, the
+        habitat yaw, CCW). may_trigger: False while the robot means to stand
+        still (charging, mid-meal, yielding, beside its person). Returns the
+        world goal direction to pull toward while unsticking, else None."""
+        if not may_trigger:
+            # standing still on purpose: stop any pull and forget the window,
+            # so it does not fire the moment the stillness ends (review 2026-09-28)
+            self.cancel()
+            return None
+        self.hist.append((t, float(xz[0]), float(xz[1]), near_m < STUCK_NEAR_M))
+        while self.hist and self.hist[0][0] < t - STUCK_WINDOW_S:
+            self.hist.pop(0)
+        if t < self.until:
+            self.active_s += dt
+            return self.goal
+        if t < self.cool or len(self.hist) < 2 or self.hist[-1][0] - self.hist[0][0] < STUCK_WINDOW_S - 0.15:
+            return None
+        if not all(h[3] for h in self.hist):
+            return None
+        xs = np.array([h[1] for h in self.hist]); zs = np.array([h[2] for h in self.hist])
+        if math.hypot(xs.max() - xs.min(), zs.max() - zs.min()) >= STUCK_MOVE_M:
+            return None
+        free = corridor_free(points_robot, OPEN_DEG, self.L, self.W)
+        free = np.where(np.isinf(free), 99.0, free)
+        # the most open way; ties prefer smaller turns
+        k = int(np.argmax(free - 1e-3 * np.abs(OPEN_DEG)))
+        self.goal = (float(heading_deg) - float(OPEN_DEG[k])) % 360.0     # az + = right -> world CCW
+        self.until, self.cool = t + UNSTICK_S, t + UNSTICK_S + UNSTICK_COOLDOWN_S
+        self.events += 1
+        self.hist = []
+        return self.goal

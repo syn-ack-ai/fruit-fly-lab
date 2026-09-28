@@ -1,0 +1,72 @@
+
+=== petlidar  (lidar on)
+                                                 before (30 d)        touch_voice (30 d)       plus_unstick (30 d)              final (30 d)
+  furniture bumps/day                           2.03 ->  59.3%            0.33 ->  93.3%            0.33 ->  93.3%            0.27 ->  94.7%
+  pet-caused person bumps/day                   0.50 ->  33.3%            0.20 ->  60.0%            0.20 ->  60.0%            0.33 ->  33.3%
+  safety-layer brake s/day                      0.84 ->  98.6%            1.20 ->  98.0%            1.20 ->  98.0%            1.25 ->  97.9%
+  pinned/pressing s/day                         9.75 ->  67.5%            0.67 ->  97.8%            0.67 ->  97.8%            1.33 ->  95.6%
+  s/day below 20% battery                       2.94 ->  95.1%            0.00 -> 100.0%            0.00 -> 100.0%            4.57 ->  92.4%
+  fraction of days with a flat battery            0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%
+  s/day eating when full                        0.00 -> 100.0%            0.03 ->  99.7%            0.03 ->  99.7%            0.00 -> 100.0%
+  walked m/day                                  5.90 ->  29.5%            7.44 ->  37.2%            7.44 ->  37.2%            7.36 ->  36.8%
+  s/day near the person                        11.32 ->  37.7%           15.48 ->  51.6%           15.48 ->  51.6%           15.47 ->  51.6%
+  speed variation (CV) while moving             0.55 -> 100.0%            0.57 -> 100.0%            0.57 -> 100.0%            0.58 -> 100.0%
+  heading reversals / active min                3.07 ->  84.7%            2.98 ->  85.1%            2.98 ->  85.1%            3.49 ->  82.6%
+  move/pause bouts / min                        7.44 ->  99.7%            7.42 -> 100.0%            7.42 -> 100.0%            7.52 -> 100.0%
+  irregularity of bouts (CV)                    1.05 -> 100.0%            1.03 -> 100.0%            1.03 -> 100.0%            0.95 -> 100.0%
+  turns toward person on appearance             0.70 ->  70.0%            0.70 ->  70.3%            0.70 ->  70.3%            0.78 ->  78.5%
+  SAFETY (28)                                            55.5%                     82.0%                     82.0%                     72.2%
+  SELF-CARE (21)                                         97.6%                    100.0%                    100.0%                     96.2%
+  LIFE (21)                                              33.6%                     44.4%                     44.4%                     44.2%
+  ALIVENESS (30)                                         87.9%                     88.1%                     88.1%                     89.6%
+  TOTAL (range over seeds)                       69.4% [64-73]             79.7% [76-84]             79.7% [76-84]             76.6% [73-82]
+    without aliveness                                    61.6%                     76.1%                     76.1%                     71.0%
+    before: stuck against something 43.6 s/day, song bouts 0.0/day
+    before: dock 10/30 days, meals 0, eating 2.7 s/day, battery at day end 0.48
+    touch_voice: stuck against something 16.3 s/day, song bouts 5.7/day
+    touch_voice: dock 13/30 days, meals 1, eating 3.6 s/day, battery at day end 0.62
+    plus_unstick: stuck against something 16.3 s/day, song bouts 5.0/day
+    plus_unstick: dock 13/30 days, meals 1, eating 3.6 s/day, battery at day end 0.62
+    final: stuck against something 15.2 s/day, song bouts 2.7/day
+    final: dock 11/30 days, meals 0, eating 3.6 s/day, battery at day end 0.52
+
+=== petsteer  (lidar on)
+                                                 before (30 d)        touch_voice (30 d)       plus_unstick (30 d)              final (30 d)
+  furniture bumps/day                           0.47 ->  90.7%            0.03 ->  99.3%            0.20 ->  96.0%            0.00 -> 100.0%
+  pet-caused person bumps/day                   0.03 ->  93.3%            0.40 ->  26.7%            0.20 ->  60.0%            0.20 ->  60.0%
+  safety-layer brake s/day                      0.40 ->  99.3%            0.81 ->  98.7%            0.74 ->  98.8%            0.72 ->  98.8%
+  pinned/pressing s/day                         2.67 ->  91.1%            1.57 ->  94.8%            1.06 ->  96.5%            0.60 ->  98.0%
+  s/day below 20% battery                       0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%
+  fraction of days with a flat battery            0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%
+  s/day eating when full                        0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%            0.00 -> 100.0%
+  walked m/day                                  7.35 ->  36.7%            8.11 ->  40.6%            8.19 ->  40.9%            8.65 ->  43.2%
+  s/day near the person                        12.32 ->  41.1%           14.38 ->  47.9%           16.30 ->  54.3%           15.24 ->  50.8%
+  speed variation (CV) while moving             0.57 -> 100.0%            0.57 -> 100.0%            0.56 -> 100.0%            0.57 -> 100.0%
+  heading reversals / active min                3.09 ->  84.6%            3.28 ->  83.6%            3.59 ->  82.0%            3.58 ->  82.1%
+  move/pause bouts / min                        6.77 -> 100.0%            7.86 ->  99.8%            7.71 ->  99.6%            7.66 ->  99.7%
+  irregularity of bouts (CV)                    1.05 -> 100.0%            0.94 -> 100.0%            1.00 -> 100.0%            1.05 -> 100.0%
+  turns toward person on appearance             0.66 ->  66.1%            0.74 ->  74.3%            0.71 ->  71.0%            0.79 ->  79.3%
+  SAFETY (28)                                            92.8%                     71.4%                     82.9%                     84.6%
+  SELF-CARE (21)                                        100.0%                    100.0%                    100.0%                    100.0%
+  LIFE (21)                                              38.9%                     44.2%                     47.6%                     47.0%
+  ALIVENESS (30)                                         86.8%                     88.8%                     87.4%                     89.7%
+  TOTAL (range over seeds)                       81.2% [80-83]             76.9% [72-81]             80.4% [74-85]             81.5% [79-83]
+    without aliveness                                    78.8%                     71.8%                     77.5%                     77.9%
+    before: stuck against something 25.1 s/day, song bouts 0.0/day
+    before: dock 9/30 days, meals 0, eating 3.4 s/day, battery at day end 0.57
+    touch_voice: stuck against something 2.4 s/day, song bouts 5.7/day
+    touch_voice: dock 12/30 days, meals 0, eating 3.8 s/day, battery at day end 0.56
+    plus_unstick: stuck against something 1.7 s/day, song bouts 5.2/day
+    plus_unstick: dock 15/30 days, meals 0, eating 3.8 s/day, battery at day end 0.60
+    final: stuck against something 2.3 s/day, song bouts 3.0/day
+    final: dock 10/30 days, meals 0, eating 3.8 s/day, battery at day end 0.59
+
+=== overall
+  total              before     all conditions  75.3%   with lidar (the rover's setup)  75.3%
+  total              touch_voice all conditions  78.3%   with lidar (the rover's setup)  78.3%
+  total              plus_unstick all conditions  80.1%   with lidar (the rover's setup)  80.1%
+  total              final      all conditions  79.0%   with lidar (the rover's setup)  79.0%
+  without aliveness  before     all conditions  70.2%   with lidar (the rover's setup)  70.2%
+  without aliveness  touch_voice all conditions  74.0%   with lidar (the rover's setup)  74.0%
+  without aliveness  plus_unstick all conditions  76.8%   with lidar (the rover's setup)  76.8%
+  without aliveness  final      all conditions  74.5%   with lidar (the rover's setup)  74.5%

@@ -276,3 +276,24 @@ def test_collision_monitor_recovers_from_a_corner():
     out = [cm(pts, 0.3, -0.5, 0.1) for _ in range(30)]
     assert any(v < 0 or abs(w) > 0 for v, w in out[15:])        # it moves again
     assert cm.recoveries >= 1
+
+
+def test_touch_adapts_to_steady_contact():
+    """Bristles are rapidly adapting: a new contact bursts, a steady one fades
+    to a small tonic drive (2026-09-28: steady touch kept the robot at walls)."""
+    import types
+    import numpy as np
+    from robot import lidar as L
+    scan = types.SimpleNamespace(ranges=np.array([0.2]), angles=np.array([0.0]), body=np.array([0.15]),
+                                 clearance=lambda: np.array([0.05]))
+    con = types.SimpleNamespace(neurons=__import__("pandas").DataFrame({"primary_type": ["BM_Ant", "BM_Ant"], "side": ["left", "right"]}))
+    tch = L.LidarTouch(con, scan)
+    tch.adapt = True
+    first = tch.rates_hz(0.0).max()
+    later = [tch.rates_hz(10.0 * k).max() for k in range(1, 300)]
+    lv = 1.0 - 0.05 / L.TOUCH_M
+    assert abs(first - L.TOUCH_HZ * lv) < 1e-6                               # onset: full
+    assert later[-1] < 0.25 * first and later[-1] >= L.TOUCH_TONIC * L.TOUCH_HZ * lv - 1e-6   # steady: tonic
+    k = int(L.TOUCH_ADAPT_S * 1000 / 10) - 1                                  # one time constant in
+    phasic = (later[k] / (L.TOUCH_HZ * lv) - L.TOUCH_TONIC) / (1 - L.TOUCH_TONIC)
+    assert abs(phasic - np.exp(-1.0)) < 0.05                                  # the adaptation time is right

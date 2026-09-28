@@ -35,6 +35,15 @@ OBJECT_W_M = 0.3            # nominal obstacle width for the looming angle
 LOOM_MAX_M = 2.0            # beyond this, nothing looms
 TOUCH_M = 0.15              # "antenna" reach beyond the body surface
 TOUCH_HZ = 80.0             # as petting (sim/habitat_bridge/home.py)
+# Bristle mechanoreceptors are rapidly adapting: they signal a deflection and
+# fall mostly silent under steady contact (NompC channels; Walker, Willingham &
+# Zuker 2000, Science 287:2229). A steady wall at 80 Hz kept the brain in a
+# touch response (backing, grooming, even proboscis extension) and the robot
+# sat against walls for ~30% of the time (2026-09-28). The drive is the contact
+# level minus its adapted level (time constant TOUCH_ADAPT_S) plus a small tonic
+# part; FLY_TOUCH_ADAPT=0 restores the steady drive.
+TOUCH_ADAPT_S = 0.5
+TOUCH_TONIC = 0.15
 FRONT_DEG = 30.0            # beams within this of straight ahead touch both sides
 MOVING_MS = 0.3             # closing speed beyond self-motion that counts as "coming at me"
 
@@ -216,6 +225,13 @@ class LidarTouch:
         self._right = side[self.indices] == "right"
         self.scan = scan
         self.last = {"left": 0.0, "right": 0.0}
+        import os
+        self.adapt = os.environ.get("FLY_TOUCH_ADAPT", "1") != "0"
+        self.reset()
+
+    def reset(self) -> None:
+        self._a = [0.0, 0.0]                  # adapted contact level, left / right
+        self._t = None
 
     def levels(self) -> tuple:
         s = self.scan
@@ -230,6 +246,16 @@ class LidarTouch:
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
         left, right = self.levels()
         self.last = {"left": round(left, 2), "right": round(right, 2)}
+        if self.adapt:
+            dt = 0.0 if self._t is None or t_ms < self._t else (t_ms - self._t) / 1000.0
+            self._t = t_ms
+            k = 1.0 - math.exp(-dt / TOUCH_ADAPT_S) if dt > 0 else 0.0
+            drive = []
+            for i, lv in enumerate((left, right)):
+                self._a[i] += (lv - self._a[i]) * k
+                drive.append(TOUCH_TONIC * lv + (1.0 - TOUCH_TONIC) * max(lv - self._a[i], 0.0))
+            left, right = drive
+            self.last.update(drive_left=round(left, 2), drive_right=round(right, 2))
         return np.where(self._right, TOUCH_HZ * right, TOUCH_HZ * left)
 
     def state(self, t_ms: float) -> dict:

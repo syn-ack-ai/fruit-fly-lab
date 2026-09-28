@@ -13,6 +13,8 @@ adds a mood and the occasional word:
   mouth            chewing while the proboscis is out (eating); otherwise the mood
   blush            being petted
   speech bubble    the personality's words; sounds are synthesised in the browser
+  song             the fly brain's courtship-song command (pIP10) fired: its
+                   own song, voiced as chirps (sim/habitat_bridge/brain_client.py)
 
 FacePublisher sends the state to the face server without ever blocking the
 brain loop (latest state wins; a background thread posts it).

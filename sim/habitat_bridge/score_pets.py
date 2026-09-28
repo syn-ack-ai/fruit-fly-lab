@@ -99,6 +99,8 @@ def _day(r: dict, cond: str) -> dict:
         "walked": float(np.hypot(*np.diff(np.array([p["robot"][:2] for p in log])[::5], axis=0).T).sum()) if len(log) > 5 else 0.0,
         "company": h.get("near_person_s", 0.0),
         # reported, not scored
+        "stuck": stuck_s(log),
+        "song_bouts": (r.get("song") or {}).get("bouts", 0),
         "dock": float(h["first_bowl_s"] is not None),
         "meals": b.get("meals", 0),
         "eating_s": h.get("eating_s", 0.0),
@@ -108,6 +110,32 @@ def _day(r: dict, cond: str) -> dict:
         d["brake"] = 0.1 * sum((x.get("brake") or 0) > 0.05 for x in lid)
     d.update(motion(log))
     return d
+
+
+def stuck_s(log: list, min_s: float = 5.0, near_m: float = 0.15, move_m: float = 0.10, window_s: float = 3.0):
+    """Seconds in runs of >= min_s in which an obstacle is within near_m of the
+    body (the logged lidar min_clear) AND the body stayed within a move_m box
+    over the last window_s -- robot/avoid.Unstick's own test (max - min extent,
+    so shuttling back and forth at a wall counts). Reported, not scored (added
+    2026-09-28; the "pinned" metric -- navmesh-blocked time -- did not show it).
+    None without lidar clearance in the log."""
+    if len(log) < 2 or not any((p.get("lidar") or {}).get("min_clear") is not None for p in log):
+        return None
+    t = np.array([p["t"] for p in log], float)
+    clear = np.array([(p.get("lidar") or {}).get("min_clear") for p in log], dtype=object)
+    clear = np.array([np.inf if c is None else float(c) for c in clear])
+    xy = np.array([p["robot"][:2] for p in log], float)
+    still = np.zeros(len(log), bool)
+    j0 = 0
+    for i in range(len(log)):
+        while t[i] - t[j0] > window_s:
+            j0 += 1
+        if t[i] - t[j0] >= window_s - 0.15:
+            w = xy[j0:i + 1]
+            ext = float(np.hypot(*(w.max(0) - w.min(0))))
+            still[i] = clear[j0:i + 1].max() <= near_m and ext < move_m
+    dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.1
+    return float(sum(ln for _s, ln in _runs(still) if ln * dt >= min_s) * dt)
 
 
 def _runs(mask: np.ndarray) -> list:
@@ -253,6 +281,9 @@ def main(args: list) -> None:
         print(f"  {'  without aliveness':34s}" + "".join(f"{originals[b][cond]:>25.1f}%" for b in rows))
         for b, (p, _n) in rows.items():
             days = [x for s in data[b][cond].values() for x in s]
+            st = [x["stuck"] for x in days if x["stuck"] is not None]
+            print(f"    {b}: stuck against something " + (f"{np.mean(st):.1f} s/day" if st else "n/a (no lidar)") + ", "
+                  f"song bouts {np.mean([x['song_bouts'] for x in days]):.1f}/day")
             print(f"    {b}: dock {int(sum(x['dock'] for x in days))}/{len(days)} days, meals {sum(x['meals'] for x in days)}, "
                   f"eating {np.mean([x['eating_s'] for x in days]):.1f} s/day, battery at day end "
                   f"{np.mean([x['battery_end'] for x in days if x['battery_end'] is not None]):.2f}")

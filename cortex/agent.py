@@ -60,5 +60,6 @@ def make_cortex(kind: str, state_path: str | None = None, seed: int = 0):
         from cortex.v0 import CortexV0
         return CortexV0(state_path=state_path, seed=seed, amnesic=kind == "v0_amnesic",
                         manners=kind in ("v0_manners", "pet"), naps=kind == "pet",
-                        orient=kind == "pet" and os.environ.get("FLY_ORIENT", "1") != "0")
+                        orient=kind == "pet" and os.environ.get("FLY_ORIENT", "1") != "0",
+                        voice=kind == "pet" and os.environ.get("FLY_VOICE", "1") != "0")
     raise ValueError(kind)

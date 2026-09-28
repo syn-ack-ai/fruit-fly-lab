@@ -165,3 +165,42 @@ def test_orienting_pull_leaves_the_goal_to_its_own_check():
     out = a.adjust(cmd, heading_deg=90.0, points_robot=right_box, v=0.3)
     assert out["goal_deg"] == 180.0                           # the left goal's corridor is clear: untouched
     assert out["attend_az"] != 45.0                           # the pull toward the person is bent
+
+
+def test_unstick_triggers_only_when_stuck_near_something():
+    from robot.avoid import Unstick, STUCK_WINDOW_S, UNSTICK_S
+    from cortex.topdown import goal_azimuth
+    # a wall ahead and one on the right (y < 0): the open way is to the LEFT (az < 0)
+    walls = np.concatenate([_box_points(0.14, 0.3, -1.0, 1.0), _box_points(-1.0, 0.3, -0.35, -0.2)])
+    u = Unstick(HL, HW)
+    n = int(STUCK_WINDOW_S / 0.1) + 3
+    out = [u.step(0.1 * k, (0.0, 0.0), 0.02, walls, 0.1, heading_deg=90.0) for k in range(n)]
+    k0 = next(k for k, g in enumerate(out) if g is not None)
+    assert 0.1 * k0 >= STUCK_WINDOW_S - 0.2                  # only after the window
+    g = out[k0]
+    assert goal_azimuth(g, 90.0) < -45.0                     # to the left, away from both walls
+    # the target is a WORLD direction: it does not turn with the robot
+    assert u.step(0.1 * n, (0.0, 0.0), 0.02, walls, 0.1, heading_deg=150.0) == g
+    assert u.step(0.1 * k0 + UNSTICK_S + 0.5, (0.0, 0.0), 0.02, walls, 0.1, heading_deg=90.0) is None   # cooldown
+    u = Unstick(HL, HW)                                      # moving along: never
+    assert all(u.step(0.1 * k, (0.05 * k, 0.0), 0.02, walls, 0.1, 90.0) is None for k in range(60))
+    u = Unstick(HL, HW)                                      # standing still in the open: never
+    assert all(u.step(0.1 * k, (0.0, 0.0), 1.0, walls, 0.1, 90.0) is None for k in range(60))
+    u = Unstick(HL, HW)                                      # meaning to stand still (docked): never
+    assert all(u.step(0.1 * k, (0.0, 0.0), 0.02, walls, 0.1, 90.0, may_trigger=False) is None for k in range(60))
+
+
+def test_unstick_does_not_fire_when_standing_still_ends():
+    """Review 2026-09-28: the window kept filling while the robot meant to
+    stand still, so it fired the moment that ended; and a running pull must
+    stop when standing still begins (e.g. yielding)."""
+    from robot.avoid import Unstick, STUCK_WINDOW_S
+    walls = _box_points(0.14, 0.3, -1.0, 1.0)
+    u = Unstick(HL, HW)
+    for k in range(60):                                        # 6 s docked at the wall
+        assert u.step(0.1 * k, (0.0, 0.0), 0.02, walls, 0.1, 0.0, may_trigger=False) is None
+    assert u.step(6.0, (0.0, 0.0), 0.02, walls, 0.1, 0.0) is None          # undocked: not at once
+    fired = [u.step(6.0 + 0.1 * k, (0.0, 0.0), 0.02, walls, 0.1, 0.0) for k in range(1, int(STUCK_WINDOW_S / 0.1) + 3)]
+    assert any(g is not None for g in fired)                  # ... but after a fresh window
+    assert u.step(9.9, (0.0, 0.0), 0.02, walls, 0.1, 0.0, may_trigger=False) is None   # yield: the pull stops
+    assert u.until < 0

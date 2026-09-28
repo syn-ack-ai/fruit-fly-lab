@@ -212,6 +212,17 @@ DN_COMMANDS = (
         "Bidaye et al. 2014, Science 344:97-101",
         "10.1126/science.1249964",
     ),
+    DNCommand(
+        "pIP10", "song",
+        "Courtship-song command (male): activating it (with P1) elicits pulse "
+        "and sine song through the nerve cord's song pattern generator (dPR1, "
+        "vPR6/9, TN1A). Absent from the female FAFB brain. Milo does not sing "
+        "with wings: the channel drives its robot voice (sim/habitat_bridge/"
+        "brain_client.py, robot/face_page).",
+        "bilateral",
+        "von Philipsborn et al. 2011, Neuron 69:509-522; Shirangi et al. 2016, Dev Cell 37:533",
+        "10.1016/j.neuron.2010.12.014",
+    ),
 )
 
 # Population readout (optional; FLY_POP_READOUT=1 or DescendingReadout(...,
@@ -269,7 +280,7 @@ def watch_mask(neurons) -> np.ndarray:
 
 CHANNELS = tuple(sorted({d.channel for d in DN_COMMANDS + POPULATION_EXTRA}))
 # cell types reported individually (lr_<type>, hz_<type>) by channels()
-READOUT_TYPES = ("DNa01", "DNa02", "DNp09", "DNg100")
+READOUT_TYPES = ("DNa01", "DNa02", "DNp09", "DNg100", "pIP10")
 
 # C: rate at which a channel is considered fully driven (Hz, per DN).
 CHANNEL_HALF_MAX_HZ = 60.0

@@ -37,7 +37,7 @@ STATE = {"state": {"gaze": [0, 0.2], "open": 0.85, "pupil": 0.4, "mouth": "neutr
 MAX_BYTES = 8192
 KEY_PATH = os.path.expanduser("~/.fly_face_key")
 MOUTHS = {"neutral", "smile", "frown", "o", "chew"}
-SOUNDS = {"beep", "boop", "chirp", "trill", "whirr", "buzz"}
+SOUNDS = {"beep", "boop", "chirp", "trill", "whirr", "buzz", "song"}   # "song": the fly brain's own (pIP10)
 
 
 def face_key() -> str:

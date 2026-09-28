@@ -102,6 +102,18 @@ MEAL_SETTLE = 0.6           # rest drive while at the bowl during a meal
 # robot turned toward a person who appeared only ~50% of the time, with or
 # without the motor lag (2026-09-27, held-out Habitat runs).
 ORIENT_S, ORIENT_AWAY_S = 2.0, 1.0
+# excitement (voice=True, the pet): a social state that drives the fly's male
+# P1 courtship-arousal neurons (the "excite" channel, cortex/topdown.py); the
+# connectome's song command pIP10 follows and the robot voices it. Bumped by
+# events -- the person reappearing (x the social drive), petting, treats,
+# praise -- and decays with EXCITE_TAU_S. Close to the person it fades to zero
+# (EXCITE_NEAR_M): P1 also drives courtship PURSUIT, and held on by greeting
+# (removed) it made the robot chase into the person's legs -- all 12 pet-caused
+# person bumps of a held-out run (2026-09-28). Milo sings at you from a small
+# distance.
+EXCITE_TAU_S = 4.0
+EXCITE_BUMP = {"reappear": 0.6, "pet": 0.7, "treat": 0.7, "praise": 0.5}
+EXCITE_NEAR_M = (0.3, 0.8)    # excitement x 0 at <= 0.3 m from the person, x 1 at >= 0.8 m
 REST_LEARN = 0.02
 # personality (cortex/personality.py): an intention multiplies the matching
 # utility, so the drive behind it still decides how much it matters
@@ -215,11 +227,12 @@ class CortexV0:
     ROUTE_S = 0.5            # replan the route this often (or when the target moves)
 
     def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False,
-                 manners: bool = False, naps: bool = False, orient: bool = False):
+                 manners: bool = False, naps: bool = False, orient: bool = False, voice: bool = False):
         self.state_path = state_path
         self.manners = manners
         self.naps = naps                            # animal-like rest (off: as v0 / v0_manners were run)
         self.orient = orient                        # orienting reflex (off: as earlier runs were made)
+        self.voice = voice                          # excitement -> P1 -> the fly's song (off: as earlier runs)
         self.amnesic = amnesic                      # control: place memories wiped every day
         self.rng = np.random.default_rng(seed)
         # random Fourier features of position: a place code for the critic
@@ -271,6 +284,9 @@ class CortexV0:
         self.person_seen = None                      # (x, z, t)
         self.person_vel = (0.0, 0.0)                 # estimated, m/s
         self._last_visible_t, self.orient_until, self._orienting = -1e9, -1e9, False
+        self._vis_prev = False
+        self.excite, self.last_rpe, self.recent_rpe = 0.0, 0.0, 0.0
+        self._rpe_t, self._rpe_v = -1e9, 0.0
         self.manner = None
         self.intent, self.feedback = "none", 0
         self.prev_phi = None
@@ -319,6 +335,7 @@ class CortexV0:
         self.prev_events = (pets, treats)
         r = 0.1 * eating + 0.03 * sweet - 0.1 * bitter + 0.5 * new_pet + 0.5 * new_treat
         r += FEEDBACK_R * max(-1, min(1, self.feedback))
+        praised = self.feedback > 0
         self.feedback = 0
         if sweet:
             node["food"] += FOOD_LEARN * (1.0 - node["food"])
@@ -404,6 +421,11 @@ class CortexV0:
             self.next_plan = t_s + REPLAN_S
             self._plan(c, t_s, sweet)
         cmd = {"goal_deg": None, "goal_gain": 0.0, "rpe": rpe_drive}
+        self.last_rpe = rpe_drive                     # for the personality's brain readout
+        if rpe_drive != 0.0:
+            self._rpe_t, self._rpe_v = t_s, rpe_drive
+        # the latest surprise, kept 2 s (the personality is called at most once a second)
+        self.recent_rpe = self._rpe_v if t_s - self._rpe_t <= 2.0 else 0.0
         target = None                                # the point the goal direction aims at
         if self.goal is not None:
             gcell, kind, util, t_set = self.goal
@@ -442,9 +464,41 @@ class CortexV0:
         if self.resting:
             cmd.update(goal_deg=None, goal_gain=0.0, rest=1.0, arousal=min(cmd.get("arousal", 1.0), 0.2))
             self.day_log["rest_s"] = self.day_log.get("rest_s", 0.0) + dt
+        vis = bool(obs.get("visible"))
+        # the person came into view this step after >= ORIENT_AWAY_S out of it
+        # (also "not visible on the previous step": with a slow control period
+        # the time test alone fired every step -- review 2026-09-28)
+        reappeared = vis and not self._vis_prev and t_s - self._last_visible_t >= ORIENT_AWAY_S
+        self._vis_prev = vis
+        if self.voice:
+            self.excite *= math.exp(-dt / EXCITE_TAU_S)
+            bump = 0.0
+            if reappeared:
+                bump = max(bump, EXCITE_BUMP["reappear"] * self.social)
+            # petting / a treat excite as much as company is wanted (a pet that
+            # has had enough is not thrilled by more)
+            want = 0.4 + 0.6 * self.social
+            if new_pet:
+                bump = max(bump, EXCITE_BUMP["pet"] * want)
+            if new_treat:
+                bump = max(bump, EXCITE_BUMP["treat"] * want)
+            if praised:
+                bump = max(bump, EXCITE_BUMP["praise"])
+            self.excite = min(1.0, self.excite + bump)
+            quiet = self.resting or eating or in_meal or self.manner == "yield"
+            near = 1.0
+            ps = self.person_seen
+            if ps is not None and t_s - ps[2] < 1.0:
+                d = math.hypot(x - ps[0], z - ps[1])
+                lo, hi = EXCITE_NEAR_M
+                near = min(1.0, max(0.0, (d - lo) / (hi - lo)))
+            drive = 0.0 if quiet else self.excite * near
+            cmd["excite"] = round(drive, 3)
+            self.day_log["excite_s"] = self.day_log.get("excite_s", 0.0) + dt * drive
+            if not self.orient:
+                self._last_visible_t = t_s if vis else self._last_visible_t
         if self.orient:
-            vis = bool(obs.get("visible"))
-            if vis and t_s - self._last_visible_t >= ORIENT_AWAY_S:
+            if reappeared:
                 self.orient_until = t_s + ORIENT_S          # someone (re)appeared
             if vis:
                 self._last_visible_t = t_s
@@ -460,7 +514,8 @@ class CortexV0:
                      "goal_kind": None if self.goal is None else self.goal[1], "manner": self.manner,
                      "sleepy": round(self.sleepy, 2), "resting": self.resting,
                      "cells": len(self.map.nodes), "delta": round(delta, 3),
-                     "orienting": bool(self.orient and getattr(self, "_orienting", False))}
+                     "orienting": bool(self.orient and getattr(self, "_orienting", False)),
+                     "excite": round(self.excite, 2) if self.voice else None}
         return cmd
 
     def _manners(self, cmd, x, z, t_s, dt):
@@ -664,6 +719,7 @@ class CortexV0:
                 "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()},
                 "rest_s": round(self.day_log.get("rest_s", 0.0), 1), "naps": self.day_log.get("naps", {}),
                 "orient_s": round(self.day_log.get("orient_s", 0.0), 1),
+                "excite_s": round(self.day_log.get("excite_s", 0.0), 1),
                 "meal_s": round(self.day_log.get("meal_s", 0.0), 1),
                 **({"routes": self.day_log.get("routes", 0),
                     "obstacle_cells": int(self.obstacles.occupied().sum())} if self.obstacles is not None else {})}

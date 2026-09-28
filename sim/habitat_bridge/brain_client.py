@@ -60,6 +60,14 @@ V_MIN, V_MAX = -0.3, 0.5        # m/s
 TURN_SCALE = 0.5
 W_MAX_DEG = 120.0
 MOTOR_TAU_DEFAULT = "0.3,1.5"   # robot/motion.MotorLag (s): speed, turn rate
+# the fly's song (male brains): the song channel (pIP10, brain/motor/
+# descending.py), averaged over the control step, at >= SONG_ON starts a song
+# bout, which ends below SONG_OFF; each bout is voiced by the robot (robot/face_page "song")
+# and told to the personality -- the fly brain decides when Milo "sings".
+# A bout must last SONG_MIN_S (single 100 ms blips of pIP10 noise: 5.6 a day
+# with the voice off) and start SONG_GAP_S after the last one ended (tuning
+# seeds 2026-09-28: 0 bouts/day with the voice off, 3.8 with it on).
+SONG_ON, SONG_OFF, SONG_MIN_S, SONG_GAP_S = 0.30, 0.15, 0.3, 5.0
 
 
 class SimClock:
@@ -212,10 +220,14 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if getattr(ses, "lidar", None) is not None:
             ses.lidar[0].t = None                 # new day: no lidar history (review 2026-09-26)
             ses.lidar[1].reset()
+            if hasattr(ses.lidar[2], "reset"):
+                ses.lidar[2].reset()                 # touch adaptation
         if getattr(ses, "cmon", None) is not None:
             ses.cmon.reset()
         if getattr(ses, "avoid", None) is not None:
             ses.avoid.reset()
+        if getattr(ses, "unstick", None) is not None:
+            ses.unstick.reset()
     if home is not None:
         home.reset(seed)
     if cortex is not None:
@@ -248,6 +260,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         face[0].reset()
     said = []                                     # (t, personality output) when new
     prev_events = {"pets": 0, "treats": 0, "bowl": False, "seen_t": -1e9}
+    song = {"bouts": 0, "s": 0.0, "on": False, "off_t": -1e9, "onset": False, "peak_hz": 0.0,
+            "start_t": 0.0, "counted": False}
     if mode == "body_only":
         body = ForagingBody(neural=False, seed=seed, spontaneous_takeoff_per_s=0.0)
     t_sim, k, wall0 = 0.0, 0, time.time()
@@ -270,7 +284,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             if getattr(ses, "nav", None) is not None:
                 ses.body.state.heading_deg = float(obs["robot"][2]) % 360.0   # odometry yaw
             if personality is not None and cortex is not None:
-                pout = personality.step(t_sim, _digest(cortex, ses, obs, home))
+                pout = personality.step(t_sim, _digest(cortex, ses, obs, home, fr_prev))
                 cortex.set_personality(pout["intent"], pout["feedback"] if pout["new"] else 0)
                 if pout["new"]:
                     said.append((round(t_sim, 1), {k: pout[k] for k in ("intent", "sound", "say", "mood", "feedback")}))
@@ -280,6 +294,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 cmd = cortex.act(obs, home, t_sim, fr_prev)
                 if getattr(ses, "avoid", None) is not None:
                     ses.avoid.last = {"active": False}   # this step's state only (review 2026-09-27)
+                if getattr(cortex, "resting", False) and getattr(ses, "unstick", None) is not None:
+                    ses.unstick.cancel()                  # a nap is not being stuck
                 if (getattr(ses, "avoid", None) is not None and ses.lidar[0].t is not None
                         and not getattr(cortex, "resting", False)):
                     # steer around obstacles before reaching them (robot/avoid.py)
@@ -289,11 +305,35 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                         td = person_distance(obs["half"])      # the person is the target, not an obstacle
                     if "attend_az" in cmd and obs["visible"]:
                         ta = person_distance(obs["half"])      # the orienting reflex points at the person
-                    cmd = ses.avoid.adjust(cmd, float(obs["robot"][2]) % 360.0,
-                                           scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles),
-                                           last_v, td, attend_dist=ta)
+                    pts = scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles)
+                    cmd = ses.avoid.adjust(cmd, float(obs["robot"][2]) % 360.0, pts, last_v, td, attend_dist=ta)
+                    un = getattr(ses, "unstick", None)
+                    if un is not None:
+                        # stuck near something and not moving: pull toward the
+                        # most open way (robot/avoid.Unstick); the fly brain turns.
+                        # Not while it means to stand still (review 2026-09-28)
+                        from cortex.topdown import goal_azimuth
+                        h = float(obs["robot"][2]) % 360.0
+                        near_person = obs["visible"] and person_distance(obs["half"]) < 1.0
+                        still = bool((home is not None and home.taste == "sweet")
+                                     or (home is not None and home.battery is not None and home.battery.meal)
+                                     or getattr(cortex, "manner", None) == "yield"
+                                     or (near_person and getattr(cortex, "goal", None) and cortex.goal[1] == "owner"))
+                        ug = un.step(t_sim, obs["robot"][:2], float(ses.lidar[0].clearance().min()), pts,
+                                     period_ms / 1000.0, h, may_trigger=not still)
+                        if ug is not None:
+                            uaz = goal_azimuth(ug, h)
+                            cmd = dict(cmd, goal_deg=ug, goal_gain=1.0, attend_az=uaz, attend_gain=1.0)
+                            # the pivot reflex must turn the same way (review 2026-09-28)
+                            ses.avoid.last.update(active=True, chosen=round(uaz, 1), source="unstick")
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)
             fr = fr_prev = ses.advance(period_ms)[-1]
+            # the song channel over the whole step (every 1 ms block's 50 ms
+            # window, Session.STEP_MEAN_KEYS): pIP10 is one cell per side, and a
+            # single window moves in steps of 1 spike (reviews 2026-09-28)
+            sm = fr.get("step_means") or {}
+            fr["song_step"] = float(sm.get("song", fr["channels"].get("song", 0.0)))
+            fr["hz_pIP10_step"] = float(sm.get("hz_pIP10", fr["channels"].get("hz_pIP10", 0.0)))
             v, w = robot_command(ses.body.state)
             raw = (v, w)                          # what the brain asked for, before the robot's layers
             if motor is not None and not str(ses.body.state.behaviour).startswith("escape"):
@@ -354,11 +394,17 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if person is not None:
             heard = person.step(t_sim, period_ms / 1000.0, obs, prev_obs, bumped, v)
             if heard and personality is not None:
-                personality.event(t_sim, f'your person said: "{heard}"')
+                personality.event(t_sim, f'your person said: "{heard}"', urge=True)
+        if mode == "brain" and fr_prev is not None:
+            _song(song, fr_prev, t_sim, period_ms / 1000.0)
+            if song["onset"] and personality is not None:
+                personality.event(t_sim, "your fly brain's courtship-song command (pIP10) switched on "
+                                         f"({song['peak_hz']:.0f} Hz): you are singing", urge=True)
         if personality is not None and mode == "brain":
             _events(personality, t_sim, obs, home, fr_prev, prev_events)
         if face is not None and mode == "brain":
-            _face(face, period_ms / 1000.0, obs, ses, fr_prev, home, cortex, personality)
+            _face(face, period_ms / 1000.0, obs, ses, fr_prev, home, cortex, personality,
+                  song=song["onset"])
         if bumped:
             hs = math.hypot(obs["human"][0] - prev_obs["human"][0],
                             obs["human"][1] - prev_obs["human"][1]) / (period_ms / 1000.0)
@@ -382,10 +428,13 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                                 "brake": round(max(v_pre - v_lidar, 0.0), 3)}
             if getattr(ses, "avoid", None) is not None:
                 log[-1]["lidar"]["avoid"] = dict(ses.avoid.last)       # a copy: later steps must not rewrite it
+            if getattr(ses, "unstick", None) is not None:
+                log[-1]["lidar"]["unstick"] = bool(t_sim < ses.unstick.until)
         if home is not None:
             log[-1].update({"odour": [round(float(home.conc["L"].sum()), 3), round(float(home.conc["R"].sum()), 3)],
                             "taste": home.taste, "pet": home.petting, "treat": home.treating,
                             "proboscis": round(float(ses.body.state.proboscis_extension), 2) if mode == "brain" else 0.0,
+                            "song": round(float(fr_prev.get("song_step", 0.0)), 2) if (mode == "brain" and fr_prev) else 0.0,
                             "groom": round(float(fr["channels"].get("groom", 0.0)), 2) if mode == "brain" else 0.0,
                             "behaviour": ses.body.state.behaviour if mode == "brain" else ""})
         if cortex is not None:
@@ -401,7 +450,10 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
            "found_s": found_t, "collisions": obs.get("collisions", 0),
            "scene_contacts": obs.get("scene_contacts"), "scene_bumps": obs.get("scene_bumps"),
            "blocked_s": obs.get("blocked_s"), "motor_tau": mtau if motor is not None else None, "habitat_stats": obs["stats"],
-           "video": video, "log": log}
+           "video": video, "log": log,
+           "song": {"bouts": song["bouts"], "s": round(song["s"], 1)},
+           "unstick": ({"events": ses.unstick.events, "s": round(ses.unstick.active_s, 1)}
+                       if mode == "brain" and getattr(ses, "unstick", None) is not None else None)}
     if home is not None:
         res["home"] = dict(home.stats)
         if home.battery is not None:
@@ -492,7 +544,34 @@ def _emergency_return(conn, obs, home, em, v, w, dt):
     return v, w
 
 
-def _digest(cortex, ses, obs, home=None) -> dict:
+def brain_readout(fr, cortex=None) -> str:
+    """The fly brain's live state in words, for the personality (the LLM as
+    the language centre: it describes what the connectome is doing and must
+    not invent it). From the descending-neuron channels of the last window."""
+    if fr is None:
+        return "no readout yet"
+    ch = fr["channels"]
+    parts = []
+    esc = max(ch.get("escape_takeoff", 0.0), ch.get("escape_long_mode", 0.0))
+    parts.append("escape neurons FIRING (startled)" if esc > 0.5 else "escape neurons quiet")
+    hz = fr.get("hz_pIP10_step", ch.get("hz_pIP10"))
+    if "hz_pIP10" in ch:
+        # the step mean, as the song bouts use (one 50 ms window flickers)
+        singing = fr.get("song_step", ch.get("song", 0.0)) >= SONG_ON
+        parts.append(f"courtship-song command pIP10 {hz:.0f} Hz" + (" (singing)" if singing else ""))
+    tb = ch.get("turn_bias", 0.0)
+    parts.append("steering neurons pull " + ("right" if tb > 0.05 else "left" if tb < -0.05 else "straight"))
+    fw = ch.get("forward_walk", 0.0)
+    parts.append("walking drive " + ("strong" if fw > 0.4 else "weak" if fw > 0.1 else "off"))
+    rpe = float(getattr(cortex, "recent_rpe", getattr(cortex, "last_rpe", 0.0)) or 0.0) if cortex is not None else 0.0
+    if rpe > 0:
+        parts.append("neocortex: better than expected (reward dopamine to the fly's learning centre)")
+    elif rpe < 0:
+        parts.append("neocortex: worse than expected (punishment dopamine to the fly's learning centre)")
+    return "; ".join(parts)
+
+
+def _digest(cortex, ses, obs, home=None, fr=None) -> dict:
     """What the personality layer is told each call (cortex/personality.py)."""
     from robot.safety import person_distance
     d = person_distance(obs["half"]) if obs["visible"] else None
@@ -509,16 +588,17 @@ def _digest(cortex, ses, obs, home=None) -> dict:
             "behaviour": ses.body.state.behaviour,
             "person": f"{d:.1f} m {side}" if d is not None else "not in view",
             "food": f"you remember food {fd:.1f} m away" if fd is not None else "you do not know where food is yet",
-            "doing": f"heading for {goal}" + (f"; manners: {cortex.manner}" if getattr(cortex, "manner", None) else "")}
+            "doing": f"heading for {goal}" + (f"; manners: {cortex.manner}" if getattr(cortex, "manner", None) else ""),
+            "brain": brain_readout(fr, cortex)}
 
 
 def _events(pers, t, obs, home, fr, prev):
     """Things worth a reaction, for the personality layer."""
     if home is not None:
         if home.stats["pets"] > prev["pets"]:
-            pers.event(t, "your person petted you")
+            pers.event(t, "your person petted you", urge=True)
         if home.stats["treats"] > prev["treats"]:
-            pers.event(t, "your person gave you a treat")
+            pers.event(t, "your person gave you a treat", urge=True)
         prev["pets"], prev["treats"] = home.stats["pets"], home.stats["treats"]
         at_bowl = home.taste == "sweet"
         if at_bowl and not prev["bowl"]:
@@ -530,12 +610,37 @@ def _events(pers, t, obs, home, fr, prev):
         prev["seen_t"] = t
     if fr is not None and max(fr["channels"].get("escape_takeoff", 0.0), fr["channels"].get("escape_long_mode", 0.0)) > 0.5:
         if t - prev.get("startle_t", -1e9) > 5.0:
-            pers.event(t, "something startled you")
+            pers.event(t, "something startled you (your escape neurons fired)", urge=True)
         prev["startle_t"] = t
 
 
-def _face(face, dt, obs, ses, fr, home, cortex, personality):
-    """The face (robot/face.py) from the brain, body and personality."""
+def _song(song, fr, t, dt):
+    """Song bouts from the song channel: on at SONG_ON, off below SONG_OFF; a
+    bout counts (and song["onset"] is set, once) when it has lasted SONG_MIN_S
+    and began SONG_GAP_S after the previous counted bout ended."""
+    act = float(fr.get("song_step", fr["channels"].get("song", 0.0)))
+    song["onset"] = False
+    if act >= SONG_ON or (song["on"] and act >= SONG_OFF):
+        if not song["on"]:
+            song["on"], song["start_t"], song["counted"] = True, t, False
+            song["peak_hz"] = 0.0
+        if song["counted"]:
+            song["s"] += dt                              # (blips are not song)
+        song["peak_hz"] = max(song["peak_hz"], float(fr.get("hz_pIP10_step", fr["channels"].get("hz_pIP10", 0.0))))
+        if (not song["counted"] and t - song["start_t"] + dt >= SONG_MIN_S - 1e-9
+                and song["start_t"] - song["off_t"] >= SONG_GAP_S):
+            song["counted"], song["onset"] = True, True
+            song["bouts"] += 1
+            song["s"] += t - song["start_t"] + dt
+    elif song["on"]:
+        song["on"] = False
+        if song["counted"]:
+            song["off_t"] = t
+
+
+def _face(face, dt, obs, ses, fr, home, cortex, personality, song=False):
+    """The face (robot/face.py) from the brain, body and personality. A song
+    onset (the fly brain's pIP10) is voiced as the "song" sound."""
     from robot.safety import person_distance
     from cortex.topdown import goal_azimuth
     model, pub = face
@@ -551,7 +656,8 @@ def _face(face, dt, obs, ses, fr, home, cortex, personality):
         "eating": ses.body.state.proboscis_extension > 0.5, "grooming": ch.get("groom", 0.0) > 0.5,
         "petting": bool(home.petting) if home is not None else False,
         "mood": personality.current["mood"] if personality is not None else "calm",
-        "say": fresh["say"] if fresh else None, "sound": fresh["sound"] if fresh else None,
+        "say": fresh["say"] if fresh else None,
+        "sound": "song" if song else (fresh["sound"] if fresh else None),
         "hunger": getattr(cortex, "hunger", 0.0), "social": getattr(cortex, "social", 0.0)})
     pub.send(st)
 
@@ -632,6 +738,11 @@ def main():
     chans = tuple(x for x in a.channels.split(",") if x) if a.cortex != "none" else None
     if a.cortex == "pet" and "rest" not in chans:
         chans += ("rest",)       # naps drive ER5 (attached only here: an idle input would shift the RNG stream)
+    if a.cortex == "pet" and "excite" not in chans and os.environ.get("FLY_VOICE", "1") != "0":
+        # excitement -> P1 -> song. Attached only with the voice on: a stimulus
+        # adds Poisson targets (RNG stream, no refractory period), so FLY_VOICE=0
+        # reproduces the earlier pet runs (review 2026-09-28)
+        chans += ("excite",)
     brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar,
                          lidar_senses=a.lidar_use in ("both", "senses", "ttc"), body=a.body)
              if a.mode == "brain" else None)
@@ -645,10 +756,16 @@ def main():
                 raise SystemExit("--avoid steers through the neocortex's goal channel: needs --cortex")
             from robot.avoid import Avoid
             brain[0].avoid = Avoid(*brain[0].body_dims)
+            if os.environ.get("FLY_UNSTICK", "1") != "0":
+                from robot.avoid import Unstick
+                brain[0].unstick = Unstick(*brain[0].body_dims)  # the unstick reflex (with --avoid)
     cortex = None
     if a.cortex != "none" and brain is not None:
         from cortex.agent import make_cortex
         cortex = make_cortex(a.cortex, state_path=a.cortex_state, seed=a.seed)
+        td = getattr(brain[0], "topdown", None)
+        if getattr(cortex, "voice", False) and (td is None or "excite" not in td.channels or not len(td.excite.indices)):
+            cortex.voice = False     # no P1 to drive (FAFB) or the channel is off: no excitement logged
         if a.route:
             from sim.habitat_bridge.bodies import BODIES
             cortex.enable_route(BODIES[a.body]["half_wid"])
@@ -669,7 +786,8 @@ def main():
             raise SystemExit("--personality needs --cortex v0 / v0_manners")
         from cortex.personality import Personality
         personality = Personality(url=a.personality, model=a.llm_model, name=a.pet_name,
-                                  state_path=a.cortex_state)
+                                  state_path=a.cortex_state,
+                                  urge_gate=os.environ.get("FLY_URGE_GATE", "1") != "0")
     if a.face:
         from robot.face import FaceModel, FacePublisher
         face = (FaceModel(), FacePublisher(a.face))

@@ -48,6 +48,7 @@ SOUNDS = ("beep", "boop", "chirp", "trill", "whirr", "buzz", "none")   # robot s
 INTENT_S = 20.0              # an intention lasts this long unless replaced
 IDLE_S = 30.0                # with nothing happening, reconsider this often
 MIN_GAP_S = 1.0              # at most one call per this (simulated) time
+URGE_S = 6.0                 # words only within this long of a vocal urge (urge_gate)
 
 SYSTEM = """You are {name}, the personality of a small home robot. You are a robot and
 say so plainly: never claim or pretend to be a cat, a dog, a fly, a person or any
@@ -55,14 +56,20 @@ living animal. What makes you unusual is your lower brain: a simulation of the c
 wiring diagram (connectome) of a real fruit fly, a once-living animal, runs your body:
 walking, steering, docking to charge, startle. A neocortex layer keeps a map and your
 drives. You sense the world with a camera, a lidar and bumpers; you have no sense of
-smell, so never speak or write of smells. If someone asks what you are, answer in a few
-words that you are a robot. You only choose intentions, sounds and a few words; the body decides the details.
+smell, so never speak or write of smells. If someone asks what you are, or whether you are an
+animal ("are you a cat?"), answer in a few words that you are a robot. You only choose intentions, sounds and a few words; the body decides the details.
 Your status uses the fly brain's words for robot things: "food" is your charging dock,
 "hunger" is how empty your battery is, and "eat" means dock and charge (the person's
 "dinner" is charging too). Hungry and at the food: eat.
+Your DRIVES decide what you want (hunger, company, sleep). The "Fly brain" line reports
+what your real fly-brain neurons are doing right now (escape, song, steering, walking,
+the learning centre's surprise signal): let it colour your mood and words -- startled when
+the escape neurons fire, bright when your song command fires (you are singing) -- and
+never claim a feeling or neuron it does not show.
 Character: {character}
 Stay true to the drives you are given: with a full battery you do not want to charge; if
-you were just petted a lot you may want space. You do not always obey. Your person rarely
+"wants company" is low (below 0.2) you do not seek or follow your person -- give space,
+rest or explore -- even when petted. You do not always obey. Your person rarely
 takes you to the charger: when hungry, go to where you remember food ("eat").
 Reply with ONLY one JSON object, no other text:
 {{"intent": one of {intents},
@@ -81,8 +88,9 @@ class Personality:
     def __init__(self, url: str = "http://127.0.0.1:1234/v1/chat/completions",
                  model: str = "gemma-4-e4b-it-mlx", name: str = "Milo",
                  character: str = DEFAULT_CHARACTER, state_path: str | None = None,
-                 timeout_s: float = 20.0):
+                 timeout_s: float = 20.0, urge_gate: bool = False):
         self.url, self.model, self.name, self.timeout = url, model, name, timeout_s
+        self.urge_gate = urge_gate
         self.system = SYSTEM.format(name=name, character=character, intents=list(INTENTS),
                                     sounds=list(SOUNDS), moods=list(MOODS))
         self.state_path = state_path
@@ -119,7 +127,8 @@ class Personality:
         self._fresh = None                   # the newest reply, until the face takes it
         self.events = []                     # (t, text) since the last call
         self.log = []
-        self.stats = {"calls": 0, "failures": 0, "latency_s": 0.0, "praise": 0, "scold": 0}
+        self.stats = {"calls": 0, "failures": 0, "latency_s": 0.0, "praise": 0, "scold": 0, "gated": 0}
+        self.urge_t = -1e9
 
     def save(self) -> None:
         notes = [e["reply"].get("note") for e in self.log if e.get("reply") and e["reply"].get("note")]
@@ -132,9 +141,13 @@ class Personality:
                 json.dump(self.diary, fh, indent=1)
 
     # ------------------------------------------------------------------ loop
-    def event(self, t_s: float, text: str) -> None:
-        """Something worth reacting to (heard speech, petted, startled, found food)."""
+    def event(self, t_s: float, text: str, urge: bool = False) -> None:
+        """Something worth reacting to (heard speech, petted, startled, found
+        food). urge: a vocal urge -- the fly brain's song command or startle,
+        or being spoken to / petted: words are allowed for URGE_S after it."""
         self.events.append((round(t_s, 1), text))
+        if urge:
+            self.urge_t = t_s
 
     def step(self, t_s: float, digest: dict) -> dict:
         """Every control step: collect a finished reply, maybe start a new call,
@@ -149,10 +162,18 @@ class Personality:
             else:
                 rep = None
         if rep is not None:
-            t_asked, r, latency, ok = rep
+            t_asked, r, latency, ok, *more = rep
+            rep_urge = more[0] if more else True
             self.stats["latency_s"] += latency
             if ok and r is not None:
-                r["t"] = t_s
+                r = dict(r, t=t_s)                    # (the log keeps the model's own reply)
+                if self.urge_gate and r.get("say") and not rep_urge:
+                    # the fly brain decides WHEN Milo speaks: without a vocal
+                    # urge when the call was made, the words stay unsaid (sounds
+                    # and mood still apply). Judged at ASK time: a reply lands
+                    # after the model's latency (review 2026-09-28)
+                    r["gated_say"], r["say"] = r["say"], None
+                    self.stats["gated"] += 1
                 self.current = r
                 self.stats["praise"] += r["feedback"] > 0
                 self.stats["scold"] += r["feedback"] < 0
@@ -170,7 +191,8 @@ class Personality:
             self.last_call_t = t_s
             msg = self._message(t_s, digest)
             self.events = []
-            self._pending = threading.Thread(target=self._ask, args=(t_s, msg, self._gen), daemon=True)
+            urge = t_s - self.urge_t <= URGE_S
+            self._pending = threading.Thread(target=self._ask, args=(t_s, msg, self._gen, urge), daemon=True)
             self._pending.start()
         return out
 
@@ -197,12 +219,13 @@ class Personality:
                  f"Person: {d.get('person', 'not in view')}.",
                  f"Food: {d.get('food', 'unknown')}.",
                  f"Doing: {d.get('doing', '?')}. Your last mood: {self.current['mood']}.",
+                 f"Fly brain: {d.get('brain', 'no readout')}.",
                  f"Just now: {recent}."]
         if past:
             lines.append(f"Diary, earlier days: {past}.")
         return "\n".join(lines)
 
-    def _ask(self, t_s, msg, gen):
+    def _ask(self, t_s, msg, gen, urge=True):
         body = request_body(self.model, self.system, msg)
         t0 = time.time()
         reply, ok = None, False
@@ -221,7 +244,7 @@ class Personality:
             self.stats["calls"] += 1
             self.log.append({"t": round(t_s, 1), "asked": msg, "answer": text[:400], "reply": reply,
                              "latency_s": round(lat, 2)})
-            self._reply = (t_s, reply, lat, ok)
+            self._reply = (t_s, reply, lat, ok, urge)
 
 
 def request_body(model: str, system: str, msg: str) -> dict:

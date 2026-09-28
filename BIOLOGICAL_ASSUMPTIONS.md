@@ -309,6 +309,12 @@ set reported, never optimised), including two new mechanisms:
   other through ~750 synapses each way, FAFB ~140) can latch after a stimulus
   and leak stray spikes into the Giant Fibre at rest; see the calibration notes
   in `results/complete_brain_2026-09-27/README.md`.
+- *robot senses and states* (category C, 2026-09-28): the lidar's touch drives
+  the head bristles as RAPIDLY ADAPTING mechanoreceptors (NompC; Walker,
+  Willingham & Zuker 2000), which fall mostly silent under steady contact. The
+  neocortex's social excitement drives the male P1 neurons, capped at 24 Hz,
+  below the courtship "lick" step; the song command pIP10 follows
+  (`experiments/song_test.py`).
 - *proboscis readout*: the male brains read proboscis extension from MN9, the
   proboscis-extension motor neuron (FlyWire's proboscis label group does not
   exist in the MaleCNS).

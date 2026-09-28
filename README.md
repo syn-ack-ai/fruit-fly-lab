@@ -29,6 +29,13 @@
 >   - motor dynamics for lifelike movement (`robot/motion.py`);
 >   - a population readout for the long-mode escape, so Milo no longer startles
 >     at nothing.
+> - **Milo's voice from the fly brain** (`results/milo_voice_2026-09-28/`). The
+>   neocortex's excitement drives the male P1 neurons; the connectome's song
+>   command pIP10 fires; Milo plays the fly's song; the LLM speaks only on a
+>   vocal urge and describes the fly brain's live state.
+> - **Getting unstuck** (`results/unstuck_2026-09-28/`). Touch is now rapidly
+>   adapting, and an unstick reflex frees Milo from walls: stuck time fell by
+>   two thirds (lidar) and ~90% (lidar steering).
 > - **Real-world Habitat test** (no smell, camera and lidar only), scored 0-100 on
 >   safety, self-care, life and "aliveness" (`sim/habitat_bridge/score_pets.py`).
 >   See `results/habitat_real_world_2026-09-27/`.
@@ -102,6 +109,10 @@ python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 | `FLY_GAIN` | override the dataset's calibrated synaptic gain (`calibration_<dataset>.json`) |
 | `FLY_MOTOR_TAU` | robot motor lag `tau_v,tau_w[,stages[,tau_w_fast]]` in s (`0.3,1.5`; `0` = off) |
 | `FLY_ORIENT` | the neocortex's orienting reflex for the pet (`1`) |
+| `FLY_VOICE` | excitement -> P1 -> the fly's song command pIP10 -> Milo's "song" (`1`; male brains) |
+| `FLY_URGE_GATE` | the personality speaks only after a vocal urge from the fly brain (`1`) |
+| `FLY_UNSTICK` | the unstick reflex with lidar steering (`1`) |
+| `FLY_TOUCH_ADAPT` | lidar touch as rapidly adapting bristles (`1`; `0` = the old steady drive) |
 | `FLY_POP_READOUT` | pooled descending-neuron readout for all channels (off; the long-mode escape is always pooled) |
 | `FLY_EXAM_SEED_OFFSET` | shifts every exam seed (0; 100 = calibration's second set, 200 = report set) |
 | `FLYWIRE_V783_DIR` | FlyWire files (default: a `flywire_v783/` folder next to the repository) |

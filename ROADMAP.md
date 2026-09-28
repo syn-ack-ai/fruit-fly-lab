@@ -28,13 +28,17 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
   into view, the neocortex points the fly's pursuit pathway at them for 2 s and
   the connectome turns. Held-out: turns toward the person 57/51% -> 69/67%,
   aliveness +2-3 points, no significant safety cost. On by default.
-- **next** Getting unstuck: on a few days Milo stays pinned against furniture
-  for the rest of the day (or starts the day pinned), which dominates the
-  furniture-bump counts. Improve the pinned recovery (`robot/avoid.pivot`,
-  `robot/safety.CollisionMonitor`).
-- **next** Speed smoothness: with the motor lag, speed variation is 0.56-0.76
-  across runs, around the top of the ideal band (0.3-0.7). A longer speed lag
-  may settle it.
+- **done** Getting unstuck (`results/unstuck_2026-09-28/`). Milo sat against
+  walls for ~25% of the time: the lidar's touch drove the fly's head bristles
+  steadily and kept the brain in a backing / freezing touch response. Touch is
+  now rapidly adapting, as bristles are, and an unstick reflex points the goal
+  at the most open way. Held-out: stuck time 44 -> 15 s/day (lidar) and
+  25 -> 2 s/day (lidar steering); furniture bumps 7x fewer.
+- **next** Still ~15 s/day stuck with lidar alone (no steering, so no unstick
+  reflex). Decide whether the unstick reflex belongs to the lidar layer
+  itself.
+- **done** Speed smoothness: 0.56-0.58 in the latest held-out runs (ideal
+  0.3-0.7).
 - **next** Push the aliveness score as high as it will go, one change at a
   time. Tune on tuning seeds, confirm on held-out seeds, and report with
   `sim/habitat_bridge/score_pets.py`.
@@ -51,34 +55,33 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
 The fly brain decides *when* Milo vocalizes and *what it is about*. The LLM
 decides the *words*.
 
-- **next** Find what drives the song circuit in simulation. The male CNS has
-  the song command neurons (pIP10, 2) and the nerve-cord song pattern
-  generator and wing premotor neurons (dPR1, vPR6, vPR9, TN1a: 41). Courtship
-  normally needs a female's scent, and Milo has no nose. Look up P1, pC2 and
-  vPN1 under their male-CNS names.
-- **next** Milo "sings": when the song circuit is active, play a chirp or trill
-  built from the brain's real pulse timing, so its robot sounds come from the
-  fly brain rather than the LLM.
-- **next** Vocal urge gates speech: the personality speaks when the fly brain
-  produces an urge. Candidate triggers are the song command neurons, a startle
-  (Giant Fibre), an arousal spike, or a strong reward or disappointment signal
-  from the dopamine neurons (the equivalent of the periaqueductal gray gating
-  vocalization in mammals).
-- **next** A neural-activity readout for the LLM ("your escape neurons fired",
-  "your mushroom body marks this spot as good", "your steering neurons pull
-  toward your person"). The LLM describes the connectome's real state and does
-  not invent feelings. Milo can explain itself truthfully to guests.
+- **done** What drives the song circuit: P1 (86 male pC1 cells named pMP4 /
+  pMP-e) drives the song command pIP10 and the nerve cord's song pattern
+  generator; nothing Milo senses does it alone (`experiments/song_test.py`,
+  `results/milo_voice_2026-09-28/`).
+- **done** Milo sings. The neocortex's excitement (you reappearing, petting,
+  treats, praise) drives P1, capped below the courtship "lick" step and faded
+  to zero within 0.3 m of you (P1 also drives pursuit).
+  When pIP10 fires, the face plays the fly's song, slowed into chirps
+  (`FLY_VOICE`).
+- **done** Vocal urge gates speech. Words are spoken only after the song
+  command, a startle, or being addressed, petted or given a treat
+  (`FLY_URGE_GATE`); the urge is judged when the call is made.
+- **done** Neural-activity readout for the LLM: escape, song, steering,
+  walking and the critic's surprise. Grounding checks in `llm_bench` pass.
+- **next** Mushroom-body valence in the readout ("this spot is good / bad"
+  from the MBON outputs) and a separate reward / punishment dopamine line from
+  the fly's own DANs.
 - **later** Hearing in the loop: a whistle or clap pattern at the fly's pulse
   rhythm (about 35 ms spacing) reaches the song-tuned hearing pathway through
   `robot/hearing.py`. It becomes an event for the LLM, like a secret handshake.
 - **later** More channels from words into the fly brain: "come here" turns
   attention toward the person, alongside the existing praise and scolding,
   which already become dopamine.
-- **later** Measure it: honesty and grounding checks in `cortex/llm_bench.py`,
-  and in Habitat, whether speech lines up with real neural events.
-- **idea** "Are you a cat?" currently gets silence ("what are you?" gets "I am
-  a robot."). Make Milo answer briefly
-  and cheerfully that it is a robot.
+- **later** Measure in Habitat whether speech lines up with real neural events
+  (a talking-pet run with the urge gate). The grounding and honesty checks in
+  `cortex/llm_bench.py` are done.
+- **done** "Are you a cat?" -> "I am a robot." (11 of 12).
 
 ## 3. Seeing what Milo sees and "thinks" (iPhone/iPad dashboard)
 
@@ -150,6 +153,15 @@ decides the *words*.
   mechanism, most likely short-term depression at high-rate synapses, then
   recalibrate (and recover robustness, 0.85 vs FAFB 0.95).
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
+
+## Done recently (2026-09-28)
+
+- Milo's voice from the fly brain: excitement -> P1 -> the song command pIP10
+  -> Milo's song; the LLM speaks on a vocal urge and describes the fly brain's
+  live state; "are you a cat?" -> "I am a robot."
+- Getting unstuck: rapidly adapting touch and the unstick reflex.
+- Held-out total 75.3% -> 79.0%, aliveness 88 -> 90%, turning toward the
+  person 66-70% -> 78-79%.
 
 ## Done recently (2026-09-27)
 

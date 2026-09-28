@@ -27,6 +27,9 @@ Channels (each a Session stimulus; overlapping drives take the maximum):
             side effect is modest and most of the settling comes from the body
             gate. (A first, uncontrolled test reported -35% for ER5 and ExR1
             silencing by dFB; neither held with matched controls.)
+  excite    social excitement (0..1) -> the male P1 courtship-arousal neurons
+            (ExciteEncoder): the fly brain's song command pIP10 follows, and
+            the robot voices it. Male brains only.
   arousal   interest in the person: a gain (0..1) on the camera's LC10a drive
             for the person (robot.head.ObjectEncoder.arousal). Pursuit is
             state-gated in flies (P1 arousal gates the LC10a pathway in courting
@@ -109,6 +112,55 @@ class DopamineEncoder:
 
 
 REST_HZ = 80.0
+# excitement 1 -> P1 at 24 Hz: pIP10 ~41 Hz (sings) while the proboscis motor
+# neuron MN9 stays at ~4 Hz. At 40 Hz P1 also drives MN9 to ~20 Hz, past the
+# body's extension threshold -- the courtship "licking" step (orient, tap,
+# sing, lick), which would freeze the robot. Walking slows while P1 is on
+# (DNg100 3.8 -> 1.0 Hz): Milo pauses to sing. Measured with the calibrated
+# dynamics the robot runs, on its resting receptor input (and about the same
+# without it); experiments/song_test.py, 2026-09-28.
+P1_MAX_HZ = 24.0
+
+
+def p1_indices(connectome) -> np.ndarray:
+    """The male P1 courtship-arousal neurons: MaleCNS pC1 types also named
+    pMP4 / pMP-e (Yu et al. 2010; Cachero et al. 2010), from the labels. Empty
+    on FAFB (P1 is male-specific)."""
+    import config
+    if not config.MALE_CNS:
+        return np.empty(0, np.int64)
+    import pandas as pd
+    lab = pd.read_csv(config.LABELS_CSV)
+    ids = set(lab.loc[lab["label"].astype(str).str.contains("pMP4|pMP-e"), "root_id"])
+    return np.flatnonzero(connectome.neurons["root_id"].isin(ids).to_numpy()).astype(np.int64)
+
+
+class ExciteEncoder:
+    """Social excitement (0..1, the neocortex) -> P1. In male flies P1 sets a
+    persistent state of courtship arousal and, with a target, drives the song
+    command pIP10 (von Philipsborn et al. 2011; Hoopfer et al. 2015 eLife
+    4:e11346). In the complete male brain, with the resting receptor input, P1
+    at 30 Hz drives pIP10 to ~55 Hz and the nerve cord's song circuit; pIP10 is
+    silent at rest and barely moved by a visual target alone
+    (experiments/song_test.py). So excitement makes the fly brain SING, and
+    the robot voices it."""
+
+    def __init__(self, connectome):
+        self.indices = p1_indices(connectome) if connectome is not None else np.empty(0, np.int64)
+        self.level = 0.0
+
+    @classmethod
+    def empty(cls):
+        return cls(None)
+
+    def set(self, level: float) -> None:
+        self.level = float(np.clip(level, 0.0, 1.0))
+
+    def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
+        return np.full(len(self.indices), P1_MAX_HZ * self.level)
+
+    def state(self, t_ms: float = 0.0) -> dict:
+        return {"kind": "cortex_excite", "active": self.level > 0, "level": round(self.level, 2)}
 
 
 class RestEncoder:
@@ -145,6 +197,8 @@ class TopDown:
         self.dopamine = DopamineEncoder(connectome)
         self.obj = obj_encoder
         self.rest = RestEncoder(connectome)
+        # (reads the male labels file: only when the channel is used)
+        self.excite = ExciteEncoder(connectome) if "excite" in self.channels else ExciteEncoder.empty()
         self.ses = None
         self.last = {}
 
@@ -158,6 +212,8 @@ class TopDown:
             ses.add_stimulus(self.dopamine, self.dopamine)
         if "rest" in self.channels:
             ses.add_stimulus(self.rest, self.rest)
+        if "excite" in self.channels and len(self.excite.indices):
+            ses.add_stimulus(self.excite, self.excite)
         self.ses = ses
 
     def apply(self, heading_deg: float, cmd: dict) -> None:
@@ -181,12 +237,15 @@ class TopDown:
         self.obj.arousal = arousal
         rest = float(np.clip(cmd.get("rest", 0.0), 0.0, 1.0)) if "rest" in self.channels else 0.0
         self.rest.set(rest)
+        excite = float(np.clip(cmd.get("excite", 0.0), 0.0, 1.0)) if "excite" in self.channels else 0.0
+        self.excite.set(excite)
         body = getattr(self.ses, "body", None)
         if body is not None and hasattr(body, "rest_level"):
             body.rest_level = rest
         self.last = {"goal_deg": None if g is None else round(g % 360.0, 1), "goal_gain": round(gain, 2),
                      "attend_az": round(self.attend.az, 1), "attend_gain": round(self.attend.gain, 2),
-                     "rpe": round(self.dopamine.rpe, 3), "arousal": round(arousal, 2), "rest": round(rest, 2)}
+                     "rpe": round(self.dopamine.rpe, 3), "arousal": round(arousal, 2), "rest": round(rest, 2),
+                     "excite": round(excite, 2)}
 
 
 def goal_azimuth(goal_deg: float, heading_deg: float) -> float:

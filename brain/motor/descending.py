@@ -321,8 +321,13 @@ class DescendingReadout:
         # the brain dataset (they innervate head muscles, not the VNC).
         # Labelled in FlyWire v783 by Claire McKellar.
         self.proboscis_idx = self._label_group_indices("proboscis_motor")
+        if self.proboscis_idx.size == 0:
+            # an empty group means the body can never eat (review 2026-09-27)
+            raise ValueError("no proboscis motor neurons found for dataset %r" % __import__("config").DATASET_KEY)
 
     def _label_group_indices(self, group: str) -> np.ndarray:
+        if group == "proboscis_motor":
+            return proboscis_motor_indices(self.c)
         try:
             from brain.neurons.labels import functional_group
             rids = functional_group(group)
@@ -478,3 +483,27 @@ class DescendingReadout:
                 for c, _ in self.commands
             ],
         }
+
+
+def proboscis_motor_indices(c) -> np.ndarray:
+    """The neurons the body reads proboscis extension from.
+
+    FAFB: the FlyWire proboscis-motor label group (v783, Claire McKellar).
+    Male CNS (malecns, merged): MN9, the proboscis-extension motor neuron
+    (Gordon & Scott 2009; Shiu et al. 2024) that the exam calibrates sugar
+    against. The FlyWire labels name FlyWire neurons, so they found nothing on
+    the male brains and the pet never ate (review 2026-09-27); the 61 male
+    neurons of the group's types average 11.6 Hz at 120 Hz sugar because muscles
+    sugar does not drive stay silent (MN10, MNx01-04), vs MN9 59 Hz (FAFB
+    group 29 Hz). The male branch needs no FlyWire files.
+    """
+    import config
+    if config.MALE_CNS:
+        t = c.neurons["primary_type"].astype(str)
+        return c.neurons.loc[t == "MN9", "idx"].to_numpy(dtype=np.int64)
+    try:
+        from brain.neurons.labels import functional_group
+        rids = functional_group("proboscis_motor")
+    except Exception:
+        return np.empty(0, dtype=np.int64)
+    return np.array([c.idx(r) for r in rids if int(r) in c._id2idx], dtype=np.int64)

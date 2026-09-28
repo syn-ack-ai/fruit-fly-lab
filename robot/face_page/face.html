@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0d0f13">
-<title>Pet face</title>
+<title>Milo</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0d0f13; overflow: hidden;
                -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
@@ -30,23 +30,23 @@
     <clipPath id="clipL"><ellipse id="cL" cx="-330" cy="-40" rx="190" ry="170"/></clipPath>
     <clipPath id="clipR"><ellipse id="cR" cx="330" cy="-40" rx="190" ry="170"/></clipPath>
     <radialGradient id="iris" cx="50%" cy="45%" r="60%">
-      <stop offset="0%" stop-color="#f4d36a"/><stop offset="70%" stop-color="#c9962e"/><stop offset="100%" stop-color="#7a5a1c"/>
+      <stop offset="0%" stop-color="#9fe3ff"/><stop offset="70%" stop-color="#3a9fd0"/><stop offset="100%" stop-color="#1c4d6e"/>
     </radialGradient>
   </defs>
-  <!-- ears -->
-  <path d="M-620,-470 L-420,-330 L-640,-230 Z" fill="#1b1f27"/>
-  <path d="M620,-470 L420,-330 L640,-230 Z" fill="#1b1f27"/>
+  <!-- lens housings: a robot's eyes (Milo is a robot, not an animal) -->
+  <ellipse cx="-330" cy="-40" rx="222" ry="202" fill="none" stroke="#2a303b" stroke-width="22"/>
+  <ellipse cx="330" cy="-40" rx="222" ry="202" fill="none" stroke="#2a303b" stroke-width="22"/>
   <!-- eyes -->
   <g id="eyeL" clip-path="url(#clipL)">
     <ellipse cx="-330" cy="-40" rx="190" ry="170" fill="url(#iris)"/>
-    <ellipse id="pL" cx="-330" cy="-40" rx="40" ry="150" fill="#0a0a0c"/>
+    <ellipse id="pL" cx="-330" cy="-40" rx="60" ry="60" fill="#0a0a0c"/>
     <circle id="hL" cx="-280" cy="-110" r="26" fill="#fff" opacity=".85"/>
     <rect id="lidL" x="-540" y="-400" width="420" height="200" fill="#0d0f13"/>
     <rect id="lowL" x="-540" y="130" width="420" height="200" fill="#0d0f13"/>
   </g>
   <g id="eyeR" clip-path="url(#clipR)">
     <ellipse cx="330" cy="-40" rx="190" ry="170" fill="url(#iris)"/>
-    <ellipse id="pR" cx="330" cy="-40" rx="40" ry="150" fill="#0a0a0c"/>
+    <ellipse id="pR" cx="330" cy="-40" rx="60" ry="60" fill="#0a0a0c"/>
     <circle id="hR" cx="380" cy="-110" r="26" fill="#fff" opacity=".85"/>
     <rect id="lidR" x="120" y="-400" width="420" height="200" fill="#0d0f13"/>
     <rect id="lowR" x="120" y="130" width="420" height="200" fill="#0d0f13"/>
@@ -54,13 +54,8 @@
   <!-- blush -->
   <ellipse id="bL" cx="-430" cy="200" rx="110" ry="45" fill="#e0607a" opacity="0"/>
   <ellipse id="bR" cx="430" cy="200" rx="110" ry="45" fill="#e0607a" opacity="0"/>
-  <!-- nose, mouth, whiskers -->
-  <path d="M-38,150 L38,150 L0,195 Z" fill="#d9798c"/>
+  <!-- mouth (a light bar) -->
   <path id="mouth" d="" fill="none" stroke="#c9d1dc" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-  <g stroke="#3a414d" stroke-width="7" stroke-linecap="round">
-    <line x1="-150" y1="200" x2="-520" y2="160"/><line x1="-150" y1="230" x2="-530" y2="250"/>
-    <line x1="150" y1="200" x2="520" y2="160"/><line x1="150" y1="230" x2="530" y2="250"/>
-  </g>
   <!-- speech bubble and sleep -->
   <g id="bubble" opacity="0">
     <rect id="bubbleBox" x="-300" y="-480" width="600" height="110" rx="55" fill="#e8edf3"/>
@@ -70,11 +65,11 @@
 </svg>
 <div id="status"></div>
 <div id="conn"></div>
-<div id="wake">Tap to wake the pet (turns sound on)</div>
+<div id="wake">Tap to wake Milo (turns sound on)</div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-const target = {gaze: [0, 0.2], open: 0.85, pupil: 0.4, mouth: "cat", mood: "calm", blush: false, slow_blink: false};
+const target = {gaze: [0, 0.2], open: 0.85, pupil: 0.4, mouth: "neutral", mood: "calm", blush: false, slow_blink: false};
 const cur = {gx: 0, gy: 0.2, open: 0.85, pupil: 0.4, blush: 0};
 let lastEvent = -1, audio = null, soundOn = false, bubbleUntil = 0;
 let nextBlink = performance.now() + 3000, blinkT = -1, slowT = -1, nextSlow = 0;
@@ -144,12 +139,13 @@ function noise(dur, vol, lfo, freq) {
 }
 function play(k) {
   if (!audio) return;
-  if (k === "meow") { tone("sawtooth", 520, 900, 0.25, 0.25); tone("sawtooth", 900, 480, 0.35, 0.25, 0.22); }
-  else if (k === "mrrp") { tone("triangle", 380, 700, 0.18, 0.3); }
-  else if (k === "trill") { for (let i = 0; i < 5; i++) tone("triangle", 600, 760, 0.06, 0.2, i * 0.06); }
+  // robot sounds
+  if (k === "beep") { tone("square", 1320, 1320, 0.09, 0.12); tone("square", 1760, 1760, 0.12, 0.12, 0.12); }
+  else if (k === "boop") { tone("sine", 520, 330, 0.22, 0.3); }
+  else if (k === "trill") { for (let i = 0; i < 6; i++) tone("sine", i % 2 ? 1500 : 2100, i % 2 ? 2100 : 1500, 0.05, 0.18, i * 0.05); }
   else if (k === "chirp") { tone("sine", 1200, 1900, 0.09, 0.25); }
-  else if (k === "purr") { noise(1.8, 0.5, 26, 180); }
-  else if (k === "hiss") { noise(0.7, 0.25, 0, 2500); }
+  else if (k === "whirr") { tone("sawtooth", 140, 220, 0.9, 0.08); tone("sawtooth", 220, 160, 0.7, 0.06, 0.9); }
+  else if (k === "buzz") { tone("square", 180, 150, 0.35, 0.12); }
 }
 
 // --- drawing
@@ -159,7 +155,7 @@ function mouthPath(kind, t) {
   if (kind === "frown") return "M-110,290 Q0,230 110,290";
   if (kind === "o") return "M-35,250 a35,35 0 1,0 70,0 a35,35 0 1,0 -70,0";
   if (kind === "chew") { const h = 20 + 25 * Math.abs(Math.sin(t / 110)); return `M-70,240 Q0,${240 + h} 70,240`; }
-  return "M-110,235 Q-55,285 0,240 Q55,285 110,235";   // cat "w"
+  return "M-80,250 L80,250";                              // neutral: a light bar
 }
 function frame(t) {
   const k = 0.12;
@@ -176,7 +172,7 @@ function frame(t) {
   for (const [s, cx] of [["L", -330], ["R", 330]]) {
     const px = cx + cur.gx * 95, py = -40 + cur.gy * 70;
     const p = $("p" + s); p.setAttribute("cx", px); p.setAttribute("cy", py);
-    p.setAttribute("rx", 18 + 95 * cur.pupil); p.setAttribute("ry", 150 - 25 * cur.pupil);
+    const r = 40 + 70 * cur.pupil; p.setAttribute("rx", r); p.setAttribute("ry", r);          // a lens aperture
     $("h" + s).setAttribute("cx", px + 50); $("h" + s).setAttribute("cy", py - 70);
     const lidY = -210 - 200 + 340 * (1 - cur.open) * 0.55 + (target.mood === "grumpy" ? 60 : 0);
     $("lid" + s).setAttribute("y", lidY);
@@ -185,7 +181,8 @@ function frame(t) {
   }
   $("mouth").setAttribute("d", mouthPath(target.mouth, t));
   $("bubble").setAttribute("opacity", t < bubbleUntil ? Math.min(1, (bubbleUntil - t) / 400) : 0);
-  $("zz").setAttribute("opacity", cur.open < 0.45 && !target.slow_blink ? 0.4 + 0.3 * Math.sin(t / 600) : 0);
+  // "z z" from the resting lids only, not from an ordinary blink
+  $("zz").setAttribute("opacity", target.open < 0.45 && !target.slow_blink ? 0.4 + 0.3 * Math.sin(t / 600) : 0);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

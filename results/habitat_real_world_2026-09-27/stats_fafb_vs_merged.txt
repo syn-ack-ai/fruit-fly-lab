@@ -1,0 +1,38 @@
+A = simulation/outputs/habitat/real_v1_fafb
+B = simulation/outputs/habitat/real_v3_merged
+REAL: p(days) < 0.0015 (Bonferroni) and all seeds apart
+== pet
+  furniture  A   13.63  B    5.10  p(days)=7.07e-06  REAL
+  person     A    0.30  B    0.43  p(days)=0.483  
+  pinned     A   45.66  B    8.28  p(days)=2.09e-09  REAL
+  walked     A   30.88  B   11.03  p(days)=3.34e-11  REAL
+  company    A   15.29  B   16.78  p(days)=0.473  
+  speed_cv   A    0.45  B    0.76  p(days)=4.08e-11  REAL
+  reversals  A  135.59  B  170.39  p(days)=4.57e-09  REAL
+  bouts      A    2.92  B    7.07  p(days)=2.07e-09  REAL
+  orient     A    0.75  B    0.63  p(days)=0.528  
+  eating_s   A    9.27  B    4.63  p(days)=0.153  seeds apart only
+== petlidar
+  furniture  A    0.67  B    1.00  p(days)=0.456  
+  person     A    0.30  B    0.10  p(days)=0.395  
+  brake      A   54.22  B    5.14  p(days)=2.98e-11  REAL
+  pinned     A    4.71  B    1.40  p(days)=5.35e-05  REAL
+  walked     A   22.72  B    9.70  p(days)=1.56e-08  REAL
+  company    A   15.74  B   14.87  p(days)=0.668  
+  speed_cv   A    0.56  B    0.75  p(days)=8.84e-07  REAL
+  reversals  A  154.39  B  189.00  p(days)=4.08e-05  REAL
+  bouts      A    3.90  B    8.76  p(days)=4.83e-08  REAL
+  orient     A    0.76  B    0.83  p(days)=0.725  
+  eating_s   A    6.09  B    3.96  p(days)=0.832  seeds apart only
+== petsteer
+  furniture  A    1.00  B    1.13  p(days)=0.196  
+  person     A    0.53  B    0.20  p(days)=0.285  
+  brake      A   39.44  B    4.24  p(days)=3.64e-11  REAL
+  pinned     A    9.44  B    2.20  p(days)=7.49e-08  REAL
+  walked     A   27.11  B    9.57  p(days)=6.7e-11  REAL
+  company    A   18.02  B   15.43  p(days)=0.222  
+  speed_cv   A    0.57  B    0.77  p(days)=2.03e-09  REAL
+  reversals  A  151.26  B  184.09  p(days)=8.35e-08  REAL
+  bouts      A    3.90  B    8.51  p(days)=1.14e-07  REAL
+  orient     A    0.67  B    0.57  p(days)=0.441  
+  eating_s   A    8.55  B    4.14  p(days)=0.281  seeds apart only

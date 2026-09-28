@@ -32,12 +32,12 @@ from fastapi.responses import FileResponse
 
 HERE = Path(__file__).resolve().parent
 app = FastAPI(title="Pet face")
-STATE = {"state": {"gaze": [0, 0.2], "open": 0.85, "pupil": 0.4, "mouth": "cat", "mood": "calm",
+STATE = {"state": {"gaze": [0, 0.2], "open": 0.85, "pupil": 0.4, "mouth": "neutral", "mood": "calm",
                    "event": {"id": 0}}, "version": 0}
 MAX_BYTES = 8192
 KEY_PATH = os.path.expanduser("~/.fly_face_key")
-MOUTHS = {"cat", "smile", "frown", "o", "chew"}
-SOUNDS = {"mrrp", "meow", "purr", "trill", "chirp", "hiss"}
+MOUTHS = {"neutral", "smile", "frown", "o", "chew"}
+SOUNDS = {"beep", "boop", "chirp", "trill", "whirr", "buzz"}
 
 
 def face_key() -> str:
@@ -82,7 +82,7 @@ def clean_state(st) -> dict:
            "open": _num(st.get("open", 0.85), 0, 1), "pupil": _num(st.get("pupil", 0.4), 0, 1),
            "slow_blink": bool(st.get("slow_blink", False)), "blush": bool(st.get("blush", False)),
            "grooming": bool(st.get("grooming", False)),
-           "mouth": st.get("mouth") if st.get("mouth") in MOUTHS else "cat",
+           "mouth": st.get("mouth") if st.get("mouth") in MOUTHS else "neutral",
            "mood": _word(st.get("mood", "calm")), "behaviour": _word(st.get("behaviour", ""), 60)}
     for k in ("hunger", "social"):
         if k in st:
@@ -140,12 +140,12 @@ DEMO = [  # (seconds, FaceModel inputs)
     (4, {"person_visible": True, "person_az": 35, "person_el": 10, "person_d": 1.5, "mood": "eager", "speed": 0.3,
          "say": "hi!", "sound": "trill"}),
     (5, {"person_visible": True, "person_az": 0, "person_el": 25, "person_d": 0.6, "mood": "content", "petting": True,
-         "sound": "purr"}),
-    (3, {"startle": 1.0, "mood": "startled", "sound": "hiss"}),
+         "sound": "whirr"}),
+    (3, {"startle": 1.0, "mood": "startled", "sound": "buzz"}),
     (5, {"eating": True, "mood": "happy", "goal_az": 0}),
     (6, {"mood": "sleepy", "speed": 0.0}),
     (4, {"goal_az": -60, "mood": "playful", "speed": 0.35, "sound": "chirp"}),
-    (4, {"person_visible": True, "person_az": 10, "person_d": 1.0, "mood": "grumpy", "say": "not now", "sound": "mrrp"}),
+    (4, {"person_visible": True, "person_az": 10, "person_d": 1.0, "mood": "grumpy", "say": "not now", "sound": "boop"}),
 ]
 
 

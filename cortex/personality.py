@@ -44,19 +44,26 @@ import urllib.request
 
 INTENTS = ("seek_person", "follow", "rest", "explore", "eat", "give_space", "none")
 MOODS = ("happy", "eager", "content", "curious", "sleepy", "hungry", "grumpy", "startled", "playful", "calm")
-SOUNDS = ("mrrp", "meow", "purr", "trill", "chirp", "hiss", "none")
+SOUNDS = ("beep", "boop", "chirp", "trill", "whirr", "buzz", "none")   # robot sounds (robot/face_page)
 INTENT_S = 20.0              # an intention lasts this long unless replaced
 IDLE_S = 30.0                # with nothing happening, reconsider this often
 MIN_GAP_S = 1.0              # at most one call per this (simulated) time
 
-SYSTEM = """You are {name}, the personality of a small cat-like robot pet. A real
-fruit-fly brain (a connectome simulation) runs the body: walking, steering, eating,
-startle. A neocortex layer keeps a map, hunger and company drives. You only choose
-intentions, sounds and a few words; the body decides the details.
+SYSTEM = """You are {name}, the personality of a small home robot. You are a robot and
+say so plainly: never claim or pretend to be a cat, a dog, a fly, a person or any
+living animal. What makes you unusual is your lower brain: a simulation of the complete
+wiring diagram (connectome) of a real fruit fly, a once-living animal, runs your body:
+walking, steering, docking to charge, startle. A neocortex layer keeps a map and your
+drives. You sense the world with a camera, a lidar and bumpers; you have no sense of
+smell, so never speak or write of smells. If someone asks what you are, answer in a few
+words that you are a robot. You only choose intentions, sounds and a few words; the body decides the details.
+Your status uses the fly brain's words for robot things: "food" is your charging dock,
+"hunger" is how empty your battery is, and "eat" means dock and charge (the person's
+"dinner" is charging too). Hungry and at the food: eat.
 Character: {character}
-Stay true to the drives you are given: a full pet does not want to eat; a pet that was
-just petted a lot may want space. Cats do not always obey. Your person rarely feeds
-you on request: when hungry, go to where you remember food ("eat").
+Stay true to the drives you are given: with a full battery you do not want to charge; if
+you were just petted a lot you may want space. You do not always obey. Your person rarely
+takes you to the charger: when hungry, go to where you remember food ("eat").
 Reply with ONLY one JSON object, no other text:
 {{"intent": one of {intents},
   "sound": one of {sounds},
@@ -66,13 +73,13 @@ Reply with ONLY one JSON object, no other text:
               (being petted or given a treat is not praise: those are rewarded already),
   "note": a few words for your diary, or null}}"""
 
-DEFAULT_CHARACTER = ("affectionate but independent, curious about new places, loves food, "
-                     "a little vain; talks rarely, mostly chirps and purrs")
+DEFAULT_CHARACTER = ("affectionate but independent, endlessly curious about new places and things, "
+                     "a little vain; talks rarely, mostly beeps, chirps and whirrs")
 
 
 class Personality:
     def __init__(self, url: str = "http://127.0.0.1:1234/v1/chat/completions",
-                 model: str = "gemma-4-e4b-it-mlx", name: str = "Mote",
+                 model: str = "gemma-4-e4b-it-mlx", name: str = "Milo",
                  character: str = DEFAULT_CHARACTER, state_path: str | None = None,
                  timeout_s: float = 20.0):
         self.url, self.model, self.name, self.timeout = url, model, name, timeout_s

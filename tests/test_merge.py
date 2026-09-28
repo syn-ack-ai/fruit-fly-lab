@@ -132,3 +132,17 @@ def test_every_sense_is_balanced_left_right():
         if len(both) == 0 or L[both].sum() == 0:
             continue
         assert abs(np.log(L[both].sum() / R[both].sum())) < np.log(1.05), (key, L[both].sum(), R[both].sum())
+
+
+def test_body_finds_the_proboscis_motor_neurons():
+    """Review 2026-09-27: on male-CNS brains the body's proboscis group was
+    empty (FlyWire IDs), so the pet never ate."""
+    from brain.motor.descending import DescendingReadout
+    from brain.neurons.registry import load_connectome
+    c = load_connectome()
+    r = DescendingReadout(c)
+    t = c.neurons.primary_type.astype(str).to_numpy()
+    if config.MALE_CNS:
+        assert list(t[r.proboscis_idx]) == ["MN9", "MN9"]        # the proboscis extensor, both sides
+    else:
+        assert 40 <= len(r.proboscis_idx) <= 80                  # FlyWire's labelled group

@@ -1,0 +1,4 @@
+condition  days bumps  pet  scene/d sbumps/d blk s/d brk s/d piv s/d   m/d   dock meals rest/d  low/d flat recov
+pet          30    27    9      115     13.6    45.7     0.0     0.0  31.5  16/30     9    0.0    0.2    0     -
+petlidar     30    35    9        4      0.7     4.7    54.2     0.0  23.2  13/30     5    0.0    0.0    0     -
+petsteer     30    65   16        6      1.0     4.9    39.4     4.5  27.7  15/30     9    0.0    0.0    0     -

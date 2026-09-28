@@ -1,9 +1,11 @@
 # Fruit Fly Laboratory
 
 > ## About this fork (syn-ack-ai)
-> This fork extends the original Fruit Fly Laboratory toward a **robot "pet" whose
-> lower brain is the fly connectome** and whose higher functions are a small learned
-> "neocortex". Additions (MIT licence, see LICENSE; upstream code keeps its author's
+> This fork extends the original Fruit Fly Laboratory toward **Milo, a small home
+> robot whose lower brain is the connectome of a real fruit fly** and whose higher
+> functions are a small learned "neocortex" and an optional language-model
+> personality. Milo is a robot and says so: it never presents itself as a cat or any
+> animal (robot face and sounds, honesty checks in `cortex/llm_bench.py`). Additions (MIT licence, see LICENSE; upstream code keeps its author's
 > copyright):
 > - **Default brain since 2026-09-27: our "complete" male CNS** (`FLY_DATASET=merged`,
 >   `brain/connectivity/merge.py`): the Janelia MaleCNS v1.0 (brain + ventral nerve
@@ -18,6 +20,11 @@
 >   `cortex/obstacle_map.py`): a steering reflex bends the fly brain's own steering
 >   toward open space (98% fewer furniture bumps on a rover-sized body in Habitat).
 >   `results/organic_avoidance_2026-09-27/`.
+> - Real-world Habitat test (no smell, camera + lidar only), complete brain vs FAFB,
+>   scored 0-100 on safety, self-care, life and "aliveness"
+>   (`sim/habitat_bridge/score_pets.py`): tied overall; the complete brain is far
+>   safer (10x less lidar braking), FAFB more active. Motor dynamics for lifelike
+>   movement (`robot/motion.py`). `results/habitat_real_world_2026-09-27/`.
 > - `native/` - C engine (NEON / plain C, multi-threaded) and a CUDA engine,
 >   bit-exact with the published Python model; ~5x real time on an RTX 3080 Ti.
 > - Calibrated dynamics (`data/metadata/dynamics_calibrated.json`, applied in

@@ -26,7 +26,8 @@ What it learns (nothing about places or people is built in):
 What is innate (as in any animal): the drives and how they rise and fall, and
 the rule that picks the most valuable reachable place for the current drives.
 
-Manners (manners=True): cat-like, not polite-at-all-times. When it wants
+Manners (manners=True): animal-like (modelled on how cats treat their people),
+not polite-at-all-times -- Milo is a robot and never presents itself as a cat. When it wants
 company (social drive >= SEEK_SOCIAL) it goes to its person and contact is
 welcome (rubbing against the legs; the robot's safety layer, robot/safety.py,
 makes it arrive at a crawl). When it has had enough (just petted), it loses
@@ -80,7 +81,7 @@ CONTENT_AROUSAL = 0.3        # interest in chasing the person when content
 PERSONAL_M = 0.8             # content: step back if closer than this
 YIELD_M = 1.2                # a walking person: get out of their path within this
 WALKING_MS = 0.25            # estimated person speed that counts as walking
-# rest (cat-like naps): sleepiness builds while awake, faster when active, and
+# rest (animal-like naps): sleepiness builds while awake, faster when active, and
 # drains while resting; a content, not-hungry, sleepy pet goes to a favourite
 # spot (where it has napped before) and rests there (top-down "rest" channel)
 SLEEP_RISE, SLEEP_ACTIVE, SLEEP_FALL = 0.004, 0.004, 0.03   # per second
@@ -209,7 +210,7 @@ class CortexV0:
                  manners: bool = False, naps: bool = False):
         self.state_path = state_path
         self.manners = manners
-        self.naps = naps                            # cat-like rest (off: as v0 / v0_manners were run)
+        self.naps = naps                            # animal-like rest (off: as v0 / v0_manners were run)
         self.amnesic = amnesic                      # control: place memories wiped every day
         self.rng = np.random.default_rng(seed)
         # random Fourier features of position: a place code for the critic

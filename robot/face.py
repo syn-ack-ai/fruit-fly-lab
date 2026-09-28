@@ -7,11 +7,11 @@ adds a mood and the occasional word:
 
   eyes look at     the person (camera bearing), else where the pet is heading
   eyes open wide   startle: escape command neurons (GF DNp01, DNp02/04/11)
-  pupils           arousal: big when startled, playing or chasing; slits when calm
+  pupils           arousal: a lens aperture, wide when startled, playing or chasing; small when calm
   heavy lids       resting a long time (sleepy), or a slow blink while being
-                   petted or content near its person (a cat's "I trust you")
+                   petted or content near its person (a contented "I trust you")
   mouth            chewing while the proboscis is out (eating); otherwise the mood
-  blush / purr     being petted
+  blush            being petted
   speech bubble    the personality's words; sounds are synthesised in the browser
 
 FacePublisher sends the state to the face server without ever blocking the
@@ -62,7 +62,7 @@ class FaceModel:
             openness = 1.0
         arousal = max(self.startle, min(1.0, speed / 0.4), 0.8 if mood in ("playful", "eager") else 0.0)
         mouth = {"happy": "smile", "eager": "smile", "playful": "smile", "grumpy": "frown",
-                 "startled": "o", "hungry": "o"}.get(mood, "cat")
+                 "startled": "o", "hungry": "o"}.get(mood, "neutral")
         if s.get("eating"):
             mouth = "chew"
         elif self.startle > 0.2:

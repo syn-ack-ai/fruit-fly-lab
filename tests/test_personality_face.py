@@ -6,8 +6,8 @@ from sim.habitat_bridge.speech import ScriptedPerson
 
 
 def test_parse_keeps_only_allowed_values():
-    r = parse('sure! {"intent": "eat", "sound": "purr", "say": "yum", "mood": "happy", "feedback": 3, "note": null}')
-    assert r == {"intent": "eat", "sound": "purr", "say": "yum", "mood": "happy", "feedback": 1, "note": None}
+    r = parse('sure! {"intent": "eat", "sound": "whirr", "say": "yum", "mood": "happy", "feedback": 3, "note": null}')
+    assert r == {"intent": "eat", "sound": "whirr", "say": "yum", "mood": "happy", "feedback": 1, "note": None}
     r = parse('{"intent": "drive_to_kitchen_at_full_speed", "sound": "roar", "mood": "evil"}')
     assert r["intent"] == "none" and r["sound"] == "none" and r["mood"] == "calm"
     assert parse("no json here") is None
@@ -37,12 +37,12 @@ def test_face_follows_brain_state():
 
 
 def test_scripted_person_praises_an_answered_call():
-    p = ScriptedPerson(name="Mote", seed=0)
+    p = ScriptedPerson(name="Milo", seed=0)
     p.call_t = 5.0
     far = {"dist": 3.0, "robot": [0, 0, 0], "human": [3, 0]}
     near = {"dist": 1.0, "robot": [2, 0, 0], "human": [3, 0]}
     assert p.step(6.0, 0.1, far, far, False, 0.0) is None or p.call_t is not None
-    assert p.step(9.0, 0.1, near, near, False, 0.0) == "good Mote!"
+    assert p.step(9.0, 0.1, near, near, False, 0.0) == "good Milo!"
     assert p.summary()["answered"] == 1
     # the pet walking into a standing person is scolded
     a = {"dist": 0.7, "robot": [0, 0, 0], "human": [0.7, 0]}
@@ -77,7 +77,7 @@ def test_face_server_needs_the_token_and_clean_fields():
     import robot.face_server as fs
     fs.app.state.key = "k"
     c = TestClient(fs.app)
-    good = {"gaze": [0.2, 0.1], "open": 0.9, "mouth": "smile", "event": {"id": 3, "say": "hi", "sound": "purr"}}
+    good = {"gaze": [0.2, 0.1], "open": 0.9, "mouth": "smile", "event": {"id": 3, "say": "hi", "sound": "whirr"}}
     assert c.post("/state", json=good).status_code == 403                              # no token
     assert c.post("/state", content="{}", headers={"X-Face-Token": "k",
                                                    "Content-Type": "text/plain"}).status_code == 415
@@ -93,7 +93,7 @@ def test_face_state_cleaning():
     from robot.face_server import clean_state
     st = clean_state({"gaze": [5, -5], "mouth": "<b>", "mood": "m" * 100,
                       "event": {"id": 2, "say": "x" * 500, "sound": "roar"}})
-    assert st["gaze"] == [1.0, -1.0] and st["mouth"] == "cat" and len(st["mood"]) == 24
+    assert st["gaze"] == [1.0, -1.0] and st["mouth"] == "neutral" and len(st["mood"]) == 24
     assert st["event"] == {"id": 2, "say": "x" * 60, "sound": None}
     for bad in ({"gaze": None}, {"gaze": [0, float("nan")]}, {"open": "wide"}, [1, 2], {"event": 5}):
         with pytest.raises(ValueError):

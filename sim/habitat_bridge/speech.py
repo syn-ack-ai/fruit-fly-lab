@@ -28,7 +28,7 @@ CALLS = ("come here, {name}!", "{name}, come!", "where are you, {name}?")
 
 
 class ScriptedPerson:
-    def __init__(self, name: str = "Mote", seed: int = 0):
+    def __init__(self, name: str = "Milo", seed: int = 0):
         self.name = name
         self.rng = np.random.default_rng(seed)
         self.reset()

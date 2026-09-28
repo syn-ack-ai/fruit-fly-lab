@@ -11,8 +11,8 @@ brain's goal (FC2), pursuit (LC10a) and teaching (DAN) neurons.
           the fly brain at all.
   v0      the prototype neocortex (cortex/v0.py): a cognitive map learned from
           its own odometry, drives, and a critic.
-  v0_manners  v0 with cat-like manners around its person (cortex/v0.py).
-  pet     v0 with manners and cat-like naps (sleepiness -> rest spot -> ER5 rest drive);
+  v0_manners  v0 with animal-like manners around its person (cortex/v0.py).
+  pet     v0 with manners and animal-like naps (sleepiness -> rest spot -> ER5 rest drive);
           meant for battery mode (brain_client --battery), where hunger is the charge.
 """
 from __future__ import annotations

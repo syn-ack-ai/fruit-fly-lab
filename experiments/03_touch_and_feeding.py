@@ -33,6 +33,7 @@ from brain.neurons.labels import functional_group
 from brain.neurons.registry import load_connectome
 from brain.sensory.modalities import BY_KEY, resolve_neurons
 from simulation.engine.session import Session
+from brain.motor.descending import proboscis_motor_indices
 
 DURATION_MS = 400.0
 
@@ -80,7 +81,7 @@ def main():
     c = load_connectome()
 
     readouts = {
-        "proboscis_MN": _group_idx(c, "proboscis_motor"),
+        "proboscis_MN": proboscis_motor_indices(c),
         "descending": c.neurons[c.neurons["super_class"].astype(str)
                                 == "descending"]["idx"].to_numpy(),
         "DNp01": c.by_cell_type("DNp01")["idx"].to_numpy(),

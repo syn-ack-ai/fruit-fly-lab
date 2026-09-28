@@ -172,9 +172,8 @@ def export_meta(c, conn_info, neu_info, cell_types, classes, sides) -> None:
             s = cells[cells["side"].astype(str) == side]
             tracked["%s_%s" % (cmd.cell_type, side)] = [int(x) for x in s["idx"]]
 
-    from brain.neurons.labels import functional_group
-    prob = [c.idx(r) for r in functional_group("proboscis_motor")
-            if int(r) in c._id2idx]
+    from brain.motor.descending import proboscis_motor_indices
+    prob = [int(i) for i in proboscis_motor_indices(c)]
 
     watch = c.neurons[c.neurons["super_class"].astype(str).isin(
         ["descending", "visual_projection", "sensory"])]["idx"].to_numpy()

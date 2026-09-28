@@ -215,6 +215,16 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             cortex.know_place(BOWL_XZ)              # born on its dock: it knows where it is
             cortex._dock_known = True
     emergency = {"active": False, "s": 0.0, "events": 0}
+    # motor dynamics (robot/motion.py): FLY_MOTOR_TAU="tau_v,tau_w[,stages]" (seconds); off by default
+    # (one value = the same tau for speed and turning)
+    motor, mtau = None, None
+    if mode == "brain" and os.environ.get("FLY_MOTOR_TAU"):
+        from robot.motion import MotorLag
+        mtau = [float(x) for x in os.environ["FLY_MOTOR_TAU"].split(",")]
+        if len(mtau) == 1:
+            mtau = mtau * 2
+        if max(mtau[:2]) > 0:
+            motor = MotorLag(mtau[0], mtau[1], int(mtau[2]) if len(mtau) > 2 else 1)
     if person is not None:
         person.reset()
     if personality is not None:
@@ -268,6 +278,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)
             fr = fr_prev = ses.advance(period_ms)[-1]
             v, w = robot_command(ses.body.state)
+            raw = (v, w)                          # what the brain asked for, before the robot's layers
+            if motor is not None and not str(ses.body.state.behaviour).startswith("escape"):
+                v, w = motor(v, w, period_ms / 1000.0)      # a startle escape is not smoothed
             dn = {kk: round(vv, 1) for kk, vv in fr["dn_rates"].items()
                   if kk.startswith(("DNa01", "DNa02", "DNg100", "DNp09", "DNp01", "MDN", "DNge078"))}
             tb = round(fr["channels"].get("turn_bias", 0.0), 3)
@@ -278,7 +291,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             tb = 0.0
         else:
             v, w, tb = 0.0, 0.0, 0.0
-        raw = (v, w)                              # what the brain asked for, before the robot's layers
+        if mode != "brain":
+            raw = (v, w)                          # what the body asked for, before the robot's layers
         # robot layers, in order: battery (emergency return / docking), then the
         # safety limits, which nothing above may override (review 2026-09-26:
         # the emergency return used to bypass them)
@@ -310,6 +324,11 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         v_lidar = v                               # after the lidar layer (the "brake" it applied)
         if home is not None and home.battery is not None and home.battery.flat:
             v, w = 0.0, 0.0                       # a flat battery: the robot stops
+        if motor is not None:
+            # the lag continues from what the wheels actually do: after a brake,
+            # the emergency return or a pivot it starts up smoothly again instead
+            # of jumping to the brain's command (review 2026-09-27: anti-windup)
+            motor.sync(v, w)
         last_v = v
         prev_obs = obs
         obs = _call(conn, {"cmd": "step", "v": v, "w": w, "n": n_env,
@@ -333,7 +352,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if found_t is None and obs["visible"] and obs["dist"] < 2.0:
             found_t = t_sim
         log.append({"t": round(t_sim, 2), "dist": round(obs["dist"], 3), "visible": obs["visible"],
-                    "robot": [round(x, 2) for x in obs["robot"]], "human": [round(x, 2) for x in obs["human"]],
+                    "robot": [round(x, 4) for x in obs["robot"]], "human": [round(x, 2) for x in obs["human"]],
                     "az": round(obs["az"], 1), "v": round(v, 3), "w_deg": round(math.degrees(w), 1),
                     "turn_bias": tb, "dn": dn,
                     "lc10a_hz": (obj.last.get("drive_hz") if mode == "brain" else None)})
@@ -364,7 +383,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
            "in_follow_band_frac": round(float(((d > 0.8) & (d < 3.0) & vis.astype(bool)).mean()), 3),
            "found_s": found_t, "collisions": obs.get("collisions", 0),
            "scene_contacts": obs.get("scene_contacts"), "scene_bumps": obs.get("scene_bumps"),
-           "blocked_s": obs.get("blocked_s"), "habitat_stats": obs["stats"],
+           "blocked_s": obs.get("blocked_s"), "motor_tau": mtau if motor is not None else None, "habitat_stats": obs["stats"],
            "video": video, "log": log}
     if home is not None:
         res["home"] = dict(home.stats)
@@ -559,7 +578,7 @@ def main():
     ap.add_argument("--personality", default=None, metavar="URL",
                     help="LLM personality layer (cortex/personality.py), e.g. http://127.0.0.1:1234/v1/chat/completions (PAIR)")
     ap.add_argument("--llm-model", default="gemma-4-e4b-it-mlx")
-    ap.add_argument("--pet-name", default="Mote")
+    ap.add_argument("--pet-name", default="Milo")
     ap.add_argument("--face", default=None, metavar="URL",
                     help="send the face to robot/face_server.py, e.g. http://127.0.0.1:8010/state")
     ap.add_argument("--lidar", action="store_true",

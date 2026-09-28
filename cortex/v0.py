@@ -94,6 +94,14 @@ BORED_U = 0.15                              # best food / explore / owner utilit
 BORED_SLEEPY = 0.2
 BORED_NAP_U = 0.3            # a bored nap's value floor (above BORED_U)
 MEAL_SETTLE = 0.6           # rest drive while at the bowl during a meal
+# orienting reflex (orient=True, the pet): a person coming into view after
+# ORIENT_AWAY_S out of sight snaps attention to them for ORIENT_S -- the
+# "attend" channel drives the fly's pursuit neurons (LC10a) at their bearing
+# and the connectome turns the body (the mammalian orienting response,
+# superior colliculus; in the fly, LC10a -> DNa02 steering). Without it the
+# robot turned toward a person who appeared only ~50% of the time, with or
+# without the motor lag (2026-09-27, held-out Habitat runs).
+ORIENT_S, ORIENT_AWAY_S = 2.0, 1.0
 REST_LEARN = 0.02
 # personality (cortex/personality.py): an intention multiplies the matching
 # utility, so the drive behind it still decides how much it matters
@@ -207,10 +215,11 @@ class CortexV0:
     ROUTE_S = 0.5            # replan the route this often (or when the target moves)
 
     def __init__(self, state_path: str | None = None, seed: int = 0, amnesic: bool = False,
-                 manners: bool = False, naps: bool = False):
+                 manners: bool = False, naps: bool = False, orient: bool = False):
         self.state_path = state_path
         self.manners = manners
         self.naps = naps                            # animal-like rest (off: as v0 / v0_manners were run)
+        self.orient = orient                        # orienting reflex (off: as earlier runs were made)
         self.amnesic = amnesic                      # control: place memories wiped every day
         self.rng = np.random.default_rng(seed)
         # random Fourier features of position: a place code for the critic
@@ -261,6 +270,7 @@ class CortexV0:
         self.next_plan = 0.0
         self.person_seen = None                      # (x, z, t)
         self.person_vel = (0.0, 0.0)                 # estimated, m/s
+        self._last_visible_t, self.orient_until, self._orienting = -1e9, -1e9, False
         self.manner = None
         self.intent, self.feedback = "none", 0
         self.prev_phi = None
@@ -432,11 +442,25 @@ class CortexV0:
         if self.resting:
             cmd.update(goal_deg=None, goal_gain=0.0, rest=1.0, arousal=min(cmd.get("arousal", 1.0), 0.2))
             self.day_log["rest_s"] = self.day_log.get("rest_s", 0.0) + dt
+        if self.orient:
+            vis = bool(obs.get("visible"))
+            if vis and t_s - self._last_visible_t >= ORIENT_AWAY_S:
+                self.orient_until = t_s + ORIENT_S          # someone (re)appeared
+            if vis:
+                self._last_visible_t = t_s
+            self._orienting = bool(vis and t_s < self.orient_until and not self.resting and not eating
+                                   and not in_meal and self.manner not in ("yield", "give_space"))
+            if self._orienting:
+                # (not during a meal: a pet at its dock mid-meal ignores you --
+                # second review 2026-09-27)
+                cmd["attend_az"], cmd["attend_gain"] = float(obs["az"]), 1.0
+                self.day_log["orient_s"] = self.day_log.get("orient_s", 0.0) + dt
         self.replay.append((phi, [cmd["goal_deg"] or 0.0, cmd["goal_gain"], rpe_drive], r))
         self.last = {"hunger": round(self.hunger, 2), "social": round(self.social, 2),
                      "goal_kind": None if self.goal is None else self.goal[1], "manner": self.manner,
                      "sleepy": round(self.sleepy, 2), "resting": self.resting,
-                     "cells": len(self.map.nodes), "delta": round(delta, 3)}
+                     "cells": len(self.map.nodes), "delta": round(delta, 3),
+                     "orienting": bool(self.orient and getattr(self, "_orienting", False))}
         return cmd
 
     def _manners(self, cmd, x, z, t_s, dt):
@@ -639,6 +663,7 @@ class CortexV0:
                 "hunger_end": round(self.hunger, 2), "social_end": round(self.social, 2),
                 "manners_s": {k: round(v, 1) for k, v in self.day_log["manners_s"].items()},
                 "rest_s": round(self.day_log.get("rest_s", 0.0), 1), "naps": self.day_log.get("naps", {}),
+                "orient_s": round(self.day_log.get("orient_s", 0.0), 1),
                 "meal_s": round(self.day_log.get("meal_s", 0.0), 1),
                 **({"routes": self.day_log.get("routes", 0),
                     "obstacle_cells": int(self.obstacles.occupied().sum())} if self.obstacles is not None else {})}

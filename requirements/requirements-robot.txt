@@ -1,0 +1,6 @@
+# Optional: the robot's camera head and the face server's tests.
+# (Habitat 3.0 runs in its own conda environment on the simulation machine:
+# see sim/habitat_bridge/README.md.)
+-r requirements.txt
+opencv-python>=4.8
+httpx>=0.27

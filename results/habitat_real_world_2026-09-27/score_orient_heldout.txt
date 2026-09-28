@@ -1,0 +1,48 @@
+
+=== petlidar  (lidar on)
+                                             reflex_off (30 d)          reflex_on (30 d)
+  furniture bumps/day                           0.13 ->  97.3%            0.50 ->  90.0%
+  pet-caused person bumps/day                   0.30 ->  46.7%            0.20 ->  60.0%
+  safety-layer brake s/day                      0.87 ->  98.5%            0.75 ->  98.7%
+  pinned/pressing s/day                         1.18 ->  96.0%            5.23 ->  82.6%
+  walked m/day                                  7.03 ->  35.1%            7.27 ->  36.4%
+  s/day near the person                        15.23 ->  50.8%           13.82 ->  46.1%
+  speed variation (CV) while moving             0.57 -> 100.0%            0.57 -> 100.0%
+  heading reversals / active min                2.49 ->  87.6%            3.07 ->  84.6%
+  move/pause bouts / min                        7.37 ->  99.7%            6.46 -> 100.0%
+  irregularity of bouts (CV)                    1.05 -> 100.0%            0.99 -> 100.0%
+  turns toward person on appearance             0.57 ->  57.4%            0.69 ->  69.0%
+  SAFETY (28)                                            78.3%                     78.9%
+  LIFE (21)                                              42.9%                     41.2%
+  ALIVENESS (30)                                         85.3%                     87.6%
+  TOTAL (range over seeds)                       76.8% [72-83]             78.0% [75-84]
+    without aliveness                                    73.2%                     73.9%
+    reflex_off: dock 9/30 days, meals 0, eating 2.9 s/day, battery at day end 0.52
+    reflex_on: dock 10/30 days, meals 0, eating 3.6 s/day, battery at day end 0.52
+
+=== petsteer  (lidar on)
+                                             reflex_off (30 d)          reflex_on (30 d)
+  furniture bumps/day                           0.70 ->  86.0%            0.77 ->  84.7%
+  pet-caused person bumps/day                   0.37 ->  60.0%            0.13 ->  73.3%
+  safety-layer brake s/day                      0.44 ->  99.3%            0.73 ->  98.8%
+  pinned/pressing s/day                         3.67 ->  87.8%            3.82 ->  87.3%
+  walked m/day                                  7.12 ->  35.6%            7.10 ->  35.5%
+  s/day near the person                        13.69 ->  45.6%           15.92 ->  53.1%
+  speed variation (CV) while moving             0.58 -> 100.0%            0.58 -> 100.0%
+  heading reversals / active min                3.03 ->  84.8%            3.92 ->  80.4%
+  move/pause bouts / min                        7.62 ->  98.0%            7.17 -> 100.0%
+  irregularity of bouts (CV)                    1.01 -> 100.0%            1.00 -> 100.0%
+  turns toward person on appearance             0.51 ->  50.6%            0.67 ->  67.1%
+  SAFETY (28)                                            78.1%                     82.5%
+  LIFE (21)                                              40.6%                     44.3%
+  ALIVENESS (30)                                         82.5%                     86.0%
+  TOTAL (range over seeds)                       76.1% [71-80]             79.2% [75-82]
+    without aliveness                                    73.4%                     76.3%
+    reflex_off: dock 10/30 days, meals 0, eating 3.5 s/day, battery at day end 0.53
+    reflex_on: dock 10/30 days, meals 0, eating 3.6 s/day, battery at day end 0.58
+
+=== overall
+  total              reflex_off all conditions  76.5%   with lidar (the rover's setup)  76.5%
+  total              reflex_on  all conditions  78.6%   with lidar (the rover's setup)  78.6%
+  without aliveness  reflex_off all conditions  73.3%   with lidar (the rover's setup)  73.3%
+  without aliveness  reflex_on  all conditions  75.1%   with lidar (the rover's setup)  75.1%

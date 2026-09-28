@@ -1,10 +1,10 @@
-# Cat-like manners around the person, 2026-09-26 (RTX 3080 Ti, CUDA engine)
+# Animal-like manners around the person, 2026-09-26 (RTX 3080 Ti, CUDA engine)
 
     OUT=... SEEDS="1 2" CONDS="none v0 manners" SAFE_SPEED=1 sim/habitat_bridge/run_cortex_life.sh
 
 2 seeds x 10 days x 120 s, Habitat small house, mushroom-body learning on, v3
 dynamics. All three conditions have the robot's near-person speed limit
-(robot/safety.py). "manners" = cortex v0 with cat-like manners (cortex/v0.py):
+(robot/safety.py). "manners" = cortex v0 with animal-like manners (modelled on how cats treat their people; Milo presents as a robot) (cortex/v0.py):
 contact welcome when it wants company, loses interest in chasing and steps back
 when content, never cuts in front of a walking person.
 

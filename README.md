@@ -1,59 +1,122 @@
-# Fruit Fly Laboratory
+# Fruit Fly Laboratory — Milo
 
 > ## About this fork (syn-ack-ai)
 > This fork extends the original Fruit Fly Laboratory toward **Milo, a small home
-> robot whose lower brain is the connectome of a real fruit fly** and whose higher
-> functions are a small learned "neocortex" and an optional language-model
-> personality. Milo is a robot and says so: it never presents itself as a cat or any
-> animal (robot face and sounds, honesty checks in `cortex/llm_bench.py`). Plans:
-> `ROADMAP.md`. Additions (MIT licence, see LICENSE; upstream code keeps its author's
-> copyright):
+> robot whose lower brain is the connectome of a real fruit fly**. On top of it sit
+> a small learned "neocortex" and an optional language-model personality. Milo is a
+> robot and says so: it never presents itself as a cat or any other animal (robot
+> face and sounds; honesty checks in `cortex/llm_bench.py`). Plans are in
+> `ROADMAP.md`. Additions are MIT-licensed (see LICENSE); upstream code keeps its
+> author's copyright.
+>
 > - **Default brain since 2026-09-27: our "complete" male CNS** (`FLY_DATASET=merged`,
->   `brain/connectivity/merge.py`): the Janelia MaleCNS v1.0 (brain + ventral nerve
->   cord) with its demonstrated reconstruction gaps filled (left-antenna smell
->   neurons, Johnston's organ, head bristles; FlyWire FAFB decides what counts as a
->   gap) and made left/right balanced, with dynamics refitted to it. Fly exam 31/32
->   on a seed set never used for fitting (21/21 held-out tests, 3/3 constraints;
->   odour steering is a documented open limitation), robustness 0.92, and no
->   left/right steering bias -- FAFB's wiring has one. `results/complete_brain_2026-09-27/`.
->   FAFB remains available with `FLY_DATASET=fafb`.
-> - Lidar obstacle avoidance for the robot pet (`robot/avoid.py`, `robot/lidar.py`,
->   `cortex/obstacle_map.py`): a steering reflex bends the fly brain's own steering
->   toward open space (98% fewer furniture bumps on a rover-sized body in Habitat).
->   `results/organic_avoidance_2026-09-27/`.
-> - Real-world Habitat test (no smell, camera + lidar only), complete brain vs FAFB,
->   scored 0-100 on safety, self-care, life and "aliveness"
->   (`sim/habitat_bridge/score_pets.py`): tied overall; the complete brain is far
->   safer (10x less lidar braking), FAFB more active. Motor dynamics for lifelike
->   movement (`robot/motion.py`). `results/habitat_real_world_2026-09-27/`.
-> - `native/` - C engine (NEON / plain C, multi-threaded) and a CUDA engine,
->   bit-exact with the published Python model; ~5x real time on an RTX 3080 Ti.
-> - Calibrated dynamics (`data/metadata/dynamics_calibrated.json`, applied in
->   `simulation/engine/session.py`): resting ORN input (Hallem & Carlson 2006),
->   ORN->PN compensation, excitatory-LN and Giant Fibre corrections, adaptation,
->   bilateral consensus wiring, ipsilateral ORN release (Gaudry 2013), and ORN
->   synaptic depression fitted to the measured ORN->PN transform (Olsen 2010);
->   every change cites its source.
-> - `cognition/exam/` - a 32-test validation battery ("fly exam") with shuffled-wiring
->   controls and robustness curves. Results (`results/fly_exam_2026-09-25/`): published
->   model 16/32, calibrated v2 26/32, calibrated v3 (default) 32/32 (21/21 held-out
->   tests), shuffled wiring 9/32.
-> - Habitat lifetimes (`results/cortex_lifetime_2026-09-25/`): the cortex with place
->   memory finds food on 17/20 simulated days vs 8/20 without memory (p = 0.008)
->   and 8/20 for the fly brain alone.
-> - `brain/plasticity/` (dopamine-gated mushroom-body learning), `brain/navigation/`
->   (E-PG compass, FC2 -> PFL3 goal steering), `fly/world/` (closed-loop foraging world).
-> - `robot/` (pan/tilt camera head, person detection, microphone hearing),
->   `sim/habitat_bridge/` (the brain driving a robot in Meta Habitat 3.0 homes),
->   `cortex/` (the prototype neocortex that biases the fly brain top-down).
+>   `brain/connectivity/merge.py`). It is the Janelia MaleCNS v1.0 (brain + ventral
+>   nerve cord; 165,122 neurons, 89.4 M synapses) with its demonstrated
+>   reconstruction gaps filled and made left/right balanced, with dynamics refitted
+>   to it. The filled gaps are the left-antenna smell neurons, Johnston's organ and
+>   the head bristles; FlyWire FAFB decides what counts as a gap and sets the fill
+>   targets. Fly exam: 30/32 on a seed set never used for fitting (21/21 held-out
+>   tests, 3/3 constraints), 32/32 on the fitting seeds, robustness 0.85 (FAFB 0.95).
+>   Two limitations are documented. Odour steering is weak; the robot has no
+>   nose. A brain <-> nerve-cord loop can latch after a stimulus on some seeds.
+>   It has no left/right steering bias (FAFB's wiring has one). See `results/complete_brain_2026-09-27/`. FlyWire FAFB (the original
+>   female brain) remains available with `FLY_DATASET=fafb`.
+> - **Robot behaviour** (`robot/`, `cortex/`):
+>   - lidar obstacle avoidance that bends the fly brain's own steering toward
+>     open space (`results/organic_avoidance_2026-09-27/`);
+>   - a battery pet that charges at its dock when hungry and naps;
+>   - an orienting reflex;
+>   - motor dynamics for lifelike movement (`robot/motion.py`);
+>   - a population readout for the long-mode escape, so Milo no longer startles
+>     at nothing.
+> - **Real-world Habitat test** (no smell, camera and lidar only), scored 0-100 on
+>   safety, self-care, life and "aliveness" (`sim/habitat_bridge/score_pets.py`).
+>   See `results/habitat_real_world_2026-09-27/`.
+> - `native/`: a C engine (multi-threaded) and a CUDA engine, bit-exact with the
+>   published Python model.
+> - Calibrated dynamics (`data/metadata/dynamics_calibrated*.json`, applied in
+>   `simulation/engine/session.py`). They add resting ORN input (Hallem & Carlson
+>   2006), ORN->PN compensation and normalisation, ORN depression (Olsen 2010),
+>   ipsilateral release (Gaudry 2013), adaptation (including nerve cord and
+>   descending neurons) and Giant Fibre corrections. Every change cites its source.
+> - `cognition/exam/`: a 32-test validation battery (the "fly exam") with
+>   shuffled-wiring controls and robustness curves.
+> - Also: `brain/plasticity/` (dopamine-gated mushroom-body learning),
+>   `brain/navigation/` (E-PG compass, FC2 -> PFL3 goal steering) and
+>   `sim/habitat_bridge/` (the brain driving a robot in Meta Habitat 3.0 homes).
 >
 > The brain and the neocortex use no language model (connectome -> differential
-> equations -> spikes; the cortex is a small learned map, drives and a TD critic). An
-> optional personality layer (`cortex/personality.py`) uses a local language model for
-> speech and intentions only -- it never reaches the motors or the safety layer. The code
-> in this fork was written with AI coding assistance (Anthropic's Claude) under human
-> direction.
+> equations -> spikes; the cortex is a small learned map, drives and a TD critic).
+> The optional personality layer (`cortex/personality.py`) uses a local language
+> model for speech and intentions only. It never reaches the motors or the safety
+> layer. The code in this fork was written with AI coding assistance (Anthropic's
+> Claude) under human direction.
 
+## Quick start (this fork)
+
+```bash
+python -m pip install -r requirements/requirements.txt   # + requirements-robot.txt for the camera
+make -C native                                           # the C engine (the default brain needs it)
+python -m pytest tests -q                                # the merged brain; FLY_DATASET=fafb for FAFB
+```
+
+**Building the brains.** Data: FlyWire FAFB v783 (section 3 below) and the Janelia
+MaleCNS v1.0 release (`DATA_SOURCES.md` §1b).
+
+```bash
+python -m brain.connectivity.build_connectome                               # FAFB (always FAFB paths)
+python -m brain.connectivity.build_malecns /path/to/malecns_v1.0            # MaleCNS
+python -m brain.connectivity.malecns_annotations /path/to/malecns_v1.0      # labels, columns, dimorphism
+python -m brain.sensory.crossmap                                            # MaleCNS <-> FlyWire modality map
+python -m brain.connectivity.merge                                          # the complete brain (needs both)
+```
+
+**The fly exam:**
+
+```bash
+python -m cognition.exam --dynamics calibrated --workers 6
+FLY_EXAM_SEED_OFFSET=200 python -m cognition.exam --dynamics calibrated --no-robustness
+```
+
+The second run uses a seed set that was never used for fitting.
+
+**Milo in Habitat.** Habitat runs in its own conda environment
+(`sim/habitat_bridge/README.md`). Split mode runs Habitat on a Linux GPU box and
+the brains locally:
+
+```bash
+HAB_HOST=user@box REAL=1 BODY=rover SAFE_SPEED=1 CONDS="petlidar petsteer" SEEDS="1 2 3" \
+    OUT=simulation/outputs/habitat/run bash sim/habitat_bridge/run_cortex_life.sh
+python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
+```
+
+**Face (iPad / browser):** `python -m robot.face_server --port 8010`.
+
+**Environment variables:**
+
+| variable | meaning (default) |
+|---|---|
+| `FLY_DATASET` | `merged` (default), `malecns` (raw male), `fafb` (FlyWire female) |
+| `FLY_DYNAMICS` | `published` (Session default) or `calibrated` (the robot, exam and lab use calibrated) |
+| `FLY_ENGINE`, `FLY_NATIVE_LIB`, `FLY_THREADS` | engine choice, the CUDA library (`native/liblif_cuda.so`), threads |
+| `FLY_GAIN` | override the dataset's calibrated synaptic gain (`calibration_<dataset>.json`) |
+| `FLY_MOTOR_TAU` | robot motor lag `tau_v,tau_w[,stages[,tau_w_fast]]` in s (`0.3,1.5`; `0` = off) |
+| `FLY_ORIENT` | the neocortex's orienting reflex for the pet (`1`) |
+| `FLY_POP_READOUT` | pooled descending-neuron readout for all channels (off; the long-mode escape is always pooled) |
+| `FLY_EXAM_SEED_OFFSET` | shifts every exam seed (0; 100 = calibration's second set, 200 = report set) |
+| `FLYWIRE_V783_DIR` | FlyWire files (default: a `flywire_v783/` folder next to the repository) |
+| `FLY_FACE_KEY`, `FLY_HABITAT_KEY` | shared secrets for the face server and the Habitat socket |
+
+Run-script variables (`sim/habitat_bridge/run_cortex_life.sh`): `HAB_HOST` (split
+mode), `REAL=1` (real senses: no smell), `BODY=rover`, `DATASET`, `SEEDS`, `DAYS`,
+`CONDS`, `THREADS`, `PORT0`, `OUT`.
+
+---
+
+## The original laboratory (FlyWire FAFB)
+
+The sections below describe the original project, which this fork keeps working
+with `FLY_DATASET=fafb`.
 
 An interactive simulation of an adult female *Drosophila melanogaster* built on
 the **real FlyWire FAFB v783 connectome** — 139,255 neurons, 3,732,460
@@ -90,33 +153,34 @@ looming object (exact geometry)
 
 | Requirement | Version used |
 |---|---|
-| Python | 3.13.14 (3.11+ works) |
-| numpy | 2.4.2 |
-| scipy | 1.16.2 |
-| pandas | 3.0.1 |
-| fastapi | 0.110.1 |
-| uvicorn | 0.25.0 |
-| websockets | 16.0 |
-| pytest | 9.0.2 |
+| Python | 3.13.15 (3.11+ works) |
+| numpy | 2.5.3 |
+| scipy | 1.18.1 |
+| pandas | 3.0.6 |
+| fastapi | 0.141.1 |
+| uvicorn | 0.53.0 |
+| websockets | 17.1 |
+| pytest | 9.1.1 |
+| pyarrow | 25.0.1 (MaleCNS build) |
+| torch | 2.14.0 (the neocortex's critic) |
 
 Optional: `brian2`, to cross-check against the original reference
 implementation. Not needed to run the laboratory.
 
-**GPU acceleration is not implemented.** The CPU engine is event-driven — each
-step touches only the CSR rows of neurons that actually spiked — so its cost
-scales with spike count, not with the 3.7M edges. At the activity levels these
-experiments produce (hundreds to a few thousand active neurons) the bottleneck
-is the dense 139,255-element membrane update, and a GPU port would be a modest
-win rather than a large one. Shipping an untested CUDA path would risk exactly
-the kind of silent numerical divergence the test suite exists to prevent. If you
-want one, `simulation/engine/lif_engine.py` is written against a small array
-interface, and `tests/test_lif_engine.py::test_matches_literal_reference_implementation`
-is the equivalence test any new backend must pass.
+**Engines.** `simulation/engine/lif_engine.py` is the reference Python engine;
+`tests/test_lif_engine.py::test_matches_literal_reference_implementation` is
+the equivalence test any backend must pass. This fork adds a multi-threaded C
+engine (`make -C native`; it is the default when built, and the male brains
+need it because they run with calibrated gain and dynamics) and a CUDA engine
+(`make -C native cuda`, then `FLY_NATIVE_LIB=native/liblif_cuda.so`). Both are
+verified against the Python engine (`native/verify_native.py`,
+`native/verify_cuda.py`; `native/README_CUDA.md`).
 
 ## 2. Exact commands to install dependencies
 
 ```bash
 python -m pip install -r requirements/requirements.txt
+make -C native
 ```
 
 Optional extras:
@@ -127,8 +191,9 @@ python -m pip install -r requirements/requirements-dev.txt
 
 ## 3. Exact commands to obtain the real FlyWire data
 
-The data is **already present** at `D:\Fruitfly\FlyWire Brain Dataset (FAFB v783)`
-and its SHA-256 checksums are recorded in `data/metadata/flywire_v783_checksums.txt`.
+The project looks for the data in a `flywire_v783/` folder next to the
+repository, or wherever `FLYWIRE_V783_DIR` points. Its SHA-256 checksums are
+recorded in `data/metadata/flywire_v783_checksums.txt`.
 
 To obtain it from scratch:
 
@@ -147,6 +212,8 @@ To obtain it from scratch:
    column_assignment.csv.gz
    labels.csv.gz
    visual_neuron_types.csv.gz
+   cell_stats.csv.gz
+   names.csv.gz
    ```
 
 3. Put them in one directory and point the project at it:
@@ -164,7 +231,7 @@ To obtain it from scratch:
 4. Verify the download matches what this project was built against:
 
    ```bash
-   python -m pytest tests/test_data_provenance.py -q
+   FLY_DATASET=fafb python -m pytest tests/test_data_provenance.py -q
    ```
 
 5. Build the simulation-ready connectome (about 2 minutes):
@@ -207,23 +274,25 @@ literal transcription of that Brian2 network. Full detail in
 
 | | |
 |---|---|
-| CPU | Any x86-64. Developed on 16 cores; the engine is single-threaded. |
+| CPU | x86-64 or ARM64 (Apple silicon, Jetson). The C engine is multi-threaded (`FLY_THREADS`). |
 | RAM | **4 GB minimum, 8 GB comfortable.** The sparse connectome is ~45 MB in memory; the build step peaks around 3 GB while reading the 5.3M-row connectivity table. |
-| Disk | 1.5 GB for the eight required source files. (The full Codex release including meshes is 17 GB; most of it is unused — see `DATA_SOURCES.md`.) |
-| GPU | Not required. |
+| Disk | 1.5 GB for the ten required FlyWire source files (the MaleCNS release is larger; see `DATA_SOURCES.md` §1b). (The full Codex release including meshes is 17 GB; most of it is unused — see `DATA_SOURCES.md`.) |
+| GPU | Not required; optional CUDA engine. |
 
-Performance: **≈1.0 ms wall-clock per 0.1 ms simulated step**, i.e. about
-10× slower than real time for the whole 139,255-neuron brain. A 300 ms escape
-trial takes roughly 3 seconds. Spike propagation is event-driven, so cost scales
-with spike count rather than with the 3.7M edges.
+Performance: the reference Python engine takes about 1.0 ms of wall-clock time
+per 0.1 ms simulated step on FAFB (10x slower than real time). The C engine runs
+the complete male brain at about 1.7x real time on 1 thread and 4.5x on 4
+threads (Apple M-series); CUDA runs at about 4-5x on an RTX 3080 Ti
+(`native/README_CUDA.md`). Spike propagation is event-driven, so cost scales with
+spike count.
 
 ## 6. First experiment to run
 
 ```bash
-python -m experiments.02_escape_controls
+FLY_DATASET=fafb python -m experiments.02_escape_controls
 ```
 
-This is the experiment that shows the escape is real. Expected output:
+This is the experiment that shows the escape is real. Expected output (FAFB):
 
 ```
 condition                   LC4 spk  LPLC2 spk  DNp01 spk   peak DNp01     active
@@ -243,8 +312,8 @@ the Giant Fibre goes to **exactly zero**.
 Then the other two:
 
 ```bash
-python -m experiments.01_looming_escape      # time course of one escape
-python -m experiments.03_touch_and_feeding   # feeding, touch, and honest refusals
+FLY_DATASET=fafb python -m experiments.01_looming_escape      # time course of one escape
+FLY_DATASET=fafb python -m experiments.03_touch_and_feeding   # feeding, touch, and honest refusals
 ```
 
 And the interactive laboratory. There are two builds, and they run the same
@@ -254,7 +323,7 @@ simulation:
 Web Worker; the server is only a static file host.
 
 ```bash
-python -m tools.export_web_connectome
+FLY_DATASET=fafb python -m tools.export_web_connectome
 ```
 
 ```bash
@@ -295,7 +364,7 @@ Worker. Nothing is simplified for the web — all 139,255 neurons and all
 one:
 
 ```bash
-python -m tools.verify_web_engine
+FLY_DATASET=fafb python -m tools.verify_web_engine
 ```
 
 That runs the same seed and stimulus through both engines with a shared
@@ -317,10 +386,11 @@ one-time connectome download.
 ## 7. How to verify the simulation uses real FlyWire neurons and connections
 
 ```bash
-python -m pytest tests/ -q
+FLY_DATASET=fafb python -m pytest tests/ -q
 ```
 
-74 tests. The ones that matter for this question:
+The suite has about 213 tests (the FAFB provenance checks run only with
+`FLY_DATASET=fafb`). The ones that matter for this question:
 
 | Check | Test |
 |---|---|
@@ -356,8 +426,18 @@ compare the cell type, side, and partner list against what the app shows.
 
 ## 8. Known scientific limitations
 
-Summarised here; the full treatment is in
-[`BIOLOGICAL_ASSUMPTIONS.md`](BIOLOGICAL_ASSUMPTIONS.md).
+Summarised here for the **FAFB reference brain**; the full treatment is in
+[`BIOLOGICAL_ASSUMPTIONS.md`](BIOLOGICAL_ASSUMPTIONS.md). The default complete male
+brain differs in several of these:
+
+- it includes the ventral nerve cord (items 1-2);
+- the MaleCNS treats histamine as inhibitory (item 3);
+- 3,275 of its neurons are unsigned (item 7);
+- it is one male (item 10).
+
+The calibrated dynamics add resting input, adaptation and depression (items
+5-6), and `brain/plasticity/` adds mushroom-body learning. See §11 of
+`BIOLOGICAL_ASSUMPTIONS.md`.
 
 1. **Brain only — no ventral nerve cord.** The leg and wing motor neurons are
    not in this dataset. The simulation ends at the descending neurons, which are
@@ -382,7 +462,8 @@ Summarised here; the full treatment is in
    and their constants are ours; the neurons they drive are real. This is the
    honest weak point of the pipeline.
 9. **Descending-neuron → behaviour assignments come from the literature**, not
-   from the connectome, and cover only 8 of ~473 descending cell types.
+   from the connectome, and cover 20 descending cell types (plus 3 pooled in the
+   population readout) of ~473.
 10. **This is one fly.** A single adult female, imaged once.
 11. **The body is kinematic**, not biomechanical.
 
@@ -395,31 +476,34 @@ consciousness of a fruit fly, and no result here should be described that way.**
 
 ```
 fruit-fly-lab/
-├── config.py                    dataset paths + identity; refuses to run on substituted data
+├── config.py                    dataset selection (FLY_DATASET) and paths; refuses substituted data
 ├── data/
-│   ├── derived/                 built connectome (CSR sparse) + neuron index
-│   └── metadata/                SHA-256 checksums, build manifest
+│   ├── derived/                 built connectomes: FAFB, malecns/, merged/ (+ fill logs)
+│   ├── external/                Hallem & Carlson 2006 ORN responses
+│   └── metadata/                checksums, build manifests, calibrated dynamics and gains
 ├── brain/
-│   ├── connectivity/            build_connectome.py — real data -> sparse graph
-│   ├── neurons/                 registry.py (queries), labels.py (FlyWire labels)
-│   ├── neuron_models/           lif.py — the published LIF parameters
-│   ├── sensory/                 retinotopy.py, encoders.py, modalities.py
-│   └── motor/                   descending.py — DN readout + published behaviours
-├── simulation/
-│   ├── engine/                  lif_engine.py (the simulator), session.py (closed loop)
-│   ├── stimuli/                 looming.py (exact geometry), pulse.py
-│   └── outputs/                 experiment results (JSON)
-├── fly/body/                    fly_body.py — kinematic body, downstream of all neurons
-├── visualization/               server.py + static/ — Python server build
-├── web/                         static browser build (this is what deploys)
-│   ├── data/                    connectome + neurons as binary assets
-│   └── js/                      engine.js (LIF port), sim.js, worker.js, app.js
-├── tools/                       web export, shared PRNG, cross-engine verifier
-├── experiments/                 01 looming escape, 02 controls, 03 touch & feeding
-├── tests/                       74 tests
-├── DEPLOY.md
-├── DATA_SOURCES.md
-└── BIOLOGICAL_ASSUMPTIONS.md
+│   ├── connectivity/            build_connectome.py (FAFB), build_malecns.py, malecns_annotations.py, merge.py
+│   ├── neurons/                 registry.py (queries), labels.py
+│   ├── neuron_models/           lif.py: the published LIF parameters
+│   ├── sensory/                 modalities, encoders, retinotopy, olfaction, crossmap, orn_side, camera
+│   ├── motor/                   descending.py: DN readout, proboscis (MN9 on male brains), escapes
+│   ├── navigation/              E-PG compass, FC2 -> PFL3 goal steering
+│   └── plasticity/              dopamine-gated mushroom-body learning
+├── simulation/                  engine/ (lif_engine.py, session.py), stimuli/, outputs/
+├── native/                      C and CUDA engines + verifiers
+├── fly/                         body/ (fly_body.py, foraging_body.py), world/ (closed-loop foraging)
+├── cognition/                   exam/ (the fly exam), calibrate_merged.py, calibrate_dynamics.py
+├── cortex/                      v0.py (neocortex), topdown.py, obstacle_map.py, personality.py, llm_bench.py
+├── robot/                       safety, avoid, lidar, battery, motion, hearing, head, face (+ face_page/)
+├── sim/habitat_bridge/          Habitat server/client, run scripts, score_pets.py, compare_* tools
+├── experiments/                 01-05 plus symmetry, VNC turn, antenna touch, satiety and sleep tests
+├── visualization/               server.py + static/: the Python server build
+├── web/                         static browser build (what deploys)
+├── tools/                       web export, shared PRNG, cross-engine verifier, lab_server.sh
+├── tests/                       pytest suite (+ test_web_worker.mjs)
+├── results/                     dated result write-ups
+├── requirements/                requirements.txt, -dev, -robot
+├── ROADMAP.md, DEPLOY.md, DATA_SOURCES.md, BIOLOGICAL_ASSUMPTIONS.md, LICENSE
 ```
 
 ## Citing

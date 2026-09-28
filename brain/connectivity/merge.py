@@ -2,7 +2,19 @@
 The "complete map": the Janelia MaleCNS (brain + nerve cord of one male) with
 its demonstrated reconstruction gaps filled. Selected with FLY_DATASET=merged.
 FlyWire FAFB (the brain of one female) is the reference that decides what
-counts as a gap. Every change is logged (data/derived/merged/fill_log.csv.gz).
+counts as a gap and sets the fill targets; no FAFB connection is copied.
+Three rules (details below and in results/complete_brain_2026-09-27/README.md):
+  1. population gaps: under-reconstructed sensory types (the left antenna's
+     ORNs) are mirrored from their complete side;
+  2. senses short on both sides (hearing, wind, other Johnston's organ, head
+     bristles): the better side, raised to FAFB's size (x the synapse scale),
+     is mirrored as a whole group;
+  3. left/right symmetrisation of every connection group (symmetrize), exact
+     per postsynaptic cell; mirror copies that would be autapses are moved to
+     the next cell of the type (move_autapses).
+Dimorphic / male-specific types are never filled. Every change is logged
+(fill_log.csv.gz for the population fills, fill_log_groups.csv.gz for groups;
+counts in data/metadata/build_manifest_merged.json).
 
 What the data support (measured 2026-09-27, sim scratch analysis; numbers in
 the build manifest):
@@ -314,7 +326,7 @@ def symmetrize(W, t, sd, template=None, sign=None):
              "synapses_in_unmirrorable_pct": round(100 * float(g.to_numpy()[unpaired].sum() / np.abs(W.data).sum()), 3),
              "synapses_without_side_pct": round(100 * float(E.c[~ok].sum() / E.c.sum()), 3),
              "mirror_connections_added": int(keep_a.sum()),
-             "mirror_connections_skipped_sign0": int((~keep_a).sum()),
+             "mirror_connections_skipped_sign0": int((wa == 0).sum()),
              "groups_total_corrected": fixed}
     return W2, stats
 
@@ -347,7 +359,9 @@ def _exact_totals(W, t, sd, template=None):
     todo = todo[todo != 0]
     if not len(todo):
         return W, 0
-    # the largest connection of each group to correct
+    # the largest connection of each group to correct (the calibrated build;
+    # spreading the correction proportionally instead changed the brain enough
+    # to fail the exam's no_latching -- it would need re-calibration)
     key = pd.MultiIndex.from_arrays([Eo.tp, Eo.sp, Eo.tq, Eo.sq])
     d_edge = todo.reindex(key).to_numpy()
     sel = ~np.isnan(d_edge)
@@ -360,6 +374,52 @@ def _exact_totals(W, t, sd, template=None):
     data[pos] = np.sign(data[pos]) * mag
     W = sp.csr_matrix((data, W.indices, W.indptr), shape=W.shape)
     return W, int(len(big))
+
+
+def move_autapses(W, W_raw, t, sd):
+    """Mirror copies are mapped by rank, which wraps round when the mirror side
+    has fewer cells of a type, so a connection between two cells of one type
+    can land on one cell: an autapse the data does not have (review
+    2026-09-27: 255 created; the raw MaleCNS has 26, which are kept).
+      - the mirror side has 2+ cells of the type: the autapse moves to the next
+        cell of the same type and side, so the group (type, side) -> (type,
+        side) and the left/right balance are unchanged;
+      - the mirror side has ONE cell: a within-type connection cannot exist
+        there, so the group cannot be mirrored at all. It is treated like the
+        other unmirrorable groups: no copy, and the source side's connections
+        are restored to their raw strength (symmetrize had halved them for the
+        copy; second review 2026-09-27).
+    Done after the build rather than inside symmetrize() so that nothing else
+    in the calibrated brain changes (re-routing inside it shifted
+    _exact_totals' corrections and the exam). Returns (W, moved, restored
+    groups)."""
+    flip = {"left": "right", "right": "left"}
+    W = W.tolil()
+    d = W.diagonal()
+    raw = W_raw.diagonal()
+    cells = {k: v.to_numpy() for k, v in pd.DataFrame({"t": t, "s": sd, "i": np.arange(len(t))}).groupby(["t", "s"])["i"]}
+    moved, single = 0, set()
+    for i in np.flatnonzero((d != 0) & (raw == 0)):
+        c = cells.get((t[i], sd[i]), np.array([i]))
+        v = d[i]
+        W[i, i] = 0
+        if len(c) > 1:
+            j = c[(int(np.searchsorted(c, i)) + 1) % len(c)]
+            W[i, j] = W[i, j] + v
+            moved += 1
+        else:
+            single.add((t[i], sd[i]))
+    Wr = W_raw.tocsr()
+    for ty, side in single:
+        src = cells.get((ty, flip.get(side, "")), np.array([], np.int64))
+        for a in src:
+            row = Wr.getrow(a)
+            for b, val in zip(row.indices, row.data):
+                if b != a and b in set(src):
+                    W[a, b] = val                    # the raw strength (and sign)
+    W = W.tocsr()
+    W.eliminate_zeros()
+    return W, moved, len(single)
 
 
 def build() -> dict:
@@ -459,6 +519,10 @@ def build() -> dict:
     sign_m = nm["sign"].fillna(0).astype(int).to_numpy()
     W, sym = symmetrize(W, symmetry_types(tm), sdm, template, sign=sign_m)
     _log("symmetrized: %s" % sym)
+    W, sym["autapses_moved"], sym["single_cell_groups_restored"] = move_autapses(W, wm, tm, sdm)
+    _log("autapses created by the mirror copies: %d moved to the next cell of the type; %d "
+         "within-type groups facing a single cell left unmirrored (raw strength)"
+         % (sym["autapses_moved"], sym["single_cell_groups_restored"]))
     W.eliminate_zeros()
     W.sort_indices()
 

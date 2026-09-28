@@ -21,8 +21,9 @@ from simulation.engine.lif_engine import LIFEngine
 
 def _calibrated_gain() -> float:
     """Synaptic gain for the active dataset: 1.0 for FlyWire FAFB (the published
-    model); for the MaleCNS the value fitted in data/metadata/calibration_malecns.json.
-    $FLY_GAIN overrides it."""
+    model); for the male brains the value fitted in
+    data/metadata/calibration_<dataset>.json (merged; falls back to
+    calibration_malecns.json). $FLY_GAIN overrides it."""
     import json
     import config
     if os.environ.get("FLY_GAIN"):
@@ -232,10 +233,15 @@ def orn_pn_compensation(connectome, mult=None) -> list:
 
 
 def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
-    """Optional dynamics beyond the published model (adaptation, antennal-lobe
-    slow inhibition, excitatory-LN transmission), from
-    data/metadata/dynamics_<name>.json. The name comes from $FLY_DYNAMICS
-    ("published" = none, the default; "calibrated")."""
+    """Optional dynamics beyond the published model, from
+    data/metadata/dynamics_<name>_<dataset>.json if it exists, else
+    dynamics_<name>.json. The name comes from $FLY_DYNAMICS ("published" = none,
+    the default; "calibrated"). Mechanisms (each only if configured):
+    adaptation (all neurons, extra for AL local neurons, the nerve cord and
+    ascending neurons, and descending neurons), antennal-lobe slow inhibition,
+    excitatory-LN transmission, ORN->PN compensation / input normalisation /
+    lateral release, ORN short-term depression, bilateral consensus, the
+    central-complex ring, and the Giant Fibre threshold correction."""
     import json
     import config
     name = name or os.environ.get("FLY_DYNAMICS", "published")
@@ -515,8 +521,8 @@ class Session:
 
         # Neurons whose spikes are always reported individually in the raster.
         n = connectome.neurons
-        watch = n[n["super_class"].astype(str).isin(
-            ["descending", "visual_projection", "sensory"])]
+        from brain.motor.descending import watch_mask
+        watch = n[watch_mask(n)]
         self.watch_idx = watch["idx"].to_numpy(dtype=np.int64)
         self._is_watch = np.zeros(connectome.n, dtype=bool)
         self._is_watch[self.watch_idx] = True

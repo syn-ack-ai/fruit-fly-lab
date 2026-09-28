@@ -5,9 +5,9 @@
   "summary": "Our brain (FLY_DATASET=merged): the FAFB v3 calibration's mechanisms, refitted against the fly exam by cognition/calibrate_merged.py; values and their history in calibration_merged. Rationale texts inherited from FAFB describe the mechanism; the numbers here are the merged fits.",
   "adaptation": {
     "scope": "all neurons",
-    "adapt_mV_per_spike": 0.368,
+    "adapt_mV_per_spike": 0.357,
     "tau_ms": 1000.0,
-    "extra_al_ln_adapt_mV_per_spike": 1.722,
+    "extra_al_ln_adapt_mV_per_spike": 1.636,
     "rationale": "spike-frequency adaptation; removes self-sustained (latched) activity. Antennal-lobe local neurons get 1 mV more per spike (1.2 mV total) so the LN network cannot keep itself active after an odour"
   },
   "slow_inhibition": {
@@ -18,7 +18,7 @@
   },
   "al_excitatory_ln": {
     "scope": "connections from antennal-lobe local neurons with excitatory sign (FlyWire: mostly lLN1/lLN2 types; Janelia MaleCNS: cholinergic)",
-    "to_pn_gain": 0.097,
+    "to_pn_gain": 0.08,
     "to_eln_gain": 0.1,
     "rationale": "excitatory LNs reach projection neurons mainly through gap junctions; blocking chemical transmission leaves eLN->PN excitation intact (Yaksi & Wilson 2010, Neuron 67:1034; Huang et al. 2010, Neuron 67:1021 find cholinergic + electrical). The connectome records only chemical synapses, which the model turns into full-strength fast excitation: one receptor type then drives ~70% of all PNs. Chemical eLN->PN and eLN->eLN transmission is scaled to 10%; eLN->inhibitory LN is kept",
     "note": "gains multiply earlier corrections (they overwrote them before 2026-09-25)"
@@ -36,9 +36,9 @@
     "johnstons_organ_input": 0.0,
     "rationale": "The Giant Fibre's low input resistance and ~1.6 ms time constant make each synapse worth ~0.3x that of a typical descending neuron (fitted per-synapse depolarisation at the spike initiation zone 0.045-0.061 vs 0.16-0.19 mV for DNp03; Moreno-Sanchez et al. 2024; Ceballos et al. 2026 use 25 vs 300 MOhm). Johnston's organ -> GF transmission is electrical (unaffected by Cd2+, abolished in shakB mutants; Lehnert et al. 2013; Pezier et al. 2016) and sub-threshold on its own (Blagburn 2020); the model has no gap junctions, so these chemical edges are removed. Real GF: no spikes at rest or to air puffs / sound alone (Mu et al. 2014).",
     "calibration": "0.3 left the GF at 0.75 Hz under resting ORN input; 0.2 (inside the 0.083-0.35 bracket) gives 0 Hz at rest while looming still drives it to 210 Hz (was 353). 2026-09-25, cognition/calibrate_dynamics.py gf_rest_hz/gf_loom. v3 (2026-09-25): threshold_correction 0.7 on top (effective 0.14): GF 0 Hz at rest, looming 176 Hz (fly exam).",
-    "threshold_correction": 0.4,
+    "threshold_correction": 0.507,
     "threshold_rationale": "The model's threshold is 7 mV above rest (-52 -> -45 mV, Shiu et al. 2024); the Giant Fibre's is ~10 mV above rest (Blagburn 2020, PLoS One 15:e0224057). The membrane is linear below threshold, so a 10 mV gap is equivalent to scaling its inputs by 7/10 (applied on top of chemical_input_scale).",
-    "effective_input_scale": 0.1168,
+    "effective_input_scale": 0.1014,
     "note_merged": "threshold_correction fitted for the merged brain (cognition/calibrate_merged.py); effective = chemical_input_scale x threshold_correction. Other rationale texts in this file are inherited from FAFB and describe the mechanism, not these values."
   },
   "central_complex": {
@@ -69,18 +69,18 @@
   "orn_short_term_depression": {
     "enabled": true,
     "scope": "every output synapse of olfactory receptor neurons (ORN_* types)",
-    "release_f": 0.968,
+    "release_f": 0.96,
     "tau_ms": 893.0,
     "rule": "presynaptic depletion d per ORN: a spike transmits (1 - d) of full strength and leaves d = 1 - (1 - d) * release_f; d recovers to 0 with tau_ms (native engines: lif_set_std)",
     "rationale": "ORN->PN synapses depress (Kazama & Wilson 2008, Neuron 58:401), and presynaptic inhibition limits that depression (Nagel, Hong & Wilson 2015, Nat Neurosci 18:56). The depression per spike is FITTED to the measured ORN->PN transform (Olsen, Bhandawat & Wilson 2010, Neuron 66:287: PN = Rmax ORN^1.5/(ORN^1.5 + sigma^1.5), Rmax 144-170 Hz, sigma 12-45 Hz) for DL5 and DM1 (DA1 held out). Refit 2026-09-25 after the review fixes (compensation/consensus order): f 0.95/0.96/0.97/0.98 put 13/15/12/11 of 15 points in the measured band; 0.96 is the only one with all points in band and was chosen on that criterion alone (it also passes latching and odour-steering symmetry; 0.97, the previous choice, now latches). tau 893 ms from a secondary summary of Nagel et al. (not verified).",
-    "full_strength_gain": 0.656,
+    "full_strength_gain": 0.611,
     "fitted": [
       "release_f"
     ]
   },
   "orn_pn_lateral_release": {
     "enabled": true,
-    "ipsi_contra_ratio": 2.108,
+    "ipsi_contra_ratio": 1.824,
     "scope": "ORN -> uniglomerular/multiglomerular PN connections (class ALPN), split by ORN side vs PN soma side",
     "rationale": "Gaudry et al. 2013: ipsilateral ORN release exceeds contralateral; ratio fitted for the merged brain (see ipsi_contra_ratio)."
   },
@@ -163,14 +163,31 @@
         "giant_fibre.threshold_correction": 0.4
       },
       "utc": "2026-09-28T00:07:56Z"
+    },
+    {
+      "applied": {
+        "gain": 0.962,
+        "orn_short_term_depression.release_f": 0.96,
+        "orn_short_term_depression.full_strength_gain": 0.611,
+        "orn_pn_input_normalization.exponent": 0.106,
+        "orn_pn_lateral_release.ipsi_contra_ratio": 1.824,
+        "adaptation.adapt_mV_per_spike": 0.357,
+        "adaptation.extra_al_ln_adapt_mV_per_spike": 1.636,
+        "vnc.extra_adapt_mV_per_spike": 1.206,
+        "al_excitatory_ln.to_pn_gain": 0.08,
+        "giant_fibre.threshold_correction": 0.507,
+        "vnc.descending_adapt_mV_per_spike": 0.017
+      },
+      "utc": "2026-09-28T03:50:05Z"
     }
   ],
   "vnc": {
-    "extra_adapt_mV_per_spike": 1.8,
-    "rationale": "Nerve cord (male CNS only): motor-rhythm circuits (flight DLM/DVM, abdominal) sustain activity after a stimulus without their sensory feedback and neuromodulation; extra adaptation fitted against the exam's no_latching."
+    "extra_adapt_mV_per_spike": 1.206,
+    "rationale": "Nerve cord (male CNS only): motor-rhythm circuits (flight DLM/DVM, abdominal) sustain activity after a stimulus without their sensory feedback and neuromodulation; extra adaptation fitted against the exam's no_latching.",
+    "descending_adapt_mV_per_spike": 0.017
   },
   "orn_pn_input_normalization": {
-    "exponent": 0.21,
+    "exponent": 0.106,
     "clip": [
       0.5,
       2.0

@@ -119,3 +119,20 @@ def test_cascade_rejects_jitter_better_at_the_same_lag():
     a = np.std(np.diff([one(0, x, 0.1)[1] for x in jitter][50:]))
     b = np.std(np.diff([two(0, x, 0.1)[1] for x in jitter][50:]))
     assert b < 0.7 * a
+
+
+def test_adaptive_turn_lag_passes_deliberate_turns_and_filters_jitter():
+    """A turn command that keeps one sign (a person appeared) goes through
+    fast; one that keeps flipping (the DN readout's jitter) stays smoothed."""
+    import math
+    from robot.motion import MotorLag
+    fixed, adaptive = MotorLag(0.3, 1.5), MotorLag(0.3, 1.5, 1, 0.3)
+    turn = lambda m: [math.degrees(m(0.2, math.radians(60.0), 0.1)[1]) for _ in range(5)][-1]
+    assert turn(adaptive) > 2 * turn(fixed)             # after 0.5 s
+    rng = np.random.default_rng(0)
+    jit = rng.choice([-80.0, 80.0], 200)
+    out = lambda m: np.degrees(np.std([m(0.2, math.radians(x), 0.1)[1] for x in jit][50:]))
+    fixed.reset(); adaptive.reset()
+    # random same-sign runs look briefly consistent: ~1.4x the fixed lag's
+    # residual, still ~6x below the 80 deg/s input
+    assert out(adaptive) < 1.6 * out(fixed) and out(adaptive) < 20.0

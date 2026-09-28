@@ -190,22 +190,25 @@ MECHANICAL = (
         unsupported_reason=(
             "Thoracic bristle mechanosensory neurons project to the ventral "
             "nerve cord. FlyWire FAFB v783 contains the brain only, so these "
-            "neurons are absent from the dataset."),
+            "neurons are absent from it; the MaleCNS has them, but they are not "
+            "mapped to a stimulus yet."),
     ),
     Modality(
         key="touch_abdomen", label="Touch: ABDOMEN", group="Touch",
         supported=False,
         unsupported_reason=(
             "Abdominal mechanosensory neurons project to the ventral nerve "
-            "cord and are absent from FlyWire FAFB v783 (brain only)."),
+            "cord and are absent from FlyWire FAFB v783 (brain only). The MaleCNS "
+            "has them, but they are not mapped to a stimulus yet."),
     ),
     Modality(
         key="touch_leg", label="Touch: LEG (mechanical)", group="Touch",
         supported=False,
         unsupported_reason=(
             "Leg bristle and campaniform mechanosensory neurons terminate in "
-            "the ventral nerve cord and are absent from FlyWire FAFB v783. "
-            "Leg CHEMOsensation is available separately: the tarsal gustatory "
+            "the ventral nerve cord and are absent from FlyWire FAFB v783 (the "
+            "MaleCNS has them, not yet mapped to a stimulus). Leg "
+            "CHEMOsensation is available separately: the tarsal gustatory "
             "neurons do ascend to the brain."),
     ),
 )

@@ -1,5 +1,10 @@
 # Talking pet: LLM personality on the cortex, 2026-09-26 (RTX 3080 Ti, CUDA engine)
 
+> **Note (2026-09-27):** this run used an earlier persona: a cat-like pet named "Mote" with cat
+> sounds. Since 2026-09-27 the robot is **Milo**, a robot that never presents itself as an
+> animal, with robot sounds (beep, boop, chirp, trill, whirr, buzz); see `cortex/personality.py`.
+
+
     OUT=... SEEDS="1 2" CONDS="manners talk" SAFE_SPEED=1 SPEECH=1 sim/habitat_bridge/run_cortex_life.sh
 
 2 seeds x 10 days x 120 s, Habitat small house, v3 dynamics, mushroom-body

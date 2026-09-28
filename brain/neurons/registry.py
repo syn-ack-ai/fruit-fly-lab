@@ -175,3 +175,21 @@ def harmonize_malecns(neurons: pd.DataFrame) -> pd.DataFrame:
     fill = n["class"].isna() & n["flywire_type"].isin(fcls.index)
     n.loc[fill, "class"] = n.loc[fill, "flywire_type"].map(fcls)
     return n
+
+
+def canonical_super_class(neurons) -> np.ndarray:
+    """Super classes under common names for both datasets: FlyWire's
+    ("sensory", "descending", "motor", "ascending", "sensory_ascending",
+    "visual_projection", ...) and the MaleCNS's (cb_/vnc_/ol_sensory,
+    descending_neuron, cb_/vnc_motor, ascending_neuron, *_tbc ...). Kinds:
+    sensory, descending, motor, ascending, sensory_ascending, visual_projection,
+    or the dataset's own name. (Review 2026-09-27: code matching FlyWire names
+    silently found nothing on the male brains.)"""
+    sc = neurons["super_class"].fillna("").astype(str).str.replace("_tbc", "", regex=False)
+    out = sc.copy()
+    out[sc.isin(["descending_neuron", "efferent_descending", "sensory_descending"])] = "descending"
+    out[sc.isin(["ascending_neuron", "efferent_ascending"])] = "ascending"
+    out[sc.str.endswith("_motor")] = "motor"
+    out[sc.str.endswith("_sensory")] = "sensory"
+    out[sc == "sensory_ascending"] = "sensory_ascending"
+    return out.to_numpy()

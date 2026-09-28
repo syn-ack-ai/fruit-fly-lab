@@ -83,3 +83,37 @@ def test_v0_learns_where_food_is():
     assert firsts[0] is not None and firsts[1] is not None
     assert firsts[1] < firsts[0]                                    # it remembers the way
     assert cx.summary()["food_places"] >= 1
+
+
+def test_orienting_reflex_attends_to_a_person_who_appears():
+    """A person coming into view snaps the pursuit channel (attend) to their
+    bearing for ORIENT_S; not while they stay in view, not when resting."""
+    from cortex.v0 import CortexV0, ORIENT_S
+    cx = CortexV0(seed=0, manners=True, naps=True, orient=True)
+    cx.reset(0, None, None)
+    obs = lambda t, vis, az=40.0: {"robot": [0.0, 0.0, 0.0], "visible": vis, "az": az, "half": 5.0, "human": [1.0, 1.0], "dist": 2.0}
+    cmds = [cx.act(obs(0.1 * k, k >= 20), None, 0.1 * k, None) for k in range(80)]
+    on = [("attend_az" in c) for c in cmds]
+    assert not any(on[:20]) and on[20] and on[20 + int(ORIENT_S / 0.1) - 2]
+    assert not any(on[20 + int(ORIENT_S / 0.1) + 1:])          # stays in view: no re-trigger
+    assert cmds[20]["attend_az"] == 40.0 and cmds[20]["attend_gain"] == 1.0
+
+
+
+def test_orienting_reflex_stays_quiet_when_it_should():
+    """Not while resting, not mid-meal, not while giving the person space."""
+    import types
+    from cortex.v0 import CortexV0
+    obs = lambda vis: {"robot": [0.0, 0.0, 0.0], "visible": vis, "az": 40.0, "half": 5.0, "human": [1.0, 1.0], "dist": 2.0}
+    def run(setup, home=None):
+        cx = CortexV0(seed=0, manners=True, naps=True, orient=True)
+        cx.reset(0, None, None)
+        setup(cx)
+        cmds = [cx.act(obs(k >= 5), home, 0.1 * k, None) for k in range(12)]
+        return any("attend_az" in c for c in cmds[5:])
+    assert run(lambda cx: None)                                    # the control: it orients
+    assert not run(lambda cx: setattr(cx, "resting", True) or setattr(cx, "want_rest", True) or setattr(cx, "sleepy", 1.0))
+    meal = types.SimpleNamespace(battery=types.SimpleNamespace(meal=True, sense_hunger=1.0, hunger=0.5, soc=0.5),
+                                 taste=None, stats={"pets": 0, "treats": 0}, conc={"L": np.zeros(1), "R": np.zeros(1)},
+                                 petting=False, hunger=0.5)
+    assert not run(lambda cx: None, home=meal)

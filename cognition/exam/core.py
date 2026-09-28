@@ -103,7 +103,8 @@ class Ctx:
                 self.e.commit_plastic()
         self.lesioned = np.empty(0, np.int64)
         if self.cfg["lesion"] > 0:
-            sc = c.neurons["super_class"].astype(str).to_numpy()
+            from brain.neurons.registry import canonical_super_class
+            sc = canonical_super_class(c.neurons)          # FlyWire and MaleCNS names
             spare = np.isin(sc, ["sensory", "descending", "motor", "visual_projection",
                                  "ascending", "sensory_ascending"])
             cand = np.flatnonzero(~spare)
@@ -214,7 +215,8 @@ def groups() -> dict:
     g["jo_ab"] = np.flatnonzero(np.char.startswith(t.astype(str), "JO-A") | np.char.startswith(t.astype(str), "JO-B"))
     g["dnp11"] = types("DNp11")
     g["dng100"] = types("DNg100")
-    g["sensory"] = np.flatnonzero(n["super_class"].astype(str).to_numpy() == "sensory")
+    from brain.neurons.registry import canonical_super_class
+    g["sensory"] = np.flatnonzero(canonical_super_class(n) == "sensory")
     return g
 
 

@@ -14,7 +14,7 @@ docstring and in the UI's provenance panel.
 
 | Tag | Meaning |
 |---|---|
-| **A — Real data** | Comes from FlyWire FAFB v783 unmodified. Neuron identities, cell types, connectivity, synapse counts, neurotransmitter predictions, 3D positions, column assignments, community labels. |
+| **A — Real data** | Comes from FlyWire FAFB v783 or the Janelia MaleCNS v1.0 unmodified (the default gap-filled, symmetrised male brain is category C where it was changed: §11). Neuron identities, cell types, connectivity, synapse counts, neurotransmitter predictions, 3D positions, column assignments, community labels. |
 | **B — Published model** | An assumption or measurement taken from a peer-reviewed paper, cited in place. The LIF equations and constants, the excitatory/inhibitory sign convention, sensory tuning properties, descending-neuron → behaviour assignments. |
 | **C — Our approximation** | A modelling choice we made because the data does not determine it. Always documented, and where it matters, counted. |
 | **D — Our engineering** | Code with no biological content: data loading, the simulation loop, the web server, the drawing routines. |
@@ -22,6 +22,10 @@ docstring and in the UI's provenance panel.
 ---
 
 ## 1. What the simulation actually is
+
+(Sections 1-8 describe the original model on FlyWire FAFB, `FLY_DATASET=fafb`,
+with the published dynamics. The default complete male brain and the calibrated
+dynamics are in §11.)
 
 ```
 looming object (exact geometry)                      A/D
@@ -66,8 +70,11 @@ t_rfc = 2.2 ms, t_dly = 1.8 ms, w_syn = 0.275 mV.
   neuron performs substantial computation in its neurites; a Kenyon cell, an
   LPLC2 and a Giant Fibre are treated as electrically identical apart from their
   connections.
-- **No synaptic plasticity, facilitation, depression, or adaptation.** Firing
-  rates here do not decline with sustained input the way real sensory neurons do.
+- **No synaptic plasticity, facilitation, depression, or adaptation** in the
+  published model. Firing rates do not decline with sustained input the way real
+  sensory neurons do. (The calibrated dynamics add spike-frequency adaptation
+  and ORN depression, see `data/metadata/dynamics_calibrated*.json`, and
+  `brain/plasticity/` adds dopamine-gated mushroom-body learning.)
 - **No neuromodulation.** Dopamine, serotonin and octopamine are treated as fast
   excitatory transmitters. In the real animal they act on slow metabotropic
   receptors and change the state of circuits rather than driving spikes. This
@@ -76,7 +83,8 @@ t_rfc = 2.2 ms, t_dly = 1.8 ms, w_syn = 0.275 mV.
   matters acutely for escape: the Giant Fibre's output onto the tergotrochanteral
   motor neuron and the peripherally synapsing interneuron is largely
   **electrical**, and is therefore absent from the model.
-- **No spontaneous activity.** With no stimulus, the network is completely
+- **No spontaneous activity** in the published model (the calibrated dynamics
+  add resting receptor input). With no stimulus, the network is completely
   silent (`tests/test_circuits.py::test_an_unstimulated_brain_is_silent`). Real
   brains have ongoing background firing and a balance of excitation and
   inhibition that this model lacks. A consequence is visible in the escape
@@ -115,7 +123,8 @@ observed directly:
 neurotransmitter prediction. For those we take the synapse-count-weighted
 majority transmitter across the neuron's own outgoing connections. This resolves
 18,032 of them. The remaining **1,626 neurons (1.2%) have no sign and therefore
-produce no output** in the simulation. All three counts are recorded in
+produce no output** in the simulation (FAFB; the MaleCNS has 3,275 unsigned
+neurons, and treats histamine as inhibitory). All three counts are recorded in
 `data/metadata/build_manifest.json` and shown in the UI provenance panel.
 
 ---
@@ -172,8 +181,9 @@ placeholder.
 
 ## 6. Motor output (category A + B + C)
 
-**The simulation ends at the descending neurons, and that is a hard limit of the
-dataset, not a shortcut.** FlyWire FAFB is a brain connectome. The motor neurons
+**On FAFB the simulation ends at the descending neurons, and that is a hard limit
+of the dataset, not a shortcut.** FlyWire FAFB is a brain connectome (the male
+CNS includes the nerve cord: §11). The motor neurons
 that move legs and wings are in the ventral nerve cord. The 110 neurons FlyWire
 labels `motor` innervate head structures. This is asserted by
 `tests/test_circuits.py::test_no_leg_or_wing_motor_neurons_in_this_brain_dataset`.
@@ -183,9 +193,12 @@ sugar-feeding experiment reaches a real motor neuron.
 
 The descending-neuron → behaviour table in `brain/motor/descending.py` is
 **category B**: it comes from optogenetic activation and silencing experiments,
-each entry carrying its citation. It is not derivable from the connectome. Only
-8 descending cell types have assignments; **the other ~465 descending types in
-the dataset have none, and the UI reports them as "Not currently modeled."**
+each entry carrying its citation. It is not derivable from the connectome. 20
+descending cell types have assignments (plus 3 more pooled in the population
+readout); **the other ~450 descending types in the dataset have none, and the
+UI reports them as "Not currently modeled."** The Giant Fibre is read per cell
+(one command neuron); the long-mode takeoff is read as the pooled population of
+its looming DNs (DNp02, DNp04, DNp11; von Reyn et al. 2014, Ache et al. 2019).
 
 Mapping a firing rate to a 0–1 "command strength" with a half-maximum of 60 Hz,
 and the thresholds at which the body acts, are **category C** — our choices.
@@ -196,12 +209,12 @@ and the thresholds at which the body acts, are **category C** — our choices.
 
 | Not modelled | Why |
 |---|---|
-| Touch on thorax, abdomen, legs | Those mechanosensory neurons project to the ventral nerve cord and are absent from FAFB v783. |
+| Touch on thorax, abdomen, legs | Those mechanosensory neurons project to the ventral nerve cord: absent from FAFB v783; present in the MaleCNS but not yet mapped to a stimulus. |
 | Light / vision from photoreceptors | Histamine is missing from the neurotransmitter vocabulary, so the photoreceptor→lamina sign would be inverted (§3). |
-| Leg and wing motor neurons, muscles | Ventral nerve cord (§6). |
+| Leg and wing motor neurons, muscles | FAFB: ventral nerve cord (§6). MaleCNS: present, but no leg or muscle model reads them yet (§11). |
 | Gap junctions, including the Giant Fibre's output synapses | Not in the dataset (§2). |
 | Neuromodulatory state, hunger, arousal, circadian phase | No model of internal state. A real fly's response to food depends heavily on satiety. |
-| Learning and memory | No plasticity. The mushroom body is present and wired, but cannot learn here. |
+| Learning and memory | The published model has no plasticity; `brain/plasticity/mushroom_body.py` adds dopamine-gated KC->MBON learning (graded APL inhibition), used by the robot. |
 | Flight aerodynamics, leg biomechanics | The body is kinematic (§8). |
 | The ocelli, and most of the ~465 unassigned descending neuron types | No behavioural assignment we would stand behind. |
 
@@ -251,10 +264,12 @@ and the evidence are in `results/complete_brain_2026-09-27/README.md`.
 
 What changes against §7: the nerve cord is present, so leg and wing motor
 neurons, leg sensory neurons and the descending -> nerve cord -> motor neuron
-path exist. A leg-level turning readout is NOT yet usable: with the final
-calibration, DNa02 moves the legs' coxa turn index weakly and with mixed signs
-across seeds (`experiments/vnc_turn_test.py`, results/complete_brain_2026-09-27);
-the robot's body is driven from the brain's steering descending neurons. The fly is male; sex differences
+path exist. A leg-level turning readout is NOT yet usable: DNa02 moves the
+legs' coxa turn index consistently in sign (left DNa02 -0.09 on 8/8 seeds,
+right +0.06 on 7/8; `experiments/vnc_turn_test.py`), but summed coxa-motor-
+neuron rate is not stride length (DNa02 turns the fly by shortening ipsilateral
+strides; Yang et al. 2024), so it cannot be read as a turn without a leg model.
+The robot's body is driven from the brain's steering descending neurons. The fly is male; sex differences
 are concentrated in higher brain centres and the sensory/motor periphery is
 largely isomorphic (Berg et al. 2026), which the gap filling relies on.
 
@@ -263,7 +278,8 @@ reconstruction gap, never where the two animals merely differ:
 1. *Left-antenna olfactory receptor neurons*: 994 left vs 1,637 right by wiring
    (FAFB 1,117 / 1,132). The deficient side's connection groups become the
    mirror image of the complete side ("template"); groups found only on the
-   deficient side are dropped (939 groups, 25k synapses).
+   deficient side are dropped (631 groups, 13,710 synapses, in all the filled
+   families).
 2. *Hearing, wind, other Johnston's organ, head bristles*, short on both sides
    against FAFB (connected JO-A/B 75 left / 9 right vs 207 / 169; published
    ~480 JO neurons per antenna, Kamikouchi et al. 2006): each is mirrored as a
@@ -272,8 +288,12 @@ reconstruction gap, never where the two animals merely differ:
    neurons.
 3. *Left/right symmetrisation* of every connection group (per postsynaptic
    cell), so the robot cannot drift or favour a side. Unmirrorable groups
-   (cell types present on one side only): 0.66% of synapses; neurons without
-   a side: 1.9%.
+   (cell types present on one side only): 0.62% of synapses; neurons without
+   a side: 1.9%. Mirror copies are mapped by rank; where that would wire a
+   neuron to itself (an autapse the data does not have), the copy moves to the
+   next cell of the type (255 created, 85 moved); where the mirror side has a
+   single cell of the type, the within-type group is left unmirrored at raw
+   strength (170 groups). The merged brain keeps the raw data's 26 autapses.
 Male-specific and (potentially) dimorphic cell types are never filled.
 
 **Dynamics refitted for this brain** (`data/metadata/dynamics_calibrated_merged.json`,
@@ -284,6 +304,14 @@ set reported, never optimised), including two new mechanisms:
   ascending neurons. Without it the flight and abdominal motor circuits
   sustain activity after a stimulus -- in the real fly they are held by sensory
   feedback and neuromodulation the wiring diagram does not contain.
+- *descending-neuron adaptation* (`vnc.descending_adapt_mV_per_spike`): the male
+  CNS's DN-DN and brain <-> nerve-cord loops (e.g. the two DNg33 exciting each
+  other through ~750 synapses each way, FAFB ~140) can latch after a stimulus
+  and leak stray spikes into the Giant Fibre at rest; see the calibration notes
+  in `results/complete_brain_2026-09-27/README.md`.
+- *proboscis readout*: the male brains read proboscis extension from MN9, the
+  proboscis-extension motor neuron (FlyWire's proboscis label group does not
+  exist in the MaleCNS).
 - *ORN -> PN input normalisation* (Tobin, Wilson & Lee 2017, generalised across
   glomeruli, clipped 0.5-2x, uniglomerular PNs only): PNs with more receptor
   synapses have lower input resistance. Needed for the male-enlarged VA1v

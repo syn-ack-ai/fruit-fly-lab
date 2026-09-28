@@ -1,0 +1,27 @@
+A = simulation/outputs/habitat/heldout_final/orient0
+B = simulation/outputs/habitat/heldout_final/orient1
+REAL: p(days) < 0.0023 (Bonferroni) and all seeds apart
+== petlidar
+  furniture  A    0.13  B    0.50  p(days)=0.633  
+  person     A    0.30  B    0.20  p(days)=1  
+  brake      A    0.87  B    0.75  p(days)=0.782  
+  pinned     A    1.19  B    5.23  p(days)=0.571  
+  walked     A    7.03  B    7.27  p(days)=0.853  
+  company    A   15.23  B   13.82  p(days)=0.853  
+  speed_cv   A    0.57  B    0.57  p(days)=0.684  
+  reversals  A    2.49  B    3.07  p(days)=0.141  
+  bouts      A    7.37  B    6.46  p(days)=0.168  
+  orient     A    0.58  B    0.68  p(days)=0.303  
+  eating_s   A    2.89  B    3.59  p(days)=0.752  
+== petsteer
+  furniture  A    0.70  B    0.77  p(days)=0.73  
+  person     A    0.37  B    0.13  p(days)=0.232  
+  brake      A    0.44  B    0.73  p(days)=0.626  
+  pinned     A    3.67  B    3.82  p(days)=0.982  
+  walked     A    7.12  B    7.10  p(days)=0.888  
+  company    A   13.69  B   15.92  p(days)=0.294  seeds apart only
+  speed_cv   A    0.58  B    0.58  p(days)=0.717  
+  reversals  A    3.03  B    3.92  p(days)=0.246  
+  bouts      A    7.62  B    7.17  p(days)=0.454  
+  orient     A    0.51  B    0.65  p(days)=0.195  
+  eating_s   A    3.50  B    3.57  p(days)=0.722  

@@ -1,0 +1,44 @@
+FLY EXAM  dynamics=calibrated wiring=real
+
+  [x] sugar_activates_MN9               19.2  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
+  [x] sugar_dose_monotonic                 1  target: MN9 rate rises with sugar GRN rate (10/50/200 Hz)
+  [x] bitter_no_MN9                        0  target: bitter GRNs -> MN9 silent (constraint)
+  [x] bitter_inhibits_sugar                0  target: sugar + strong bitter -> MN9 strongly reduced
+  [x] ir94e_reduces_not_abolishes      0.422  target: sugar + Ir94e -> MN9 reduced but not eliminated
+  [x] contralateral_MN9                  1.5  target: unilateral sugar -> contralateral MN9 stronger
+  [x] sugar_pathway_responders             1  target: 10 named 2nd-order/premotor types respond to sugar
+  [x] named_sufficiency                  0.8  target: 50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)
+  [x] named_necessity                      1  target: silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts
+  [x] rest_uPN_Hz                       8.58  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
+  [x] rest_LN_Hz                        7.21  target: AL local neurons 4.6 +- 2.8 Hz
+  [x] rest_KC_Hz                       0.031  target: Kenyon cells 0.1 +- 0.4 Hz
+  [x] rest_LHN_Hz                       2.15  target: lateral horn neurons low (spontaneous spikes suppressed)
+  [x] rest_GF_silent                       0  target: Giant Fibre silent at rest (fit)
+  [x] rest_MBON_Hz                      2.06  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
+  [x] kc_mixture_sparseness           0.0552  target: ~5-10% of KCs per odour
+  [x] kc_mixture_overlap               0.102  target: distinct KC codes for different odours
+  [x] no_latching                     0.0187  target: activity decays after odour offset (fit)
+  [x] pn_odour_transform               0.933  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)
+  [x] glomerulus_specificity           0.609  target: single receptor type drives mostly its own PNs (fit)
+  [x] looming_drives_GF                  202  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
+  [x] odour_lateralization             0.014  target: odour at right antenna steers right vs left (fit)
+  [x] pursuit_sign                     0.652  target: LC10a target right steers right vs left
+  [x] compass_tracking_deg              5.47  target: E-PG bump reads back the heading
+  [x] goal_steering_sign                30.8  target: goal clockwise -> DNa02 right > left
+  [x] sound_startle                        1  target: JO-A/B burst -> DNp11 up, walking command down (fit)
+  [x] mb_conditioning                  0.569  target: paired odour's MBON11 drops more than unpaired
+  [x] symmetry_looming                 0.952  target: mirror-image GF responses to left/right looming
+  [x] symmetry_pursuit                 0.975  target: left/right pursuit responses of similar size
+  [ ] symmetry_odour                   0.545  target: left/right odour steering of similar size (fit)
+  [x] health_saturation             1.21e-05  target: almost no neurons pinned >250 Hz
+  [x] health_rate_cv                   0.348  target: steady population rate at rest
+
+  shiu      9/9 passed, score 1.00
+  rest      6/6 passed, score 1.00
+  calib     12/12 passed, score 1.00
+  symmetry  2/3 passed, score 0.97
+  health    2/2 passed, score 1.00
+  OVERALL   31/32 passed, score 1.00
+    held_out   21/21
+    constraint 3/3
+    fit        7/8

@@ -21,7 +21,17 @@ const CLASS_COLOR = {
   visual_centrifugal: [ 90, 140, 200],
   motor:              [255, 190,  90],
   endocrine:          [200, 120, 200],
+  vnc_intrinsic:      [150, 110,  90],   // the male CNS's nerve cord
 };
+// the MaleCNS's class names -> the FlyWire colours (review 2026-09-27: the male
+// brains drew grey)
+Object.assign(CLASS_COLOR, {
+  ol_intrinsic: CLASS_COLOR.optic, cb_intrinsic: CLASS_COLOR.central,
+  cb_sensory: CLASS_COLOR.sensory, vnc_sensory: CLASS_COLOR.sensory, ol_sensory: CLASS_COLOR.sensory,
+  descending_neuron: CLASS_COLOR.descending, ascending_neuron: CLASS_COLOR.ascending,
+  cb_motor: CLASS_COLOR.motor, vnc_motor: CLASS_COLOR.motor,
+  cb_endocrine: CLASS_COLOR.endocrine, vnc_endocrine: CLASS_COLOR.endocrine,
+});
 
 const state = {
   latest: null, classes: [], pos: null, codes: null, n: 0,

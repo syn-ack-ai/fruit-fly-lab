@@ -31,6 +31,10 @@ SCOPE AND THIRD-PARTY TERMS
 * FlyWire FAFB v783 connectome data (and anything derived from it, e.g.
   web/data/*.bin) is distributed by FlyWire under CC BY-NC-SA 4.0: non-commercial
   use, with attribution, share-alike. See DATA_SOURCES.md.
-* The Janelia MaleCNS v1.0 data, the Hallem & Carlson (2006) odour-response
-  table and all cited results belong to their authors; cite them as listed in
-  the source files.
+* The Janelia MaleCNS v1.0 data (CC-BY 4.0), the Hallem & Carlson (2006)
+  odour-response table (via the drosolf package; see its licence) and all cited
+  results belong to their authors; cite them as listed in DATA_SOURCES.md.
+  The merged brain (data/derived/merged/) is built from the MaleCNS with FAFB
+  statistics deciding what is a gap and setting fill targets (no FAFB
+  connection is copied); whether FAFB's CC BY-NC-SA terms extend to it is an
+  open question -- treat it as non-commercial until it is settled.

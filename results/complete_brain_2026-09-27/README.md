@@ -57,7 +57,14 @@ centres, the sensory and motor periphery largely isomorphic (Berg et al.
 Groups found only on a deficient side, not confirmed by the template: 631
 groups / 13,710 synapses dropped (ORN 9,925; other JO 1,641; head bristles
 1,569; wind 532; hearing 43). Male-specific / dimorphic types are never
-filled. Total: 88,816,375 -> 89,413,617 synapses (+0.67%). Logs:
+filled. Mirror copies are mapped by rank; where that would wire a neuron to
+itself (an autapse the data does not have), the copy is moved to the next cell
+of the type (`move_autapses`, added the same evening after a review: 255
+created, 85 moved). Where the mirror side has a single cell of the type (170
+groups), a within-type connection cannot exist there, so the group is left
+unmirrored at its raw strength, like other one-sided types (second review). The
+brain keeps the raw data's 26 autapses. Total: 88,816,375 -> 89,414,640 synapses
+(+0.67%). Logs:
 `fill_log_population.csv.gz`, `fill_log_groups.csv.gz`,
 `data/metadata/build_manifest_merged.json`.
 
@@ -84,16 +91,47 @@ the seed set +200 were never used to choose, and are reported below. The two
 odour-steering tests were exempted from ranking (a documented limitation, §5).
 `data/metadata/dynamics_calibrated_merged.json` + `calibration_merged.json`:
 
-| setting | FAFB v3 | merged |
-|---|---|---|
-| synaptic gain | 1.0 | **0.976** |
-| ORN depression release_f / full strength | 0.96 / 1.0 | 0.968 / 0.656 |
-| ORN->PN ipsi/contra release ratio | 1.4 | 2.11 |
-| adaptation (all / extra AL local neurons) | 0.2 / 1.0 mV | 0.368 / 1.72 mV |
-| excitatory AL-LN -> PN gain | 0.1 | 0.097 |
-| Giant Fibre threshold correction | 0.7 | 0.40 |
-| **new:** nerve-cord adaptation (nerve-cord + ascending neurons) | - | 1.8 mV |
-| **new:** ORN->PN input normalisation (Tobin et al. 2017; uniglomerular, 0.5-2x) | - | exponent 0.21 |
+| setting | FAFB v3 | merged (first fit) | **merged (current)** |
+|---|---|---|---|
+| synaptic gain | 1.0 | 0.976 | **0.962** |
+| ORN depression release_f / full strength | 0.96 / 1.0 | 0.968 / 0.656 | 0.96 / 0.611 |
+| ORN->PN ipsi/contra release ratio | 1.4 | 2.11 | 1.82 |
+| adaptation (all / extra AL local neurons) | 0.2 / 1.0 mV | 0.368 / 1.72 mV | 0.357 / 1.64 mV |
+| excitatory AL-LN -> PN gain | 0.1 | 0.097 | 0.08 |
+| Giant Fibre threshold correction | 0.7 | 0.40 | 0.507 |
+| **new:** nerve-cord adaptation (nerve-cord + ascending neurons) | - | 1.8 mV | 1.21 mV |
+| **new:** ORN->PN input normalisation (Tobin et al. 2017; uniglomerular, 0.5-2x) | - | exponent 0.21 | 0.106 |
+| **new:** descending-neuron adaptation | - | - | 0.017 mV (searched 0-0.5) |
+
+**Why it was refitted.** The autapse fix changed only a few hundred
+connections, but it moved the exam's `no_latching` test (0.019 -> 0.28 on the
++200 seeds).
+Rebuilding showed why: after some odour mixtures, loops of mutually exciting
+descending neurons (DNg33, DNg12, DNge019, DNge027), the brain <-> nerve-cord
+loop and optic-lobe circuits either settle or lock on, depending on small
+details. The first fit sat near that tipping point, so its pass was partly luck.
+
+A new random search (48 candidates around the first fit, same protocol,
+descending-neuron adaptation added as a free setting) chose the values above.
+The search left descending adaptation near zero; the other settings moved
+instead (weaker ORN depression and excitatory LNs, a higher Giant Fibre
+threshold). A sweep of descending adaptation alone (0.1-0.3 mV) did not make
+`no_latching` reliable either way.
+
+A second review then restored 170 single-cell within-type groups to raw
+strength (§2). That changed 288 connections, and `no_latching` failed again on
+the +200 seeds (0.127). A third search chose on THREE seed sets (the exam's,
++100 and +300; `--choose-offsets 100,300`): none of its top six candidates
+passed `no_latching` on all three.
+
+So latching is structural, not a tuning problem. In every latching case the
+DNg33 <-> AN09A005 <-> IN09A005 brain <-> nerve-cord loop stays on (DNg33 ->
+AN09A005: ~2,900 synapses; the two DNg33 excite each other through ~750 each
+way, FAFB ~140), joined by other sites depending on the case: FR1 ring neurons
+of the fan-shaped body, optic-lobe Mi18 / Lawf2, the DNg12 / DNge019 pairs.
+The applied calibration stays the second search's (above). The fix is a
+mechanism the model lacks -- most likely short-term depression at high-rate
+synapses -- and is open (ROADMAP.md).
 
 Nerve-cord adaptation: without it, the flight (DLM/DVM) and abdominal motor
 circuits kept firing after a stimulus -- activity a real fly's sensory
@@ -106,21 +144,32 @@ has no nerve cord, so this never arose before.
 
 | seed set | passed | held-out | constraints | fit | failed |
 |---|---|---|---|---|---|
-| +200 (never used for choosing) | **31/32** | **21/21** | 3/3 | 7/8 | symmetry_odour |
-| exam seeds (used for choosing) | 31/32 | 21/21 | 3/3 | 7/8 | rest_GF_silent (0.33 Hz: 2 spikes in 6 s) |
+| +200 (never used for choosing) | **30/32** | **21/21** | 3/3 | 6/8 | no_latching (0.127; §3, §5), symmetry_odour |
+| exam seeds (used for choosing) | **32/32** | 21/21 | 3/3 | 8/8 | none |
 
-Robustness (exam seeds): mean AUC **0.92** (FAFB v3 0.95).
+Robustness (exam seeds): mean AUC **0.85**. The first fit scored 0.92 and
+FAFB v3 scores 0.95. The weakest perturbations are synaptic gain x1.3,
+flipped transmitter signs (13% of neurons) and 80% sensor loss (0.6 each at
+the strongest level). Since the second review, the lesion test also spares
+the male brain's sensory, motor and descending neurons, as it always did for
+FAFB (`registry.canonical_super_class`). The first fit's exam files are kept
+as `exam_merged_seeds*_before_autapse_fix.txt` (31/32 on both seed sets).
 
 **Left/right bias with symmetric input** (`symmetry_*.txt`, 8 paired seeds,
 steering DNs L-R): FAFB has a real bias -- DNa01 +3.5 Hz at rest, +5.3 Hz
-while walking (p < 0.01). The complete brain: none significant (all p >= 0.10),
-including the legs. A robot on FAFB would drift.
+while walking (p < 0.01). The complete brain: none significant (current fit:
+all p >= 0.07, including the legs; first fit, `symmetry_merged_before_refit.txt`:
+all p >= 0.10). A robot on FAFB would drift.
 
-**Tests**: `pytest tests` (default = merged) 163 passed; `FLY_DATASET=fafb`
-184 passed.
+**Tests** (current): `pytest tests` (default = merged) 197 passed;
+`FLY_DATASET=fafb` 218 passed.
 
 ## 5. Known limitations (open)
 
+- **Latching after a stimulus** on some seed sets (above): a brain <-> nerve-cord
+  loop (DNg33, AN09A005, IN09A005) can stay on after an odour ends. The robot
+  shows no symptom of it in Habitat that we have found (stray startles came
+  from a readout, now fixed), but it is a fragility of the model.
 - **Odour steering** toward an odour on one antenna is weak (passes
   odour_lateralization on some seed sets, symmetry_odour on none reliably;
   on 12 fresh seeds an earlier calibration gave turn bias 0.004, p = 0.5 vs

@@ -3,7 +3,7 @@
   "version": "1",
   "base": "Janelia MaleCNS v1.0 (brain/connectivity/build_malecns.py)",
   "reference": "FlyWire FAFB v783 (decides what is a gap; nothing copied from it)",
-  "built_utc": "2026-09-28T00:11:32.945097+00:00",
+  "built_utc": "2026-09-28T04:02:07.475130+00:00",
   "rules": {
     "COUNT_GAP_IN_FAMILY": 0.6,
     "FAMILY_GAP": 0.5,
@@ -279,7 +279,9 @@
     "synapses_without_side_pct": 1.893,
     "mirror_connections_added": 574820,
     "mirror_connections_skipped_sign0": 1008,
-    "groups_total_corrected": 81785
+    "groups_total_corrected": 81785,
+    "autapses_moved": 85,
+    "single_cell_groups_restored": 170
   },
   "evidence_2026_09_27": {
     "male_groups_lopsided_where_fafb_symmetric": 3640,
@@ -297,10 +299,10 @@
   },
   "protected_types": 479,
   "n_neurons": 165122,
-  "n_neuron_pairs": 6735132,
-  "n_synapses": 89413617,
+  "n_neuron_pairs": 6734930,
+  "n_synapses": 89414640,
   "synapses_before": 88816375,
-  "synapses_changed_pct": 0.672,
+  "synapses_changed_pct": 0.674,
   "super_class_counts": {
     "ol_intrinsic": 89390,
     "cb_intrinsic": 32160,

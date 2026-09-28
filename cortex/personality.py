@@ -12,7 +12,7 @@ Layers and who wins:
   fly brain (connectome)  moves the body, eats, startles, pursues   (10 kHz)
   neocortex v0            map, drives, critic, manners              (10 Hz)
   personality (this)      speech, intentions, voice, diary          (~ one call per event, ~2 s)
-  safety layer            speed limit near people; nothing above can change it
+  safety layers           lidar brake, speed limit near people, emergency return; nothing above changes them
 An intention only nudges the neocortex's choice, weighted by the matching drive:
 a pet that is full is not made to eat because the model said so.
 

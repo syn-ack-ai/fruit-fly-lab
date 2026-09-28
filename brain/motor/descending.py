@@ -1,18 +1,19 @@
 """
 Motor output: reading behavioural commands off real descending neurons (DNs).
 
-IMPORTANT SCOPE LIMIT
----------------------
-FlyWire FAFB v783 is a BRAIN connectome. The motor neurons that move legs and
-wings are in the ventral nerve cord, which is NOT part of this dataset. The 110
-neurons FlyWire labels `motor` innervate head structures (proboscis, antennae),
-not the flight or leg muscles.
-
-Therefore the last neural stage this project can simulate is the descending
-neuron population (1,305 DNs in v783). That is the genuine output of the brain:
-DNs are the only pathway from brain to ventral nerve cord. Everything past the
-DNs -- muscles, legs, wings, body dynamics -- is a body model, and is labelled
-as such in the UI.
+SCOPE
+-----
+FlyWire FAFB v783 (FLY_DATASET=fafb) is a BRAIN connectome: the motor neurons
+that move legs and wings are in the ventral nerve cord, which it lacks (its 110
+`motor` neurons innervate the proboscis and antennae). The default complete
+male CNS (FLY_DATASET=merged) includes the nerve cord and its leg and wing motor
+neurons, but no leg model reads them yet (experiments/vnc_turn_test.py), so on
+both datasets the body reads behaviour off the descending neurons (1,305 DNs in
+FAFB, 1,314 in the MaleCNS): the brain's only pathway to the nerve cord.
+Everything past the DNs -- muscles, legs, wings, body dynamics -- is a body
+model, and is labelled as such in the UI. The proboscis is read from real motor
+neurons (proboscis_motor_indices). Escapes: the Giant Fibre is read per cell,
+the long-mode takeoff as the pooled population of its looming DNs.
 
 PROVENANCE
 ----------
@@ -255,6 +256,16 @@ POOLED_CHANNELS = ("turn", "forward_walk", "backward_walk", "landing", "flight_p
 # pet heads for its person: 2.7 takeoffs a day with no threat in Habitat.
 # Pooled, looms still trigger (LC4/LPLC2 at 20-150 Hz, both sides or one).
 POOLED_ALWAYS = ("escape_long_mode",)
+DN_SUPER_CLASSES = ("descending", "descending_neuron")   # FlyWire / MaleCNS
+
+
+def watch_mask(neurons) -> np.ndarray:
+    """Descending, visual projection and sensory neurons (the raster's
+    individually reported cells), under FlyWire's and the MaleCNS's class
+    names (MaleCNS: descending_neuron, cb_/vnc_/ol_sensory, ...)."""
+    sc = neurons["super_class"].fillna("").astype(str)
+    return (sc.isin(DN_SUPER_CLASSES + ("visual_projection", "sensory"))
+            | sc.str.endswith("_sensory")).to_numpy()
 
 CHANNELS = tuple(sorted({d.channel for d in DN_COMMANDS + POPULATION_EXTRA}))
 # cell types reported individually (lr_<type>, hz_<type>) by channels()
@@ -287,8 +298,10 @@ class DescendingReadout:
             self.commands.append((cmd, cells))
 
         # All descending neurons, for the "brain output" activity display.
+        # (FlyWire: "descending"; MaleCNS: "descending_neuron" -- review
+        # 2026-09-27: the male brains matched none)
         self.all_dn = connectome.neurons[
-            connectome.neurons["super_class"].astype(str) == "descending"]
+            connectome.neurons["super_class"].astype(str).isin(DN_SUPER_CLASSES)]
         self.dn_idx = self.all_dn["idx"].to_numpy(dtype=np.int64)
 
         # Index arrays per (cell_type, side)
@@ -438,8 +451,9 @@ class DescendingReadout:
 
     def _population_channels(self, sums, window_ms, act, hz) -> dict:
         """Pooled channels (see POPULATION_EXTRA): rate = all spikes of the
-        channel's cells on a side / its cells / window; escape channels keep
-        the single-cell (max) reading, as the Giant Fibre is one command cell."""
+        channel's cells on a side / its cells / window. The Giant Fibre keeps
+        the single-cell (max) reading, as it is one command cell; the long-mode
+        takeoff is always pooled (POOLED_ALWAYS)."""
         sums = np.asarray(sums, float)
         size = 1.0 / (self._gscale * 1e-3)                  # cells per group
         f = lambda hz_: hz_ / (hz_ + CHANNEL_HALF_MAX_HZ)

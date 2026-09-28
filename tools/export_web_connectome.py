@@ -175,8 +175,8 @@ def export_meta(c, conn_info, neu_info, cell_types, classes, sides) -> None:
     from brain.motor.descending import proboscis_motor_indices
     prob = [int(i) for i in proboscis_motor_indices(c)]
 
-    watch = c.neurons[c.neurons["super_class"].astype(str).isin(
-        ["descending", "visual_projection", "sensory"])]["idx"].to_numpy()
+    from brain.motor.descending import watch_mask
+    watch = c.neurons[watch_mask(c.neurons)]["idx"].to_numpy()
 
     neuropils = c.neurons["primary_neuropil"].fillna("").astype(str)
     npl = sorted(set(neuropils))

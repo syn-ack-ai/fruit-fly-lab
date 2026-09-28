@@ -13,13 +13,23 @@ simulated time):
     -> the connectome (simulation.engine.session.Session, calibrated dynamics)
     -> descending neurons -> fly/body/foraging_body.ForagingBody (the same
        motor readout as the closed-loop fly world: DNg100 forward walking,
-       DNa01/DNa02 steering, MDN backward, plus the spontaneous walking rhythm
-       the missing nerve cord would supply)
+       DNa01/DNa02 steering, MDN backward, plus a spontaneous walking rhythm
+       standing in for the nerve cord's -- FAFB has none, and the male CNS's
+       leg motor neurons are not read yet)
     -> robot velocity, SCALED from fly to robot (documented approximation):
        speed x 0.025 (fly walking 12 mm/s -> robot 0.3 m/s), limited to
        -0.3 .. +0.5 m/s; turn rate x 0.5 (deg/s), limited to +-120 deg/s.
        The robot cannot fly: a takeoff (escape) becomes a fast dash in the
        direction the body chose.
+    -> motor dynamics (robot/motion.MotorLag, FLY_MOTOR_TAU, default 0.3 s speed
+       / 1.5 s turn), then the robot's layers in order: battery (emergency
+       return, dock approach), the speed governor near people, the lidar safety
+       layer (--lidar; --avoid steers around obstacles, robot/avoid.py), a flat
+       battery stops it.
+
+Bodies: --body spot (default) or rover (the Waveshare UGV's footprint).
+--real-senses: only what the real rover has (no smell, no petting or treats,
+no plant; the dock's contact is its taste).
 
 Modes: brain (the above), body_only (ForagingBody with neural=False: the same
 spontaneous walking rhythm, no brain - the "brain disconnected" control),
@@ -216,7 +226,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             cortex.know_place(BOWL_XZ)              # born on its dock: it knows where it is
             cortex._dock_known = True
     emergency = {"active": False, "s": 0.0, "events": 0}
-    # motor dynamics (robot/motion.py): FLY_MOTOR_TAU="tau_v,tau_w[,stages]" (seconds;
+    # motor dynamics (robot/motion.py): FLY_MOTOR_TAU="tau_v,tau_w[,stages[,tau_w_fast]]" (seconds;
     # one value = the same tau for both; "0" = off). Default 0.3 s speed, 1.5 s
     # turning: on held-out seeds (results/habitat_real_world_2026-09-27) heading
     # reversals fell from ~185 to ~2 per active minute and aliveness 56 -> 82%,
@@ -228,7 +238,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if len(mtau) == 1:
             mtau = mtau * 2
         if max(mtau[:2]) > 0:
-            motor = MotorLag(mtau[0], mtau[1], int(mtau[2]) if len(mtau) > 2 else 1)
+            motor = MotorLag(mtau[0], mtau[1], int(mtau[2]) if len(mtau) > 2 else 1,
+                             mtau[3] if len(mtau) > 3 and mtau[3] > 0 else None)
     if person is not None:
         person.reset()
     if personality is not None:
@@ -273,12 +284,14 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                         and not getattr(cortex, "resting", False)):
                     # steer around obstacles before reaching them (robot/avoid.py)
                     from robot.safety import person_distance, scan_points_robot
-                    td = None
+                    td = ta = None
                     if getattr(cortex, "goal", None) and cortex.goal[1] == "owner" and obs["visible"]:
                         td = person_distance(obs["half"])      # the person is the target, not an obstacle
+                    if "attend_az" in cmd and obs["visible"]:
+                        ta = person_distance(obs["half"])      # the orienting reflex points at the person
                     cmd = ses.avoid.adjust(cmd, float(obs["robot"][2]) % 360.0,
                                            scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles),
-                                           last_v, td)
+                                           last_v, td, attend_dist=ta)
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)
             fr = fr_prev = ses.advance(period_ms)[-1]
             v, w = robot_command(ses.body.state)

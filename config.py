@@ -62,10 +62,11 @@ BUILD_MANIFEST = FAFB_BUILD_MANIFEST
 # --- Alternative datasets: Janelia MaleCNS v1.0 (brain + nerve cord) -------
 # FLY_DATASET=malecns loads the build of brain/connectivity/build_malecns.py;
 # FLY_DATASET=merged the "complete map" of brain/connectivity/merge.py (the
-# MaleCNS with its reconstruction gaps filled from its mirror side and from
-# FlyWire FAFB; same neurons in the same order, so every MaleCNS lookup file
-# serves both). FlyWire-specific checks (root-ID prefix, neuron count, FlyWire
-# source files) apply to the default FAFB dataset only.
+# MaleCNS with its reconstruction gaps filled from its mirror side; FlyWire
+# FAFB decides what is a gap and sets the fill targets for senses short on both
+# sides; same neurons in the same order, so every MaleCNS lookup file serves
+# both). FlyWire-specific checks (root-ID prefix, neuron count, FlyWire source
+# files) apply to FLY_DATASET=fafb only.
 # default (2026-09-27): our brain, the merged male CNS; FlyWire FAFB with FLY_DATASET=fafb
 DATASET_KEY = os.environ.get("FLY_DATASET", "merged")
 MALE_CNS = DATASET_KEY in ("malecns", "merged")   # the MaleCNS neuron set (brain + VNC)

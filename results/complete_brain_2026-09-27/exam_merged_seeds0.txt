@@ -1,53 +1,180 @@
+kc_mixture_sparseness        PASS 0.04601377 {'wiring': 'real'}
+kc_mixture_overlap           PASS 0.10141713 {'wiring': 'real'}
+no_latching                  PASS 0.02532726 {'wiring': 'real'}
+rest_LHN_Hz                  PASS 1.83520599 {'wiring': 'real'}
+rest_GF_silent               PASS 0.16666666 {'wiring': 'real'}
+rest_MBON_Hz                 PASS 1.66838487 {'wiring': 'real'}
+rest_uPN_Hz                  PASS 7.07198067 {'wiring': 'real'}
+rest_LN_Hz                   PASS 6.78690476 {'wiring': 'real'}
+rest_KC_Hz                   PASS 0.02107939 {'wiring': 'real'}
+sugar_activates_MN9          PASS       16.5 {'wiring': 'real'}
+sugar_dose_monotonic         PASS        1.0 {'wiring': 'real'}
+bitter_no_MN9                PASS       0.25 {'wiring': 'real'}
+health_saturation            PASS 1.33546116 {'wiring': 'real'}
+health_rate_cv               PASS 0.38116832 {'wiring': 'real'}
+bitter_inhibits_sugar        PASS 0.00757575 {'wiring': 'real'}
+ir94e_reduces_not_abolishes  PASS 0.27272727 {'wiring': 'real'}
+contralateral_MN9            PASS       2.75 {'wiring': 'real'}
+pn_odour_transform           PASS        1.0 {'wiring': 'real'}
+glomerulus_specificity       PASS 0.61069288 {'wiring': 'real'}
+looming_drives_GF            PASS     221.25 {'wiring': 'real'}
+sugar_pathway_responders     PASS        1.0 {'wiring': 'real'}
+named_sufficiency            PASS        0.9 {'wiring': 'real'}
+named_necessity              PASS        1.0 {'wiring': 'real'}
+sugar_activates_MN9          fail      0.375 {'wiring': 'real', 'wsyn': 0.7}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'wsyn': 0.7}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'wsyn': 0.7}
+looming_drives_GF            PASS 187.916666 {'wiring': 'real', 'wsyn': 0.7}
+pursuit_sign                 PASS 0.63667970 {'wiring': 'real', 'wsyn': 0.7}
+sugar_activates_MN9          PASS      8.375 {'wiring': 'real', 'wsyn': 0.85}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'wsyn': 0.85}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'wsyn': 0.85}
+looming_drives_GF            PASS 206.666666 {'wiring': 'real', 'wsyn': 0.85}
+pursuit_sign                 PASS 0.65438241 {'wiring': 'real', 'wsyn': 0.85}
+goal_steering_sign           PASS 39.1666666 {'wiring': 'real'}
+sound_startle                PASS        1.0 {'wiring': 'real'}
+mb_conditioning              PASS 0.57378848 {'wiring': 'real'}
+sugar_activates_MN9          PASS      27.25 {'wiring': 'real', 'wsyn': 1.15}
+bitter_no_MN9                PASS        0.5 {'wiring': 'real', 'wsyn': 1.15}
+rest_GF_silent               fail        0.5 {'wiring': 'real', 'wsyn': 1.15}
+looming_drives_GF            PASS 234.166666 {'wiring': 'real', 'wsyn': 1.15}
+pursuit_sign                 PASS 0.60787275 {'wiring': 'real', 'wsyn': 1.15}
+sugar_activates_MN9          PASS     12.125 {'wiring': 'real', 'edge_drop': 0.1}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'edge_drop': 0.1}
+rest_GF_silent               PASS 0.08333333 {'wiring': 'real', 'edge_drop': 0.1}
+looming_drives_GF            PASS 222.083333 {'wiring': 'real', 'edge_drop': 0.1}
+pursuit_sign                 PASS 0.66518082 {'wiring': 'real', 'edge_drop': 0.1}
+sugar_activates_MN9          PASS     14.125 {'wiring': 'real', 'edge_drop': 0.05}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'edge_drop': 0.05}
+rest_GF_silent               fail       0.25 {'wiring': 'real', 'edge_drop': 0.05}
+looming_drives_GF            PASS     226.25 {'wiring': 'real', 'edge_drop': 0.05}
+pursuit_sign                 PASS 0.56520305 {'wiring': 'real', 'edge_drop': 0.05}
+sugar_activates_MN9          PASS      7.125 {'wiring': 'real', 'edge_drop': 0.2}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'edge_drop': 0.2}
+rest_GF_silent               PASS 0.08333333 {'wiring': 'real', 'edge_drop': 0.2}
+looming_drives_GF            PASS 205.416666 {'wiring': 'real', 'edge_drop': 0.2}
+pursuit_sign                 PASS 0.59409507 {'wiring': 'real', 'edge_drop': 0.2}
+sugar_activates_MN9          PASS     31.375 {'wiring': 'real', 'wsyn': 1.3}
+bitter_no_MN9                fail      1.625 {'wiring': 'real', 'wsyn': 1.3}
+rest_GF_silent               fail        1.0 {'wiring': 'real', 'wsyn': 1.3}
+looming_drives_GF            PASS 244.166666 {'wiring': 'real', 'wsyn': 1.3}
+pursuit_sign                 PASS 0.56442772 {'wiring': 'real', 'wsyn': 1.3}
+odour_lateralization         PASS 0.01146512 {'wiring': 'real'}
+pursuit_sign                 PASS 0.63177784 {'wiring': 'real'}
+compass_tracking_deg         PASS 7.57194927 {'wiring': 'real'}
+sugar_activates_MN9          PASS     17.375 {'wiring': 'real', 'lesion': 0.01}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'lesion': 0.01}
+rest_GF_silent               fail 0.33333333 {'wiring': 'real', 'lesion': 0.01}
+looming_drives_GF            PASS      222.5 {'wiring': 'real', 'lesion': 0.01}
+pursuit_sign                 PASS 0.63767290 {'wiring': 'real', 'lesion': 0.01}
+sugar_activates_MN9          PASS       20.5 {'wiring': 'real', 'nt_flip': 0.03}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'nt_flip': 0.03}
+rest_GF_silent               PASS 0.16666666 {'wiring': 'real', 'nt_flip': 0.03}
+looming_drives_GF            PASS 222.916666 {'wiring': 'real', 'nt_flip': 0.03}
+pursuit_sign                 PASS 0.45889970 {'wiring': 'real', 'nt_flip': 0.03}
+sugar_activates_MN9          PASS       10.0 {'wiring': 'real', 'lesion': 0.03}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'lesion': 0.03}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'lesion': 0.03}
+looming_drives_GF            PASS 219.166666 {'wiring': 'real', 'lesion': 0.03}
+pursuit_sign                 PASS 0.63831051 {'wiring': 'real', 'lesion': 0.03}
+sugar_activates_MN9          PASS     26.875 {'wiring': 'real', 'nt_flip': 0.07}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'nt_flip': 0.07}
+rest_GF_silent               fail 0.66666666 {'wiring': 'real', 'nt_flip': 0.07}
+looming_drives_GF            PASS 218.333333 {'wiring': 'real', 'nt_flip': 0.07}
+pursuit_sign                 PASS 0.50582082 {'wiring': 'real', 'nt_flip': 0.07}
+sugar_activates_MN9          PASS      9.125 {'wiring': 'real', 'lesion': 0.05}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'lesion': 0.05}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'lesion': 0.05}
+looming_drives_GF            PASS     218.75 {'wiring': 'real', 'lesion': 0.05}
+pursuit_sign                 PASS 0.66631477 {'wiring': 'real', 'lesion': 0.05}
+sugar_activates_MN9          PASS      13.75 {'wiring': 'real', 'sensor_drop': 0.2}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'sensor_drop': 0.2}
+rest_GF_silent               PASS 0.16666666 {'wiring': 'real', 'sensor_drop': 0.2}
+looming_drives_GF            PASS      202.5 {'wiring': 'real', 'sensor_drop': 0.2}
+pursuit_sign                 PASS 0.59678950 {'wiring': 'real', 'sensor_drop': 0.2}
+sugar_activates_MN9          PASS     33.875 {'wiring': 'real', 'nt_flip': 0.13}
+bitter_no_MN9                fail        4.5 {'wiring': 'real', 'nt_flip': 0.13}
+rest_GF_silent               fail 0.58333333 {'wiring': 'real', 'nt_flip': 0.13}
+looming_drives_GF            PASS      200.0 {'wiring': 'real', 'nt_flip': 0.13}
+pursuit_sign                 PASS 0.56554042 {'wiring': 'real', 'nt_flip': 0.13}
+sugar_activates_MN9          fail        2.0 {'wiring': 'real', 'sensor_drop': 0.8}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'sensor_drop': 0.8}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'sensor_drop': 0.8}
+looming_drives_GF            fail       72.5 {'wiring': 'real', 'sensor_drop': 0.8}
+pursuit_sign                 PASS 0.33574900 {'wiring': 'real', 'sensor_drop': 0.8}
+symmetry_looming             PASS        1.0 {'wiring': 'real'}
+symmetry_pursuit             PASS 0.93030286 {'wiring': 'real'}
+symmetry_odour               PASS 0.74946672 {'wiring': 'real'}
+sugar_activates_MN9          PASS     12.375 {'wiring': 'real', 'sensor_drop': 0.5}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'sensor_drop': 0.5}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'sensor_drop': 0.5}
+looming_drives_GF            PASS     163.75 {'wiring': 'real', 'sensor_drop': 0.5}
+pursuit_sign                 PASS 0.54602648 {'wiring': 'real', 'sensor_drop': 0.5}
+sugar_activates_MN9          fail      1.375 {'wiring': 'real', 'sensor_gain': 0.3}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'sensor_gain': 0.3}
+rest_GF_silent               PASS 0.08333333 {'wiring': 'real', 'sensor_gain': 0.3}
+looming_drives_GF            PASS 115.833333 {'wiring': 'real', 'sensor_gain': 0.3}
+pursuit_sign                 PASS 0.39739651 {'wiring': 'real', 'sensor_gain': 0.3}
+sugar_activates_MN9          fail      3.875 {'wiring': 'real', 'sensor_gain': 0.5}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'sensor_gain': 0.5}
+rest_GF_silent               PASS        0.0 {'wiring': 'real', 'sensor_gain': 0.5}
+looming_drives_GF            PASS 157.916666 {'wiring': 'real', 'sensor_gain': 0.5}
+pursuit_sign                 PASS 0.51829219 {'wiring': 'real', 'sensor_gain': 0.5}
+sugar_activates_MN9          PASS     34.625 {'wiring': 'real', 'sensor_gain': 2.0}
+bitter_no_MN9                PASS        0.0 {'wiring': 'real', 'sensor_gain': 2.0}
+rest_GF_silent               fail       0.25 {'wiring': 'real', 'sensor_gain': 2.0}
+looming_drives_GF            PASS 286.666666 {'wiring': 'real', 'sensor_gain': 2.0}
+pursuit_sign                 PASS 0.72403083 {'wiring': 'real', 'sensor_gain': 2.0}
 FLY EXAM  dynamics=calibrated wiring=real
 
-  [x] sugar_activates_MN9               18.8  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
+  [x] sugar_activates_MN9               16.5  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
   [x] sugar_dose_monotonic                 1  target: MN9 rate rises with sugar GRN rate (10/50/200 Hz)
-  [x] bitter_no_MN9                        0  target: bitter GRNs -> MN9 silent (constraint)
-  [x] bitter_inhibits_sugar          0.00667  target: sugar + strong bitter -> MN9 strongly reduced
-  [x] ir94e_reduces_not_abolishes       0.42  target: sugar + Ir94e -> MN9 reduced but not eliminated
+  [x] bitter_no_MN9                     0.25  target: bitter GRNs -> MN9 silent (constraint)
+  [x] bitter_inhibits_sugar          0.00758  target: sugar + strong bitter -> MN9 strongly reduced
+  [x] ir94e_reduces_not_abolishes      0.273  target: sugar + Ir94e -> MN9 reduced but not eliminated
   [x] contralateral_MN9                 2.75  target: unilateral sugar -> contralateral MN9 stronger
   [x] sugar_pathway_responders             1  target: 10 named 2nd-order/premotor types respond to sugar
   [x] named_sufficiency                  0.9  target: 50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)
   [x] named_necessity                      1  target: silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts
-  [x] rest_uPN_Hz                       8.72  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
-  [x] rest_LN_Hz                        7.15  target: AL local neurons 4.6 +- 2.8 Hz
-  [x] rest_KC_Hz                      0.0258  target: Kenyon cells 0.1 +- 0.4 Hz
-  [x] rest_LHN_Hz                       2.11  target: lateral horn neurons low (spontaneous spikes suppressed)
-  [ ] rest_GF_silent                   0.333  target: Giant Fibre silent at rest (fit)
-  [x] rest_MBON_Hz                      1.83  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
-  [x] kc_mixture_sparseness           0.0578  target: ~5-10% of KCs per odour
-  [x] kc_mixture_overlap               0.112  target: distinct KC codes for different odours
-  [x] no_latching                     0.0134  target: activity decays after odour offset (fit)
-  [x] pn_odour_transform               0.933  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)
-  [x] glomerulus_specificity           0.536  target: single receptor type drives mostly its own PNs (fit)
-  [x] looming_drives_GF                  201  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
-  [x] odour_lateralization            0.0173  target: odour at right antenna steers right vs left (fit)
-  [x] pursuit_sign                     0.642  target: LC10a target right steers right vs left
-  [x] compass_tracking_deg              6.74  target: E-PG bump reads back the heading
-  [x] goal_steering_sign                35.8  target: goal clockwise -> DNa02 right > left
+  [x] rest_uPN_Hz                       7.07  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
+  [x] rest_LN_Hz                        6.79  target: AL local neurons 4.6 +- 2.8 Hz
+  [x] rest_KC_Hz                      0.0211  target: Kenyon cells 0.1 +- 0.4 Hz
+  [x] rest_LHN_Hz                       1.84  target: lateral horn neurons low (spontaneous spikes suppressed)
+  [x] rest_GF_silent                   0.167  target: Giant Fibre silent at rest (fit)
+  [x] rest_MBON_Hz                      1.67  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
+  [x] kc_mixture_sparseness            0.046  target: ~5-10% of KCs per odour
+  [x] kc_mixture_overlap               0.101  target: distinct KC codes for different odours
+  [x] no_latching                     0.0253  target: activity decays after odour offset (fit)
+  [x] pn_odour_transform                   1  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)
+  [x] glomerulus_specificity           0.611  target: single receptor type drives mostly its own PNs (fit)
+  [x] looming_drives_GF                  221  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
+  [x] odour_lateralization            0.0115  target: odour at right antenna steers right vs left (fit)
+  [x] pursuit_sign                     0.632  target: LC10a target right steers right vs left
+  [x] compass_tracking_deg              7.57  target: E-PG bump reads back the heading
+  [x] goal_steering_sign                39.2  target: goal clockwise -> DNa02 right > left
   [x] sound_startle                        1  target: JO-A/B burst -> DNp11 up, walking command down (fit)
-  [x] mb_conditioning                  0.401  target: paired odour's MBON11 drops more than unpaired
-  [x] symmetry_looming                 0.985  target: mirror-image GF responses to left/right looming
-  [x] symmetry_pursuit                 0.972  target: left/right pursuit responses of similar size
-  [x] symmetry_odour                   0.827  target: left/right odour steering of similar size (fit)
-  [x] health_saturation             1.21e-05  target: almost no neurons pinned >250 Hz
-  [x] health_rate_cv                   0.337  target: steady population rate at rest
+  [x] mb_conditioning                  0.574  target: paired odour's MBON11 drops more than unpaired
+  [x] symmetry_looming                     1  target: mirror-image GF responses to left/right looming
+  [x] symmetry_pursuit                  0.93  target: left/right pursuit responses of similar size
+  [x] symmetry_odour                   0.749  target: left/right odour steering of similar size (fit)
+  [x] health_saturation             1.34e-05  target: almost no neurons pinned >250 Hz
+  [x] health_rate_cv                   0.381  target: steady population rate at rest
 
   shiu      9/9 passed, score 1.00
-  rest      5/6 passed, score 0.99
+  rest      6/6 passed, score 1.00
   calib     12/12 passed, score 1.00
   symmetry  3/3 passed, score 1.00
   health    2/2 passed, score 1.00
-  OVERALL   31/32 passed, score 1.00
+  OVERALL   32/32 passed, score 1.00
     held_out   21/21
     constraint 3/3
-    fit        7/8
+    fit        8/8
 
   ROBUSTNESS (core tests pass rate per level; AUC = mean)
-  wsyn         AUC 0.85  {'0.7': 0.8, '0.85': 1.0, '1.15': 1.0, '1.3': 0.6}
-  edge_drop    AUC 1.00  {'0.05': 1.0, '0.1': 1.0, '0.2': 1.0}
-  nt_flip      AUC 0.93  {'0.03': 1.0, '0.07': 1.0, '0.13': 0.8}
-  lesion       AUC 1.00  {'0.01': 1.0, '0.03': 1.0, '0.05': 1.0}
-  sensor_drop  AUC 0.80  {'0.2': 1.0, '0.5': 0.8, '0.8': 0.6}
-  sensor_gain  AUC 0.93  {'0.3': 0.8, '0.5': 1.0, '2.0': 1.0}
-  mean robustness AUC 0.92
+  wsyn         AUC 0.80  {'0.7': 0.8, '0.85': 1.0, '1.15': 0.8, '1.3': 0.6}
+  edge_drop    AUC 0.93  {'0.05': 0.8, '0.1': 1.0, '0.2': 1.0}
+  lesion       AUC 0.93  {'0.01': 0.8, '0.03': 1.0, '0.05': 1.0}
+  nt_flip      AUC 0.80  {'0.03': 1.0, '0.07': 0.8, '0.13': 0.6}
+  sensor_drop  AUC 0.87  {'0.2': 1.0, '0.5': 1.0, '0.8': 0.6}
+  sensor_gain  AUC 0.80  {'0.3': 0.8, '0.5': 0.8, '2.0': 0.8}
+  mean robustness AUC 0.85

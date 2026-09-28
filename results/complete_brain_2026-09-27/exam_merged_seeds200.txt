@@ -1,44 +1,76 @@
+kc_mixture_sparseness        PASS 0.04407603 {'wiring': 'real'}
+kc_mixture_overlap           PASS 0.08792768 {'wiring': 'real'}
+no_latching                  fail 0.12706425 {'wiring': 'real'}
+rest_LHN_Hz                  PASS 1.84906367 {'wiring': 'real'}
+rest_GF_silent               PASS 0.08333333 {'wiring': 'real'}
+rest_MBON_Hz                 PASS 1.88659793 {'wiring': 'real'}
+rest_uPN_Hz                  PASS 6.90434782 {'wiring': 'real'}
+rest_LN_Hz                   PASS 6.78134920 {'wiring': 'real'}
+rest_KC_Hz                   PASS 0.02300688 {'wiring': 'real'}
+sugar_activates_MN9          PASS     16.875 {'wiring': 'real'}
+sugar_dose_monotonic         PASS        1.0 {'wiring': 'real'}
+bitter_no_MN9                PASS       0.25 {'wiring': 'real'}
+bitter_inhibits_sugar        PASS        0.0 {'wiring': 'real'}
+ir94e_reduces_not_abolishes  PASS 0.42962962 {'wiring': 'real'}
+contralateral_MN9            PASS       3.75 {'wiring': 'real'}
+health_saturation            PASS 1.33546116 {'wiring': 'real'}
+health_rate_cv               PASS 0.34298236 {'wiring': 'real'}
+sugar_pathway_responders     PASS        1.0 {'wiring': 'real'}
+named_sufficiency            PASS        0.8 {'wiring': 'real'}
+named_necessity              PASS        1.0 {'wiring': 'real'}
+pn_odour_transform           PASS 0.93333333 {'wiring': 'real'}
+glomerulus_specificity       PASS 0.66318624 {'wiring': 'real'}
+looming_drives_GF            PASS      222.5 {'wiring': 'real'}
+goal_steering_sign           PASS       35.0 {'wiring': 'real'}
+sound_startle                PASS        1.0 {'wiring': 'real'}
+mb_conditioning              PASS 0.73067915 {'wiring': 'real'}
+odour_lateralization         PASS 0.01406744 {'wiring': 'real'}
+pursuit_sign                 PASS 0.64107825 {'wiring': 'real'}
+compass_tracking_deg         PASS 5.97348247 {'wiring': 'real'}
+symmetry_looming             PASS 0.88888888 {'wiring': 'real'}
+symmetry_pursuit             PASS 0.96386485 {'wiring': 'real'}
+symmetry_odour               fail 0.16724376 {'wiring': 'real'}
 FLY EXAM  dynamics=calibrated wiring=real
 
-  [x] sugar_activates_MN9               19.2  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
+  [x] sugar_activates_MN9               16.9  target: sugar GRNs 100 Hz -> MN9 fires (constraint)
   [x] sugar_dose_monotonic                 1  target: MN9 rate rises with sugar GRN rate (10/50/200 Hz)
-  [x] bitter_no_MN9                        0  target: bitter GRNs -> MN9 silent (constraint)
+  [x] bitter_no_MN9                     0.25  target: bitter GRNs -> MN9 silent (constraint)
   [x] bitter_inhibits_sugar                0  target: sugar + strong bitter -> MN9 strongly reduced
-  [x] ir94e_reduces_not_abolishes      0.422  target: sugar + Ir94e -> MN9 reduced but not eliminated
-  [x] contralateral_MN9                  1.5  target: unilateral sugar -> contralateral MN9 stronger
+  [x] ir94e_reduces_not_abolishes       0.43  target: sugar + Ir94e -> MN9 reduced but not eliminated
+  [x] contralateral_MN9                 3.75  target: unilateral sugar -> contralateral MN9 stronger
   [x] sugar_pathway_responders             1  target: 10 named 2nd-order/premotor types respond to sugar
   [x] named_sufficiency                  0.8  target: 50 Hz activation -> MN9 as the Shiu model predicts (8 yes, 2 no)
   [x] named_necessity                      1  target: silencing: Roundup required (MN9 <= 80%), Fdg not (> 80%), as the Shiu model predicts
-  [x] rest_uPN_Hz                       8.58  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
-  [x] rest_LN_Hz                        7.21  target: AL local neurons 4.6 +- 2.8 Hz
-  [x] rest_KC_Hz                       0.031  target: Kenyon cells 0.1 +- 0.4 Hz
-  [x] rest_LHN_Hz                       2.15  target: lateral horn neurons low (spontaneous spikes suppressed)
-  [x] rest_GF_silent                       0  target: Giant Fibre silent at rest (fit)
-  [x] rest_MBON_Hz                      2.06  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
-  [x] kc_mixture_sparseness           0.0552  target: ~5-10% of KCs per odour
-  [x] kc_mixture_overlap               0.102  target: distinct KC codes for different odours
-  [x] no_latching                     0.0187  target: activity decays after odour offset (fit)
+  [x] rest_uPN_Hz                        6.9  target: uniglomerular PNs 4.6 +- 4.2 Hz (fit)
+  [x] rest_LN_Hz                        6.78  target: AL local neurons 4.6 +- 2.8 Hz
+  [x] rest_KC_Hz                       0.023  target: Kenyon cells 0.1 +- 0.4 Hz
+  [x] rest_LHN_Hz                       1.85  target: lateral horn neurons low (spontaneous spikes suppressed)
+  [x] rest_GF_silent                  0.0833  target: Giant Fibre silent at rest (fit)
+  [x] rest_MBON_Hz                      1.89  target: MBONs tonically active (one ex vivo measurement: 12 Hz)
+  [x] kc_mixture_sparseness           0.0441  target: ~5-10% of KCs per odour
+  [x] kc_mixture_overlap              0.0879  target: distinct KC codes for different odours
+  [ ] no_latching                      0.127  target: activity decays after odour offset (fit)
   [x] pn_odour_transform               0.933  target: ORN->PN transform: PN rise vs ORN rate matches the measured curve (Rmax 144-170 Hz, sigma 12-45 Hz) (fit)
-  [x] glomerulus_specificity           0.609  target: single receptor type drives mostly its own PNs (fit)
-  [x] looming_drives_GF                  202  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
-  [x] odour_lateralization             0.014  target: odour at right antenna steers right vs left (fit)
-  [x] pursuit_sign                     0.652  target: LC10a target right steers right vs left
-  [x] compass_tracking_deg              5.47  target: E-PG bump reads back the heading
-  [x] goal_steering_sign                30.8  target: goal clockwise -> DNa02 right > left
+  [x] glomerulus_specificity           0.663  target: single receptor type drives mostly its own PNs (fit)
+  [x] looming_drives_GF                  222  target: LC4/LPLC2 150 Hz -> Giant Fibre (constraint)
+  [x] odour_lateralization            0.0141  target: odour at right antenna steers right vs left (fit)
+  [x] pursuit_sign                     0.641  target: LC10a target right steers right vs left
+  [x] compass_tracking_deg              5.97  target: E-PG bump reads back the heading
+  [x] goal_steering_sign                  35  target: goal clockwise -> DNa02 right > left
   [x] sound_startle                        1  target: JO-A/B burst -> DNp11 up, walking command down (fit)
-  [x] mb_conditioning                  0.569  target: paired odour's MBON11 drops more than unpaired
-  [x] symmetry_looming                 0.952  target: mirror-image GF responses to left/right looming
-  [x] symmetry_pursuit                 0.975  target: left/right pursuit responses of similar size
-  [ ] symmetry_odour                   0.545  target: left/right odour steering of similar size (fit)
-  [x] health_saturation             1.21e-05  target: almost no neurons pinned >250 Hz
-  [x] health_rate_cv                   0.348  target: steady population rate at rest
+  [x] mb_conditioning                  0.731  target: paired odour's MBON11 drops more than unpaired
+  [x] symmetry_looming                 0.889  target: mirror-image GF responses to left/right looming
+  [x] symmetry_pursuit                 0.964  target: left/right pursuit responses of similar size
+  [ ] symmetry_odour                   0.167  target: left/right odour steering of similar size (fit)
+  [x] health_saturation             1.34e-05  target: almost no neurons pinned >250 Hz
+  [x] health_rate_cv                   0.343  target: steady population rate at rest
 
   shiu      9/9 passed, score 1.00
   rest      6/6 passed, score 1.00
-  calib     12/12 passed, score 1.00
-  symmetry  2/3 passed, score 0.97
+  calib     11/12 passed, score 0.98
+  symmetry  2/3 passed, score 0.76
   health    2/2 passed, score 1.00
-  OVERALL   31/32 passed, score 1.00
+  OVERALL   30/32 passed, score 0.97
     held_out   21/21
     constraint 3/3
-    fit        7/8
+    fit        6/8

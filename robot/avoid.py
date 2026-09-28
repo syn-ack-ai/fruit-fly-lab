@@ -119,10 +119,28 @@ class Avoid:
         return chosen, urgency
 
     def adjust(self, cmd: dict, heading_deg: float, points_robot, v: float,
-               target_dist: float | None = None, gain: float = 1.0) -> dict:
+               target_dist: float | None = None, gain: float = 1.0,
+               attend_dist: float | None = None) -> dict:
         """The neocortex's top-down command, bent around obstacles (world
-        goal_deg is CCW; azimuths + = right, cortex.topdown.goal_azimuth)."""
+        goal_deg is CCW; azimuths + = right, cortex.topdown.goal_azimuth).
+        target_dist: the goal is a person this far away (not an obstacle);
+        attend_dist: the same for an explicit attention direction."""
         from cortex.topdown import goal_azimuth
+        if cmd.get("attend_az") is not None and cmd.get("attend_gain", 0.0) > 0:
+            # an explicit attention direction (the neocortex's orienting reflex)
+            # pulls the body toward the person: the goal keeps its own corridor
+            # check (below) and the pull gets its own, with its own chooser
+            # state (2026-09-27: checking only the goal / straight ahead tripled
+            # furniture bumps with the reflex on; a shared check then rewrote
+            # the goal -- second review)
+            base = {k: v_ for k, v_ in cmd.items() if k not in ("attend_az", "attend_gain")}
+            out = self.adjust(base, heading_deg, points_robot, v, target_dist, gain)
+            if getattr(self, "_attend", None) is None:
+                self._attend = Avoid(self.L, self.W)
+            az, u = self._attend.choose(points_robot, float(cmd["attend_az"]), v, attend_dist)
+            out["attend_az"] = az
+            out["attend_gain"] = max(float(cmd["attend_gain"]), gain * u) if u > 0 else float(cmd["attend_gain"])
+            return out
         out = dict(cmd)
         g = cmd.get("goal_deg")
         if g is not None and cmd.get("goal_gain", 0.0) > 0:

@@ -48,5 +48,5 @@ contact), "pressed" is time the navmesh held the base against something.
   in this small house and the pet bumped into its person more (12 pet-caused vs
   6) -- open question.
 - Caveats: one house; the FAFB brain has a measured left/right steering bias
-  (see `results/complete_brain_2026-09-27/`); to be rerun on the complete brain
-  with only the rover's real senses (`REAL=1`).
+  (see `results/complete_brain_2026-09-27/`). Rerun on the complete brain with
+  only the rover's real senses (`REAL=1`): `results/habitat_real_world_2026-09-27/`.

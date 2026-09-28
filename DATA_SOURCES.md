@@ -1,13 +1,21 @@
 # DATA_SOURCES.md
 
 Every dataset and model this project uses. Nothing else is loaded, and nothing
-is ever silently substituted: `config.require_source_files()` refuses to run if
-a source file is missing, and `tests/test_data_provenance.py` verifies the
-SHA-256 of every file the pipeline reads.
+is ever silently substituted.
+
+- FlyWire FAFB: `config.require_source_files()` refuses to run if a source file
+  is missing, and `tests/test_data_provenance.py` (run with `FLY_DATASET=fafb`)
+  verifies the SHA-256 of every FlyWire file the pipeline reads.
+- Janelia MaleCNS (the default brain's source): the MD5 of every input file is
+  recorded in `data/metadata/build_manifest_malecns.json` (`source_md5`); no
+  test re-verifies them.
+- One further data file, `data/external/Hallem_Carlson_2006.csv` (the
+  odorant-receptor response table, from the drosolf package), drives the ORNs'
+  resting rates and the odour responses (`brain/sensory/olfaction.py`).
 
 ---
 
-## 1. Primary neural dataset
+## 1. FlyWire FAFB v783 (the reference brain; the default until 2026-09-27)
 
 | field | value |
 |---|---|
@@ -19,7 +27,7 @@ SHA-256 of every file the pipeline reads.
 | **Neurons** | **139,255** (verified — matches the published count exactly) |
 | **Connections** | 5,342,446 (pre, post, neuropil) rows → **3,732,460** unique neuron pairs |
 | **Synapses** | **50,666,648** |
-| **Local path** | `D:\Fruitfly\FlyWire Brain Dataset (FAFB v783)` |
+| **Local path** | a `flywire_v783/` folder next to the repository, or `$FLYWIRE_V783_DIR` (originally `D:\Fruitfly\FlyWire Brain Dataset (FAFB v783)`) |
 | **Date downloaded** | 2026-08-25 |
 | **Date verified in this project** | 2026-08-28 |
 
@@ -83,6 +91,8 @@ asserted by `tests/test_data_provenance.py::test_neuron_positions_span_a_real_fl
 | **Download** | <https://male-cns.janelia.org/download/> (licence CC-BY 4.0) |
 | **Traced neurons used** | 165,122 (status "Traced"; fragments, glia and orphans excluded) |
 | **Connections** | 6,169,278 neuron pairs with >= 5 synapses (the FAFB threshold); 88,816,375 synapses |
+| **Signs** | ACh, DA, OCT, SER excitatory; GABA, Glu, histamine inhibitory; 3,275 neurons unsigned |
+| **Our merged brain** | 165,122 neurons, 6,734,930 neuron pairs, 89,414,640 synapses (+0.67%; `build_manifest_merged.json`) |
 | **Collaboration** | HHMI Janelia, MRC LMB / University of Cambridge, Google Research |
 
 Papers to cite: Berg, S. *et al.* (2026). Sexual dimorphism in the complete
@@ -228,12 +238,33 @@ and shown in the UI's provenance panel.
 | Head grooming driven by head bristles | Hampel et al. 2015, *eLife* 4:e08758 | [10.7554/eLife.08758](https://doi.org/10.7554/eLife.08758) |
 | Tarsal gustatory neurons | Ledue et al. 2015, *Curr Biol* 25:1466 | [10.1016/j.cub.2015.03.020](https://doi.org/10.1016/j.cub.2015.03.020) |
 
+Further literature the calibrated dynamics, the male brain and the robot rely
+on (cited in place in the code):
+
+| Claim | Citation |
+|---|---|
+| Odorant-receptor responses (ORN rates) | Hallem & Carlson 2006, *Cell* 125:143 |
+| The ORN -> PN transform | Olsen, Bhandawat & Wilson 2010, *Neuron* 66:287 |
+| Ipsilateral vs contralateral ORN release | Gaudry et al. 2013, *Nature* 493:424 |
+| ORN -> PN input normalisation | Tobin, Wilson & Lee 2017, *eLife* 6:e24838 |
+| Johnston's-organ subgroups and counts | Kamikouchi et al. 2006, *J Comp Neurol* 499:317 |
+| Looming size and velocity in the Giant Fibre pathway | Ache et al. 2019, *Curr Biol* 29:1073 |
+| Steering descending neurons (DNa02, DNg13 ...) | Yang et al. 2024, *Cell* 187:6290 |
+| Networks of descending neurons | Braun et al. 2024, *Nature* 630:686 |
+| Sex differences in the male CNS | Berg et al. 2026, *Cell* |
+| Proboscis extension motor neuron MN9 | Gordon & Scott 2009, *Neuron* 61:373; Shiu et al. 2024 |
+| Animacy perception (the aliveness score) | Heider & Simmel 1944, *Am J Psychol* 57:243; Tremoulet & Feldman 2000, *Perception* 29:943 |
+
 ---
 
 ## 7. Licensing
 
 FlyWire data are released under **CC BY-NC-SA 4.0** and are free for
-non-commercial use with attribution. See <https://codex.flywire.ai/about_flywire>
+non-commercial use with attribution. The Janelia MaleCNS v1.0 is released under
+**CC-BY 4.0**. Our merged brain is built from the MaleCNS, with FAFB statistics
+used to decide what is a gap and to set fill targets; no FAFB connection is
+copied into it. Whether that makes it a derivative of FAFB under CC BY-NC-SA is
+an open question; until it is settled, treat it as non-commercial. See <https://codex.flywire.ai/about_flywire>
 and the citation guidance at <https://flywire.ai/citing>. If you publish
 anything derived from this project, cite Dorkenwald et al. 2024 and
 Schlegel et al. 2024 for the data and Shiu et al. 2024 for the model.

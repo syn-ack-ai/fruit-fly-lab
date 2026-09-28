@@ -102,7 +102,11 @@ RANGES = {
     "adaptation.extra_al_ln_adapt_mV_per_spike": (0.5, 2.0),
     "vnc.extra_adapt_mV_per_spike": (0.5, 3.0),
     "al_excitatory_ln.to_pn_gain": (0.05, 0.15),
-    "giant_fibre.threshold_correction": (0.5, 0.8),
+    "giant_fibre.threshold_correction": (0.3, 0.8),   # the applied 0.40 lay outside the first range
+    # descending neurons' own adaptation (session.py): the DN-DN and brain <->
+    # nerve-cord loops (DNg33, DNg12, DNge019 ...) latch after an odour on some
+    # seeds; which build passes no_latching was a matter of chance (2026-09-27)
+    "vnc.descending_adapt_mV_per_spike": (0.0, 0.5),
 }
 
 
@@ -176,8 +180,11 @@ def main():
     ap.add_argument("--apply", default=None, help="a JSON file of overrides to write into the calibration")
     ap.add_argument("--exempt", default="",
                     help="comma-separated tests left out of the held-out ranking (documented limitations); still reported")
+    ap.add_argument("--choose-offsets", default="100",
+                    help="extra seed sets (FLY_EXAM_SEED_OFFSET) the top candidates must also pass; never 200 "
+                         "(the report set). 2026-09-27: 100,300 -- one extra set let chance decide no_latching")
     ap.add_argument("--validate", type=int, default=5,
-                    help="re-run the best N on held-out seeds (FLY_EXAM_SEED_OFFSET 100, 200) and rank by the worst")
+                    help="re-run the best N on a second seed set (FLY_EXAM_SEED_OFFSET=100) and rank by the worst; +200 is the report set, never used here")
     a = ap.parse_args()
     if config.DATASET_KEY != "merged":
         raise SystemExit("run with FLY_DATASET=merged")
@@ -220,12 +227,16 @@ def main():
     results.sort(key=fc_key)
     (out / "results.json").write_text(json.dumps(results, indent=1, default=float))
     print("\nbest on the fitting seeds:", json.dumps(results[0]["overrides"]), results[0]["passed"], results[0]["failed"])
-    # a second seed set (+100) for CHOOSING; +200 is never used here -- it is
-    # the report set (run the exam with FLY_EXAM_SEED_OFFSET=200 afterwards)
+    # further seed sets (--choose-offsets, default +100) for CHOOSING; +200 is
+    # never used here -- it is the report set (run the exam with
+    # FLY_EXAM_SEED_OFFSET=200 afterwards)
     top = results[:a.validate]
     held = []
     with ThreadPoolExecutor(a.parallel) as ex:
-        jobs = [(r, off) for r in top for off in (100,)]
+        offs = [int(x) for x in a.choose_offsets.split(",") if x.strip()]
+        if 200 in offs:
+            raise SystemExit("+200 is the report set; it must not be used for choosing")
+        jobs = [(r, off) for r in top for off in offs]
         for (r, off), v in zip(jobs, ex.map(lambda ro: run_candidate(ro[0]["k"], ro[0]["overrides"],
                                                                     a.workers, out / f"heldout{ro[1]}", ro[1]), jobs)):
             held.append({"k": r["k"], "offset": off, "passed": v["passed"], "failed": v["failed"]})

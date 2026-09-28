@@ -17,6 +17,8 @@ brain's goal (FC2), pursuit (LC10a) and teaching (DAN) neurons.
 """
 from __future__ import annotations
 
+import os
+
 import math
 
 from cortex.topdown import bearing_deg
@@ -57,5 +59,6 @@ def make_cortex(kind: str, state_path: str | None = None, seed: int = 0):
     if kind in ("v0", "v0_amnesic", "v0_manners", "pet"):
         from cortex.v0 import CortexV0
         return CortexV0(state_path=state_path, seed=seed, amnesic=kind == "v0_amnesic",
-                        manners=kind in ("v0_manners", "pet"), naps=kind == "pet")
+                        manners=kind in ("v0_manners", "pet"), naps=kind == "pet",
+                        orient=kind == "pet" and os.environ.get("FLY_ORIENT", "1") != "0")
     raise ValueError(kind)

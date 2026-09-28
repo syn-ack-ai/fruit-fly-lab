@@ -146,3 +146,44 @@ def test_body_finds_the_proboscis_motor_neurons():
         assert list(t[r.proboscis_idx]) == ["MN9", "MN9"]        # the proboscis extensor, both sides
     else:
         assert 40 <= len(r.proboscis_idx) <= 80                  # FlyWire's labelled group
+
+
+@needs_merged
+def test_merge_creates_no_autapses():
+    """Review 2026-09-27: mirror copies mapped by rank wrapped round onto the
+    same cell (255 autapses created; the raw MaleCNS has 26)."""
+    from brain.connectivity.merge import _load
+    raw = config.DERIVED_DIR / "malecns" / "connectome_malecns_v1.0.npz"
+    idx = config.DERIVED_DIR / "malecns" / "neuron_index_malecns_v1.0.csv.gz"
+    _n, w = _load(MERGED, idx)
+    _n0, w0 = _load(raw, idx)
+    assert (w.diagonal() != 0).sum() <= (w0.diagonal() != 0).sum()
+
+
+def test_move_autapses_keeps_group_totals_and_restores_single_cell_groups():
+    """Moved autapses stay in their (type, side) group; a type with one cell
+    on the mirror side cannot be mirrored, so its source side goes back to raw."""
+    import scipy.sparse as sp
+    from brain.connectivity.merge import move_autapses
+    t = np.array(["A", "A", "A", "A", "B", "B", "B"])
+    sd = np.array(["left", "left", "right", "right", "left", "left", "right"])
+    raw = sp.lil_matrix((7, 7))
+    raw[0, 1] = 6; raw[4, 5] = 8                       # within-type connections, left side
+    W = sp.lil_matrix((7, 7))
+    W[0, 1] = 3; W[2, 2] = 3                           # A: halved + a copy that wrapped onto one cell
+    W[4, 5] = 4; W[6, 6] = 4                           # B: one cell on the right -> nowhere to go
+    out, moved, restored = move_autapses(W.tocsr(), raw.tocsr(), t, sd)
+    out = out.toarray()
+    assert moved == 1 and restored == 1
+    assert np.all(np.diag(out) == 0)
+    assert out[2:4, 2:4].sum() == 3                    # A right: the copy stays in its group
+    assert out[4, 5] == 8                              # B left: raw strength again
+
+
+@pytest.mark.skipif(not config.CONNECTOME_NPZ.exists(), reason="needs the built connectome")
+def test_male_brains_find_their_descending_neurons():
+    """Review 2026-09-27: 'descending' matched none of the MaleCNS's
+    'descending_neuron's."""
+    from brain.neurons.registry import load_connectome
+    from brain.motor.descending import DescendingReadout
+    assert len(DescendingReadout(load_connectome()).all_dn) > 1000

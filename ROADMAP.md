@@ -24,11 +24,17 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
   on the brain's commands is now the default. On held-out seeds, heading
   reversals fell from ~185 to ~2 per minute and aliveness from 56% to 82%,
   with no significant safety cost.
-- **next** Turning toward the person when they appear is still only about 50%
-  (the lag slows the first turn). Try a faster turn lag only for orienting, or
-  saccade-like turns.
-- **next** Speed smoothness: the complete brain's speed varies too much
-  (CV 0.75 vs an ideal 0.3-0.7). Try a longer speed lag.
+- **done** Orienting reflex (`cortex/v0.py`, `FLY_ORIENT`). When someone comes
+  into view, the neocortex points the fly's pursuit pathway at them for 2 s and
+  the connectome turns. Held-out: turns toward the person 57/51% -> 69/67%,
+  aliveness +2-3 points, no significant safety cost. On by default.
+- **next** Getting unstuck: on a few days Milo stays pinned against furniture
+  for the rest of the day (or starts the day pinned), which dominates the
+  furniture-bump counts. Improve the pinned recovery (`robot/avoid.pivot`,
+  `robot/safety.CollisionMonitor`).
+- **next** Speed smoothness: with the motor lag, speed variation is 0.56-0.76
+  across runs, around the top of the ideal band (0.3-0.7). A longer speed lag
+  may settle it.
 - **next** Push the aliveness score as high as it will go, one change at a
   time. Tune on tuning seeds, confirm on held-out seeds, and report with
   `sim/habitat_bridge/score_pets.py`.
@@ -70,7 +76,8 @@ decides the *words*.
   which already become dopamine.
 - **later** Measure it: honesty and grounding checks in `cortex/llm_bench.py`,
   and in Habitat, whether speech lines up with real neural events.
-- **idea** "Are you a cat?" currently gets silence. Make Milo answer briefly
+- **idea** "Are you a cat?" currently gets silence ("what are you?" gets "I am
+  a robot."). Make Milo answer briefly
   and cheerfully that it is a robot.
 
 ## 3. Seeing what Milo sees and "thinks" (iPhone/iPad dashboard)
@@ -96,13 +103,30 @@ decides the *words*.
   SLAM. This is a learning project for the user, done together step by step.
 - **later** Carry the motor dynamics, lidar safety layer, hearing and face
   over to the real hardware; compare simulated and real behaviour.
+- **later** Calibrate in the home, in three kinds:
+  1. **Robot side first:** record Milo at home (lidar, camera, commands, bumps)
+     and fit the body interface (fly -> wheel scaling, the motor lag, lidar
+     thresholds, camera/lidar -> visual-neuron encoders). The same logs tune
+     Habitat toward reality (sim-to-real).
+  2. **Grafted networks:** small PyTorch nets at the fly brain's edges, trained
+     with RL or from demonstrations at home. Input grafts are learned encoders
+     from the real sensors into the fly's own channels; output grafts are a
+     cerebellum-like decoder from DN activity to wheels, compensating fragile
+     spots and learning the rover's dynamics; neocortex grafts cover maps,
+     navigation and attention. The connectome's weights stay fixed.
+  3. **Brain dynamics stay calibrated against biology** (the fly exam), never
+     tuned to make the robot behave.
+
+  Guard: after each graft, run the ablations (brain disconnected, shuffled
+  wiring). If Milo behaves the same without its real connectome, the graft has
+  taken over. The hard safety layers stay hand-written, outside any learning.
 
 ## 5. Brain and simulation
 
 - **later** A Metal (MLX) engine port for the Mac GPU. There is no CUDA on
   Apple silicon. This enables batched runs for reinforcement learning.
 - **later** Reinforcement learning, training only grafted PyTorch networks
-  (`graft/`), never the connectome's own weights, plus a training environment.
+  (a future `graft/` package), never the connectome's own weights, plus a training environment.
 - **later** Longer-horizon self-care tests: 120 s days never drain the
   battery, so "eats when hungry" (complete brain) vs "snacks" (FAFB) is untested.
 - **later** Feeding readout parity: FAFB reads a 62-neuron label group, the
@@ -117,22 +141,34 @@ decides the *words*.
 - Giant Fibre stray spikes at rest: the two DNg33 cells excite each other
   (~750 synapses each way in the male CNS, FAFB ~140) and latch at 130-140 Hz.
   These are single spikes, below the takeoff threshold, so there is no
-  behaviour. Descending-neuron adaptation was tried and not adopted: it costs
-  steering. Open: a better mechanism, for example short-term depression at
-  high-rate synapses.
-- **next** Merge bug: `merge.py` creates 281 autapses (1,496 synapses; raw
-  data 26). Fix, then rebuild, re-run the exam and re-calibrate if needed.
+  behaviour.
+- **next** Latching: after a stimulus, a brain <-> nerve-cord loop (DNg33 <->
+  AN09A005 <-> IN09A005, with FR1, optic-lobe or other DN pairs joining) can
+  stay on. The exam's `no_latching` fails on some seed sets. It is structural:
+  no calibration tried passes it on all of three seed sets, and
+  descending-neuron adaptation alone does not fix it. Add the missing
+  mechanism, most likely short-term depression at high-rate synapses, then
+  recalibrate (and recover robustness, 0.85 vs FAFB 0.95).
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
 
 ## Done recently (2026-09-27)
 
+- Merge autapse bug fixed (255 mirror-created autapses: 85 moved to the next
+  cell of the type; 170 within-type groups facing a single cell left unmirrored
+  at raw strength; the raw data's 26 kept), and the dynamics refitted, now
+  choosing on three seed sets: exam 32/32 on the fitting seeds, 30/32 on unseen
+  seeds (no_latching and odour symmetry fail), robustness 0.85 (was 0.92).
+- Male-CNS class names fixed: 1,314 descending neurons were invisible to the
+  readout's "all DNs" list and the raster.
+- Docs brought up to date: README quick start, environment variables, both
+  brains, and the limitations.
 - Stray startles fixed: the long-mode takeoff reads its looming DNs as a
   population. Two spikes of DNp11, driven by the pursuit pathway, launched
   Milo 2.7 times a day with no threat; real looms still trigger it.
 - PR #2 merged: FAFB builds can no longer overwrite the merged brain; lab
   controls, route planner and telemetry fixes.
-- The complete male-CNS brain became the default: gap-filled, left/right
-  balanced, exam 31/32 on unseen seeds.
+- The complete male-CNS brain became the default: gap-filled and left/right
+  balanced.
 - Proboscis readout fixed for male brains: the pet could not eat before.
 - Real-world Habitat comparison against FAFB, scored 0-100: tied overall. The
   complete brain is far safer, FAFB more active.

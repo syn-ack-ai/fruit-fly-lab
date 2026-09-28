@@ -40,6 +40,11 @@ MN9 alone fires at 59 Hz (FAFB group 29 Hz).
 
 ## Scores (`sim/habitat_bridge/score_pets.py`)
 
+These brain-vs-brain runs used the robot as it was then: no motor lag, the
+single-cell long-mode escape readout, no orienting reflex, and the complete
+brain before the autapse fix. The later sections change those; the comparison
+has not been re-run with them.
+
 Absolute anchors per metric (100% = ideal, 0% = a set limit), fixed before
 the merged run finished. The weights are judgement calls; every metric's own
 score is in `score_fafb_vs_merged.txt`.
@@ -130,7 +135,7 @@ Not significant:
 - **eating time** (4-5 vs 6-9 s/day: seeds apart, but p = 0.15-0.83).
 
 FAFB completed 5-9 full meals per 30 days and the complete brain 0-1. Neither
-battery ran low (0 s below 20%, no flat days).
+battery ran low (at most 0.15 s/day below 20%, no flat days).
 
 ## Feeding: eats when hungry vs snacks
 
@@ -164,8 +169,9 @@ brain.
 speed and turn rate, optionally in stages. It sits before the safety layers,
 so braking stays immediate. Its state follows what the wheels actually do, so
 it restarts smoothly after a brake (anti-windup). Startle escapes are not
-smoothed. Select it with `FLY_MOTOR_TAU="tau_v,tau_w[,stages]"`; it is off by
-default.
+smoothed. Set it with `FLY_MOTOR_TAU="tau_v,tau_w[,stages[,tau_w_fast]]"`; it is
+on by default since the held-out validation below (0.3 s / 1.5 s; `FLY_MOTOR_TAU=0`
+turns it off).
 
 Tuning ran on seeds 11-13 (3 days, petsteer, complete brain; the pre-review
 lag without anti-windup, scored with the pre-review metrics):
@@ -239,14 +245,52 @@ plausibly real even though the lidar's loom flag did not mark it.
 **Giant Fibre stray spikes at rest.** These come from DNg33: the left and right
 cells excite each other through about 750 synapses each way (FAFB about 140)
 and latch at 130-140 Hz with no input. The stray spikes are single spikes,
-below the body's takeoff threshold, and none of the Habitat escapes came from
-the Giant Fibre.
+below the body's takeoff threshold, and none of the stray (no-cause) Habitat
+escapes came from the Giant Fibre.
 
 A rate-dependent adaptation of descending neurons
 (`vnc.descending_adapt_mV_per_spike`, off by default) lowers DNg33
 (140 -> 24 Hz). But it only reduces the GF spikes 12 -> 5 per 36 s, and it
 weakens pursuit steering by up to 40%, so it was not adopted.
 
-**Side finding:** the merge creates 281 autapses (a neuron wired to itself;
-1,496 synapses) where the raw male data has 26. The number is small, but it
-is a merge bug (open; see ROADMAP.md).
+**Side finding, fixed since:** the merge created 255 autapses (a neuron wired to
+itself; the raw male data has 26). They are now moved to the next cell of the
+same type after the build (`merge.move_autapses`); see
+`results/complete_brain_2026-09-27/README.md` for the rebuild and re-calibration.
+
+## Orienting reflex
+
+With or without the motor lag, the brain turned toward a person who came into
+view only ~50% of the time.
+
+- A faster, adaptive turn lag did not help: an offline replay of the logged
+  commands and a Habitat run agreed that it let twitching back.
+- The limit was the brain's attention, not the motors.
+
+The neocortex (`cortex/v0.py`, `orient=True` for the pet, `FLY_ORIENT=0`
+turns it off) now has an orienting reflex:
+
+- When the person comes into view after >= 1 s out of sight, it points the
+  fly's pursuit neurons (LC10a, the "attend" channel) at them for 2 s, and the
+  connectome turns the body.
+- It stays quiet while resting, eating, during a meal, giving space or
+  yielding.
+- Obstacle avoidance checks the corridor toward the person separately from the
+  goal's (`robot/avoid.adjust`). The first version checked only the goal's
+  corridor or straight ahead, and bumps rose.
+
+**Held-out validation** (seeds 31-33, 10 days, the final brain and calibration;
+`score_orient_heldout.txt`, `stats_orient_heldout.txt`):
+
+| lidar / lidar steering | reflex off | reflex on |
+|---|---|---|
+| turns toward the person on appearance | 57% / 51% | **69% / 67%** |
+| aliveness | 85.3% / 82.5% | 87.6% / 86.0% |
+| pet-caused person bumps / day | 0.30 / 0.37 | 0.20 / 0.13 |
+| furniture bumps / day | 0.13 / 0.70 | 0.50 / 0.77 |
+| total | 76.5% | **78.6%** |
+
+The rise in turning toward the person is consistent in both conditions but
+not significant alone (p = 0.2-0.3; about 1 appearance a day). No safety
+difference is significant. The reflex is on by default.
+

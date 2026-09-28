@@ -63,7 +63,7 @@ memory.
 ## Verify before deploying
 
 ```bash
-python -m tools.verify_web_engine
+FLY_DATASET=fafb python -m tools.verify_web_engine   # the web build is the FAFB brain
 ```
 
 All three scenarios must report `MATCH` — identical spike counts across all

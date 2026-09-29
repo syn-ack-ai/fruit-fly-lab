@@ -179,6 +179,12 @@
         "vnc.descending_adapt_mV_per_spike": 0.017
       },
       "utc": "2026-09-28T03:50:05Z"
+    },
+    {
+      "applied": {
+        "loop_depression.release_f": 0.995
+      },
+      "utc": "2026-09-29T01:48:19Z"
     }
   ],
   "vnc": {
@@ -193,5 +199,20 @@
       2.0
     ],
     "rationale": "Tobin, Wilson & Lee 2017 (eLife 6:e24838), generalised across glomeruli: uniglomerular PNs with more ORN input have lower input resistance; scales each one's ORN input toward the median. For the male's enlarged VA1v (Or47b)."
+  },
+  "loop_depression": {
+    "release_f": 0.995,
+    "classes": [
+      "descending",
+      "ascending",
+      "vnc_intrinsic",
+      "cb_intrinsic",
+      "ol_intrinsic",
+      "visual_projection",
+      "visual_centrifugal",
+      "motor"
+    ],
+    "rationale": "Brain-wide short-term depression of every non-sensory neuron's output synapses (0.5% per spike, recovering with the ORN depression's 893 ms), as many central synapses do (short-term depression is common at excitatory and inhibitory synapses alike). The male CNS has loops -- DNg33 <-> AN09A005 <-> IN09A005 (brain <-> nerve cord), FR1, optic-lobe Mi18/Lawf2, DN pairs -- that could stay on after a stimulus; no calibration passed the exam's no_latching on all of 3 seed sets, and depressing only descending/ascending neurons (1-5%) did not either. Rate-dependent: at 0.5% per spike a neuron at 130 Hz transmits at ~2/3 strength, one at 5-20 Hz barely changes; the body reads DN spikes, which it does not touch.",
+    "result": "2026-09-28: no_latching passes on seed sets 0/+100/+200/+300 (was 2 of 4); exam 31/32 (exam seeds) and 30/32 on +200 (only the two odour-steering tests fail), held-out 21/21, robustness 0.89 (was 0.85). No other setting changed."
   }
 }

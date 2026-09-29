@@ -187,8 +187,9 @@ struct lif {
      * off unless enabled): depletion d in [0,1) per presynaptic neuron, decaying
      * by std_e every step; a spike releases (1 - d) of full strength and leaves
      * d = 1 - (1 - d) * f (f = fraction of release sites still available). */
-    float *std_f, *std_d, *std_rel; float std_e;
+    float *std_f, *std_d, *std_rel; float std_e; double std_log;
     int32_t *std_list; int std_n;
+    long *std_t;      /* step at which std_d[i] was last brought up to date (lazy decay) */
 
     /* asynchronous driver: runs lif_run_collect on its own thread */
     pthread_t driver; int has_driver;
@@ -600,6 +601,7 @@ void lif_reset(lif *e) {
     if (e->gs) memset(e->gs, 0, (size_t)n * sizeof(float));
     if (e->xflag) memset(e->xflag, 0, n);
     if (e->std_d) memset(e->std_d, 0, (size_t)n * sizeof(float));
+    if (e->std_t) memset(e->std_t, 0, (size_t)n * sizeof(long));
     for (int t = 0; t < e->nthreads; t++) e->wk[t].nxl = 0;
     for (int t = 0; t < e->nthreads; t++) {
         for (int s = 0; s <= e->D; s++) e->wk[t].ring[s].n = 0;
@@ -728,7 +730,7 @@ void lif_destroy(lif *e) {
     free(e->pe); free(e->wlut); free(e->pmult); free(e->adapt); free(e->gs); free(e->xflag); free(e->adapt_b); free(e->slow_r); free(e->split); free(e->v); free(e->g); free(e->rfc_left); free(e->rfc_len);
     free(e->silenced); free(e->is_poi); free(e->quiet); free(e->pinned);
     free(e->spike_counts); free(e->spikes);
-    free(e->std_f); free(e->std_d); free(e->std_rel); free(e->std_list);
+    free(e->std_f); free(e->std_d); free(e->std_rel); free(e->std_list); free(e->std_t);
     free(e->poi_idx); free(e->poi_p); free(e->collected);
     free(e);
 }
@@ -816,10 +818,18 @@ int lif_step(lif *e) {
     if (e->nspikes > base) qsort(e->spikes, e->nspikes, sizeof(int32_t), cmp_i32);
 
     if (e->std_n) {                                   /* short-term depression */
-        for (int q = 0; q < e->std_n; q++) { int32_t i = e->std_list[q]; e->std_d[i] = e->std_d[i] * e->std_e; }
+        /* Lazy decay (2026-09-28): d decays by std_e every step; instead of
+         * touching every depressed neuron each step (151k in the merged brain:
+         * 2.3x slower), a neuron's d is brought up to date when it spikes --
+         * the same exponential, applied once for the steps it missed. */
+        const long k = e->step_count;
         for (int s = 0; s < e->nspikes; s++) {
             int32_t i = e->spikes[s];
             if (e->std_f[i] > 0.0f) {
+                long gap = k - e->std_t[i];
+                if (gap > 0 && e->std_d[i] != 0.0f)
+                    e->std_d[i] = (float)(e->std_d[i] * exp(e->std_log * (double)gap));
+                e->std_t[i] = k;
                 float rel = 1.0f - e->std_d[i];
                 e->std_rel[i] = rel;
                 float t = rel * e->std_f[i];
@@ -964,15 +974,30 @@ void lif_set_std(lif *e, const float *f, double tau_ms) {
     int m = 0;
     for (int i = 0; i < e->n; i++) m += f[i] > 0.0f;
     free(e->std_list); e->std_list = NULL; e->std_n = 0;
-    if (!m) { free(e->std_f); free(e->std_d); free(e->std_rel); e->std_f = e->std_d = e->std_rel = NULL; return; }
+    if (!m) { free(e->std_f); free(e->std_d); free(e->std_rel); free(e->std_t);
+              e->std_f = e->std_d = e->std_rel = NULL; e->std_t = NULL; return; }
     if (!e->std_f) { e->std_f = malloc(e->n * sizeof(float)); e->std_d = calloc(e->n, sizeof(float));
-                     e->std_rel = malloc(e->n * sizeof(float)); }
+                     e->std_rel = malloc(e->n * sizeof(float)); e->std_t = calloc(e->n, sizeof(long)); }
     memcpy(e->std_f, f, e->n * sizeof(float));
     e->std_list = malloc((size_t)m * sizeof(int32_t));
     for (int i = 0; i < e->n; i++) if (f[i] > 0.0f) e->std_list[e->std_n++] = i;
     e->std_e = (float)exp(-e->dt / tau_ms);
+    e->std_log = -e->dt / tau_ms;
 }
-float *lif_std_depletion(lif *e) { return e->std_d; }
+float *lif_std_depletion(lif *e) {
+    /* bring every depressed neuron up to date (lazy decay) before exposing d */
+    if (e->std_n) {
+        const long k = e->step_count - 1;           /* the last completed step */
+        for (int q = 0; q < e->std_n; q++) {
+            int32_t i = e->std_list[q];
+            long gap = k - e->std_t[i];
+            if (gap > 0 && e->std_d[i] != 0.0f)
+                e->std_d[i] = (float)(e->std_d[i] * exp(e->std_log * (double)gap));
+            if (gap > 0) e->std_t[i] = k;
+        }
+    }
+    return e->std_d;
+}
 
 float *lif_adapt(lif *e) { return e->adapt; }
 float *lif_gs(lif *e) { return e->gs; }

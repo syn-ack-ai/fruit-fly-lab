@@ -16,9 +16,9 @@
 >   to it. The filled gaps are the left-antenna smell neurons, Johnston's organ and
 >   the head bristles; FlyWire FAFB decides what counts as a gap and sets the fill
 >   targets. Fly exam: 30/32 on a seed set never used for fitting (21/21 held-out
->   tests, 3/3 constraints), 32/32 on the fitting seeds, robustness 0.85 (FAFB 0.95).
->   Two limitations are documented. Odour steering is weak; the robot has no
->   nose. A brain <-> nerve-cord loop can latch after a stimulus on some seeds.
+>   tests, 3/3 constraints; only odour steering fails), 31/32 on the fitting seeds,
+>   robustness 0.89 (FAFB 0.95). Odour steering is a documented limitation; the
+>   robot has no nose.
 >   It has no left/right steering bias (FAFB's wiring has one). See `results/complete_brain_2026-09-27/`. FlyWire FAFB (the original
 >   female brain) remains available with `FLY_DATASET=fafb`.
 > - **Robot behaviour** (`robot/`, `cortex/`):
@@ -36,6 +36,11 @@
 > - **Getting unstuck** (`results/unstuck_2026-09-28/`). Touch is now rapidly
 >   adapting, and an unstick reflex frees Milo from walls: stuck time fell by
 >   two thirds (lidar) and ~90% (lidar steering).
+> - **Walking and latching** (`results/walking_latching_2026-09-28/`). The body's
+>   walking speed now uses each brain's own resting DNg100 rate (it used FAFB's:
+>   the male brain walked at a quarter pace). Male navigation goes through the
+>   central complex (its pursuit neurons made it walk backward). Brain-wide
+>   short-term depression stops post-stimulus latching (robustness 0.89).
 > - **Real-world Habitat test** (no smell, camera and lidar only), scored 0-100 on
 >   safety, self-care, life and "aliveness" (`sim/habitat_bridge/score_pets.py`).
 >   See `results/habitat_real_world_2026-09-27/`.
@@ -113,6 +118,8 @@ python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 | `FLY_URGE_GATE` | the personality speaks only after a vocal urge from the fly brain (`1`) |
 | `FLY_UNSTICK` | the unstick reflex with lidar steering (`1`) |
 | `FLY_TOUCH_ADAPT` | lidar touch as rapidly adapting bristles (`1`; `0` = the old steady drive) |
+| `FLY_ATTEND_FROM_GOAL` | navigation goals also drive the pursuit neurons LC10a (FAFB `1`; male brains `0`: it made them walk backward) |
+| `FLY_ORIENT_CHANNEL` | the orienting reflex's channel: `attend` (LC10a, default) or `goal` (central complex) |
 | `FLY_POP_READOUT` | pooled descending-neuron readout for all channels (off; the long-mode escape is always pooled) |
 | `FLY_EXAM_SEED_OFFSET` | shifts every exam seed (0; 100 = calibration's second set, 200 = report set) |
 | `FLYWIRE_V783_DIR` | FlyWire files (default: a `flywire_v783/` folder next to the repository) |

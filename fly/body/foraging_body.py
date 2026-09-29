@@ -66,7 +66,36 @@ TURN_NOISE_DEG_S = 90.0          # SD of spontaneous angular velocity
 TURN_TAU_S = 0.25
 SPONT_TAKEOFF_PER_S = 1 / 60.0   # while walking
 # --- neural readout gains (see docstring) ----------------------------------------
-DNG100_REST_HZ = 14.6            # model DNg100 rate under resting sensory input (C; measured 2026-09-25)
+DNG100_REST_HZ = 14.6            # model DNg100 rate under resting sensory input (C; measured 2026-09-25, FAFB)
+
+
+def _dng100_rest_hz() -> float:
+    """The dataset's own resting DNg100 rate (cognition/calibrate_body.py ->
+    data/metadata/body_readout_<dataset>.json), else the FAFB constant. The
+    complete male brain rests at ~4 Hz: read with FAFB's 14.6 Hz it walked at a
+    quarter of a fly's pace -- the whole "walks 3x less than FAFB" gap in
+    Habitat (2026-09-28)."""
+    import json
+    import warnings
+    import config
+    p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"
+    if p.exists():
+        d = json.loads(p.read_text())
+        try:
+            from cognition.calibrate_body import dynamics_hash
+            if d.get("dynamics_sha256_16") and d["dynamics_sha256_16"] != dynamics_hash():
+                warnings.warn(f"{p.name} was measured with other calibrated dynamics: re-run "
+                              "python -m cognition.calibrate_body --write")
+        except Exception:
+            pass
+        return float(d["dng100_rest_hz"])
+    if config.MALE_CNS:
+        warnings.warn(f"no {p.name}: the body uses FAFB's resting DNg100 rate (14.6 Hz) for a male brain, "
+                      "which rests near 4 Hz -- run python -m cognition.calibrate_body --write")
+    return DNG100_REST_HZ
+
+
+DNG100_REST_HZ = _dng100_rest_hz()
 DNG100_MM_PER_HZ = WALK_SPEED_MM_S / DNG100_REST_HZ
 MAX_NEURAL_WALK_MM_S = 35.0
 DNA02_TURN_DEG_S = 800.0         # per unit right-left activation difference (high gain)

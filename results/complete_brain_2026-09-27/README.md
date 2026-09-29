@@ -144,10 +144,14 @@ has no nerve cord, so this never arose before.
 
 | seed set | passed | held-out | constraints | fit | failed |
 |---|---|---|---|---|---|
-| +200 (never used for choosing) | **30/32** | **21/21** | 3/3 | 6/8 | no_latching (0.127; §3, §5), symmetry_odour |
-| exam seeds (used for choosing) | **32/32** | 21/21 | 3/3 | 8/8 | none |
+| +200 (never used for choosing) | **30/32** | **21/21** | 3/3 | 6/8 | odour_lateralization, symmetry_odour |
+| exam seeds (used for choosing) | **31/32** | 21/21 | 3/3 | 7/8 | odour_lateralization |
 
-Robustness (exam seeds): mean AUC **0.85**. The first fit scored 0.92 and
+(Current, 2026-09-28: with the brain-wide short-term depression that fixed
+latching, `results/walking_latching_2026-09-28/`. Before it: 32/32 and 30/32,
+with no_latching failing on +200.)
+
+Robustness (exam seeds): mean AUC **0.89** with the depression (0.85 before it). The first fit scored 0.92 and
 FAFB v3 scores 0.95. The weakest perturbations are synaptic gain x1.3,
 flipped transmitter signs (13% of neurons) and 80% sensor loss (0.6 each at
 the strongest level). Since the second review, the lesion test also spares
@@ -166,10 +170,10 @@ all p >= 0.10). A robot on FAFB would drift.
 
 ## 5. Known limitations (open)
 
-- **Latching after a stimulus** on some seed sets (above): a brain <-> nerve-cord
-  loop (DNg33, AN09A005, IN09A005) can stay on after an odour ends. The robot
-  shows no symptom of it in Habitat that we have found (stray startles came
-  from a readout, now fixed), but it is a fragility of the model.
+- **Latching after a stimulus** (fixed 2026-09-28): a brain <-> nerve-cord loop
+  (DNg33, AN09A005, IN09A005) could stay on after an odour ended. Brain-wide
+  short-term depression fixes it on all four seed sets tested
+  (`results/walking_latching_2026-09-28/`).
 - **Odour steering** toward an odour on one antenna is weak (passes
   odour_lateralization on some seed sets, symmetry_odour on none reliably;
   on 12 fresh seeds an earlier calibration gave turn bias 0.004, p = 0.5 vs

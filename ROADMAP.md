@@ -34,17 +34,22 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
   now rapidly adapting, as bristles are, and an unstick reflex points the goal
   at the most open way. Held-out: stuck time 44 -> 15 s/day (lidar) and
   25 -> 2 s/day (lidar steering); furniture bumps 7x fewer.
-- **next** Still ~15 s/day stuck with lidar alone (no steering, so no unstick
-  reflex). Decide whether the unstick reflex belongs to the lidar layer
-  itself.
+- **next** With lidar alone (no steering, so no unstick reflex) Milo is stuck
+  43 s/day now that it walks at a fly's pace. Decide whether the unstick
+  reflex belongs to the lidar layer itself.
+- **next** Walking: the complete brain now walks at a fly's pace at rest, but
+  in the closed loop only half as far as FAFB (9-13 vs 19-29 m/day;
+  `results/walking_latching_2026-09-28/`). Find what holds DNg100 below its
+  resting rate in Habitat (P1 excitement, the goal and touch inputs), and make
+  the lidar layer speed-aware.
 - **done** Speed smoothness: 0.56-0.58 in the latest held-out runs (ideal
   0.3-0.7).
-- **next** Why does the complete male brain walk so little? With the same
-  robot layers it walks ~3x less than FAFB (7-9 vs 20-28 m/day), which costs it
-  the "life" score (total 79.0% vs FAFB 82.5%) while it is far safer
-  (`results/unstuck_2026-09-28/`). Suspects: the forward-walking command DNg100
-  at rest (3.8 Hz), the refit's gain (0.962) and nerve-cord adaptation, P1
-  excitement slowing walking, and the male touch pathway.
+- **done** Why the complete brain walked so little
+  (`results/walking_latching_2026-09-28/`). The body's walking-speed constant
+  was FAFB's resting DNg100 rate (the male brain rests at ~3 Hz, so a quarter
+  pace). Navigation goals also drove the male brain's pursuit neurons, which
+  make it walk backward. Now each brain uses its own resting rate, and male
+  navigation goes through the central complex.
 - **next** Push the aliveness score as high as it will go, one change at a
   time. Tune on tuning seeds, confirm on held-out seeds, and report with
   `sim/habitat_bridge/score_pets.py`.
@@ -151,13 +156,10 @@ decides the *words*.
   (~750 synapses each way in the male CNS, FAFB ~140) and latch at 130-140 Hz.
   These are single spikes, below the takeoff threshold, so there is no
   behaviour.
-- **next** Latching: after a stimulus, a brain <-> nerve-cord loop (DNg33 <->
-  AN09A005 <-> IN09A005, with FR1, optic-lobe or other DN pairs joining) can
-  stay on. The exam's `no_latching` fails on some seed sets. It is structural:
-  no calibration tried passes it on all of three seed sets, and
-  descending-neuron adaptation alone does not fix it. Add the missing
-  mechanism, most likely short-term depression at high-rate synapses, then
-  recalibrate (and recover robustness, 0.85 vs FAFB 0.95).
+- **done** Latching: brain-wide short-term depression (0.5% per spike, every
+  non-sensory neuron). no_latching passes on all four seed sets tested, and
+  robustness 0.85 -> 0.89, with no recalibration. Lazy decay keeps the CPU
+  engine fast.
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
 
 ## Done recently (2026-09-28)

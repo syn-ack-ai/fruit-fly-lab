@@ -309,6 +309,17 @@ set reported, never optimised), including two new mechanisms:
   other through ~750 synapses each way, FAFB ~140) can latch after a stimulus
   and leak stray spikes into the Giant Fibre at rest; see the calibration notes
   in `results/complete_brain_2026-09-27/README.md`.
+- *short-term depression, brain-wide* (category C, 2026-09-28): every
+  non-sensory neuron's output synapses depress by 0.5% per spike (recovery
+  893 ms). Without it, brain <-> nerve-cord loops (DNg33, AN09A005, IN09A005)
+  could stay on after a stimulus on some seed sets; with it, no_latching
+  passes on all four tested seed sets and robustness rises to 0.89
+  (`results/walking_latching_2026-09-28/`).
+- *walking readout and steering route* (category C, 2026-09-28): the body's
+  speed scales with DNg100 relative to the dataset's OWN resting rate (merged
+  3.1 Hz; FAFB 14.6), and on male brains the neocortex's navigation goals go
+  through the central complex only, because the pursuit neurons LC10a
+  (courtship pursuit in males) made the robot walk backward.
 - *robot senses and states* (category C, 2026-09-28): the lidar's touch drives
   the head bristles as RAPIDLY ADAPTING mechanoreceptors (NompC; Walker,
   Willingham & Zuker 2000), which fall mostly silent under steady contact. The

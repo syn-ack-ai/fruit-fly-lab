@@ -146,13 +146,13 @@ def test_orienting_pull_is_checked_in_its_own_direction():
     right): avoidance must check THAT corridor, not straight ahead."""
     a = Avoid(HL, HW)
     right_box = _box_points(0.25, 0.6, -0.6, -0.15)          # an obstacle ahead-right, the way to the person
-    out = a.adjust({"attend_az": 45.0, "attend_gain": 1.0}, 0.0, right_box, v=0.3)
+    out = a.adjust({"attend_az": 45.0, "attend_gain": 1.0, "attend_explicit": True}, 0.0, right_box, v=0.3)
     assert out["attend_az"] != 45.0                           # bent ...
     f = corridor_free(right_box, [45.0, out["attend_az"]], HL, HW)     # (+ = right, as attend_az)
     assert f[1] > f[0]                                        # ... to a clearer corridor
     a = Avoid(HL, HW)
-    clear = a.adjust({"attend_az": 45.0, "attend_gain": 1.0}, 0.0, _box_points(3.0, 3.5, 2.0, 2.5), v=0.3)
-    assert clear == {"attend_az": 45.0, "attend_gain": 1.0}   # nothing in the way: left alone
+    clear = a.adjust({"attend_az": 45.0, "attend_gain": 1.0, "attend_explicit": True}, 0.0, _box_points(3.0, 3.5, 2.0, 2.5), v=0.3)
+    assert clear == {"attend_az": 45.0, "attend_gain": 1.0, "attend_explicit": True}   # nothing in the way: left alone
 
 
 
@@ -161,7 +161,7 @@ def test_orienting_pull_leaves_the_goal_to_its_own_check():
     must not be rewritten to the person's corridor."""
     a = Avoid(HL, HW)
     right_box = _box_points(0.25, 0.6, -0.6, -0.15)          # blocks the way to the person (right)
-    cmd = {"goal_deg": 180.0, "goal_gain": 0.8, "attend_az": 45.0, "attend_gain": 1.0}   # goal: to the left
+    cmd = {"goal_deg": 180.0, "goal_gain": 0.8, "attend_az": 45.0, "attend_gain": 1.0, "attend_explicit": True}
     out = a.adjust(cmd, heading_deg=90.0, points_robot=right_box, v=0.3)
     assert out["goal_deg"] == 180.0                           # the left goal's corridor is clear: untouched
     assert out["attend_az"] != 45.0                           # the pull toward the person is bent

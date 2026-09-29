@@ -185,10 +185,24 @@ class TopDown:
     """All cortex -> fly channels for one Session. Call attach() after every
     Session.reset() (which clears stimuli), then apply() each control step."""
 
-    def __init__(self, connectome, obj_encoder, channels=("goal", "attend", "dopamine")):
+    def __init__(self, connectome, obj_encoder, channels=("goal", "attend", "dopamine"),
+                 attend_from_goal: bool | None = None):
         from brain.navigation.compass import Compass, CompassDrive
         from brain.navigation.goal import GoalCircuit, GoalDrive
         self.channels = set(channels)
+        # Should a navigation goal ALSO drive the pursuit neurons (LC10a)? On
+        # FAFB it helps (forward walking rises); in the male CNS LC10a is the
+        # courtship-pursuit pathway and the phantom drive makes the robot walk
+        # BACKWARD (MDN via DNpe023: 3 -> 24 Hz; forward DNg100 falls), while
+        # the central complex's goal channel (FC2 -> PFL3) drives it forward and
+        # steers it correctly (2026-09-28). Default: on for FAFB, off for the
+        # male brains; FLY_ATTEND_FROM_GOAL overrides. Explicit attention (the
+        # orienting and unstick reflexes, cmd["attend_explicit"]) always applies.
+        import os
+        import config
+        env = os.environ.get("FLY_ATTEND_FROM_GOAL")
+        self.attend_from_goal = (env.strip().lower() not in ("0", "false", "no", "off", "")) if env is not None else (
+            (not config.MALE_CNS) if attend_from_goal is None else bool(attend_from_goal))
         cx = Compass(connectome)
         self.compass = CompassDrive(cx)
         self.goal = GoalDrive(GoalCircuit(connectome, cx))
@@ -218,16 +232,18 @@ class TopDown:
 
     def apply(self, heading_deg: float, cmd: dict) -> None:
         """cmd: goal_deg (world frame, CCW) and goal_gain; attend_az (+ = right)
-        and attend_gain are derived from the goal unless given; rpe."""
+        and attend_gain: applied if cmd["attend_explicit"] (the orienting and
+        unstick reflexes), else only with attend_from_goal (FAFB), where they
+        are also derived from the goal when not given; rpe, rest, excite."""
         self.compass.set_heading(heading_deg)
         g = cmd.get("goal_deg")
         gain = float(cmd.get("goal_gain", 0.0)) if g is not None else 0.0
         if g is not None:
             self.goal.set_goal(g)
         self.goal.gain = gain if "goal" in self.channels else 0.0
-        if "attend_az" in cmd:
+        if "attend_az" in cmd and (cmd.get("attend_explicit") or self.attend_from_goal):
             az, again = cmd["attend_az"], cmd.get("attend_gain", 0.0)
-        elif g is not None:
+        elif g is not None and self.attend_from_goal:
             az, again = goal_azimuth(g, heading_deg), gain
         else:
             az, again = 0.0, 0.0

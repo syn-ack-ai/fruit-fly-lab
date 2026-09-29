@@ -162,3 +162,36 @@ def test_stuck_metric_matches_the_unstick_definition():
     assert stuck_s(log([0.02 * k for k in range(n)])) == 0.0  # driving along the wall: not stuck
     assert stuck_s(log([0.0] * n, clear=0.5)) == 0.0          # standing in the open: not stuck
     assert stuck_s([{"t": 0.1 * k, "robot": [0, 0, 0]} for k in range(n)]) is None   # no lidar: n/a
+
+
+def test_navigation_goals_skip_the_pursuit_neurons_on_male_brains():
+    """2026-09-28: in the male CNS the pursuit neurons (LC10a) made the robot
+    walk backward (MDN); navigation goals go through the central complex only.
+    Explicit attention (the orienting / unstick reflexes) still applies."""
+    from brain.neurons.registry import load_connectome
+    from cortex.topdown import TopDown
+    class Obj:
+        indices = np.empty(0, np.int64); _az = _el = _sigma = np.empty(0); MAX_HZ = 150.0; arousal = 1.0
+    td = TopDown(load_connectome(), Obj(), channels=("goal", "attend"))
+    assert td.attend_from_goal == (not config.MALE_CNS)
+    td.apply(90.0, {"goal_deg": 45.0, "goal_gain": 1.0})
+    assert (td.attend.gain > 0) == (not config.MALE_CNS)
+    td.apply(90.0, {"goal_deg": 45.0, "goal_gain": 1.0, "attend_az": 45.0, "attend_gain": 0.8})   # e.g. avoid's bend
+    assert (td.attend.gain > 0) == (not config.MALE_CNS)
+    td.apply(90.0, {"attend_az": 30.0, "attend_gain": 1.0, "attend_explicit": True})
+    assert td.attend.gain == 1.0 and td.attend.az == 30.0
+
+
+def test_body_walks_at_a_flys_pace_on_its_own_brains_resting_rate():
+    """2026-09-28: the body's DNg100 -> speed constant was FAFB's resting rate;
+    the male brain rests at ~4 Hz and walked at a quarter of a fly's pace."""
+    import json
+    import fly.body.foraging_body as fb
+    p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"
+    if p.exists():
+        assert fb.DNG100_REST_HZ == json.loads(p.read_text())["dng100_rest_hz"]
+        if config.MALE_CNS:
+            assert 2.0 < fb.DNG100_REST_HZ < 8.0
+    else:
+        assert fb.DNG100_REST_HZ == 14.6                     # FAFB's constant (FAFB unchanged)
+    assert abs(fb.DNG100_MM_PER_HZ * fb.DNG100_REST_HZ - fb.WALK_SPEED_MM_S) < 1e-9

@@ -128,22 +128,23 @@ class Avoid:
         target_dist: the goal is a person this far away (not an obstacle);
         attend_dist: the same for an explicit attention direction."""
         from cortex.topdown import goal_azimuth
-        if cmd.get("attend_az") is not None and cmd.get("attend_gain", 0.0) > 0:
+        if cmd.get("attend_explicit") and cmd.get("attend_az") is not None and cmd.get("attend_gain", 0.0) > 0:
             # an explicit attention direction (the neocortex's orienting reflex)
             # pulls the body toward the person: the goal keeps its own corridor
             # check (below) and the pull gets its own, with its own chooser
             # state (2026-09-27: checking only the goal / straight ahead tripled
             # furniture bumps with the reflex on; a shared check then rewrote
             # the goal -- second review)
-            base = {k: v_ for k, v_ in cmd.items() if k not in ("attend_az", "attend_gain")}
+            base = {k: v_ for k, v_ in cmd.items() if k not in ("attend_az", "attend_gain", "attend_explicit")}
             out = self.adjust(base, heading_deg, points_robot, v, target_dist, gain)
             if getattr(self, "_attend", None) is None:
                 self._attend = Avoid(self.L, self.W)
             az, u = self._attend.choose(points_robot, float(cmd["attend_az"]), v, attend_dist)
             out["attend_az"] = az
             out["attend_gain"] = max(float(cmd["attend_gain"]), gain * u) if u > 0 else float(cmd["attend_gain"])
+            out["attend_explicit"] = True
             return out
-        out = dict(cmd)
+        out = {k: v_ for k, v_ in cmd.items() if k != "attend_explicit"}   # (a bend below is derived)
         g = cmd.get("goal_deg")
         if g is not None and cmd.get("goal_gain", 0.0) > 0:
             az, u = self.choose(points_robot, goal_azimuth(g, heading_deg), v, target_dist)

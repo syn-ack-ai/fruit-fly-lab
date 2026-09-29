@@ -337,20 +337,37 @@ def apply_dynamics(engine, connectome, name: str | None = None) -> dict | None:
         for pos, m in orn_pn_lateral_release(connectome, float(lat["ipsi_contra_ratio"])):
             mult[pos] *= np.float32(m)
     std = cfg.get("orn_short_term_depression")
-    if std and std.get("enabled"):
-        # presynaptic depression of every ORN output synapse (native engines only)
+    loop = cfg.get("loop_depression") or {}
+    if (std and std.get("enabled")) or loop.get("release_f"):
+        # presynaptic depression of output synapses (native engines only): every
+        # ORN (orn_short_term_depression) and, optionally, the neuron classes in
+        # loop_depression (merged: every non-sensory class -- loops such as
+        # DNg33 <-> AN09A005 <-> IN09A005 could latch after a stimulus,
+        # 2026-09-28). Rate-dependent: at 0.5% per spike a neuron at 130 Hz
+        # transmits at ~2/3 strength, one at 5-20 Hz at 92-98%; the body reads
+        # DN SPIKES, which depression does not touch. One recovery time for all.
         t = n["primary_type"].fillna("").astype(str).to_numpy()
         f = np.zeros(connectome.n, np.float32)
-        f[np.char.startswith(t.astype(str), "ORN_")] = std["release_f"]
+        if std and std.get("enabled"):
+            f[np.char.startswith(t.astype(str), "ORN_")] = std["release_f"]
+        if loop.get("release_f"):
+            from brain.neurons.registry import canonical_super_class
+            k = canonical_super_class(n)
+            f[np.isin(k, loop.get("classes", ["descending", "ascending"]))] = loop["release_f"]
         if not hasattr(engine, "set_std"):
-            raise RuntimeError("orn_short_term_depression needs the native engine")
-        engine.set_std(f, std["tau_ms"])
-        g = float(std.get("full_strength_gain", 1.0))
+            raise RuntimeError("short-term depression needs the native engine")
+        orn_on = bool(std and std.get("enabled"))
+        taus = {x for x in ((std or {}).get("tau_ms") if orn_on else None, loop.get("tau_ms") if loop.get("release_f") else None)
+                if x is not None}
+        if len(taus) > 1:
+            raise ValueError("ORN and loop depression share one recovery time in the engine; got %s" % sorted(taus))
+        engine.set_std(f, taus.pop() if taus else 893.0)
+        g = float((std or {}).get("full_strength_gain", 1.0)) if (std and std.get("enabled")) else 1.0
         if g != 1.0:
             # strength of a fully recovered ORN synapse (see the dynamics json)
             w = connectome.w.tocsr()
             mult = engine.plastic_multipliers()
-            for i in np.flatnonzero(f > 0):
+            for i in np.flatnonzero(np.char.startswith(t.astype(str), "ORN_") & (f > 0)):
                 mult[w.indptr[i]:w.indptr[i + 1]] *= np.float32(g)
     return cfg
 

@@ -303,7 +303,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                     td = ta = None
                     if getattr(cortex, "goal", None) and cortex.goal[1] == "owner" and obs["visible"]:
                         td = person_distance(obs["half"])      # the person is the target, not an obstacle
-                    if "attend_az" in cmd and obs["visible"]:
+                    if cmd.get("attend_explicit") and obs["visible"]:
                         ta = person_distance(obs["half"])      # the orienting reflex points at the person
                     pts = scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles)
                     cmd = ses.avoid.adjust(cmd, float(obs["robot"][2]) % 360.0, pts, last_v, td, attend_dist=ta)
@@ -323,7 +323,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                                      period_ms / 1000.0, h, may_trigger=not still)
                         if ug is not None:
                             uaz = goal_azimuth(ug, h)
-                            cmd = dict(cmd, goal_deg=ug, goal_gain=1.0, attend_az=uaz, attend_gain=1.0)
+                            cmd = dict(cmd, goal_deg=ug, goal_gain=1.0, attend_az=uaz, attend_gain=1.0, attend_explicit=True)
                             # the pivot reflex must turn the same way (review 2026-09-28)
                             ses.avoid.last.update(active=True, chosen=round(uaz, 1), source="unstick")
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)

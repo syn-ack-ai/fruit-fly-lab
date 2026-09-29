@@ -64,6 +64,91 @@ def test_depletion_reaches_the_expected_steady_state(c):
     assert sum(len(x) for x in spikes) < sum(len(x) for x in base)
 
 
+def test_lazy_decay_matches_the_per_step_reference(c):
+    """The engines decay d lazily (when a neuron spikes); the result must match
+    decaying every neuron every step, computed here in float64."""
+    f = np.zeros(c.n, np.float32)
+    orn = _orns(c)
+    f[orn] = 0.78
+    e = lif_native.NativeLIFEngine.from_connectome(c, seed=3, threads=2)
+    e.set_std(f, 893.0)
+    e.reset(seed=3)
+    e.set_poisson(orn, 20.0)
+    ed = np.exp(-e.p.dt / 893.0)
+    ref = np.zeros(c.n)
+    worst = 0.0
+    for k in range(2000):
+        s = e.run_collect(1)
+        ref *= ed
+        s = s[f[s] > 0]
+        ref[s] = 1.0 - (1.0 - ref[s]) * 0.78
+        if k % 250 == 249:
+            worst = max(worst, float(np.abs(e.std_depletion()[orn] - ref[orn]).max()))
+    e.close()
+    assert worst < 1e-5
+
+
+def test_reading_depletion_does_not_change_the_run(c):
+    f = np.zeros(c.n, np.float32)
+    f[_orns(c)] = 0.78
+    out, dep = [], []
+    for look in (False, True):
+        e = lif_native.NativeLIFEngine.from_connectome(c, seed=3, threads=2)
+        e.set_std(f, 893.0)
+        e.reset(seed=3)
+        e.set_poisson(_orns(c), 20.0)
+        run = []
+        for _ in range(300):
+            run.append(e.run_collect(10))
+            if look:
+                e.std_depletion()
+        out.append(run)
+        dep.append(e.std_depletion())
+        e.close()
+    assert all(np.array_equal(x, y) for x, y in zip(*out))
+    # the state itself, bit for bit: a reading that decayed d in place would
+    # round differently from one decay over the whole gap (review)
+    assert np.array_equal(dep[0], dep[1])
+
+
+def test_calibrated_depression_reaches_the_configured_neurons(c, tmp_path, monkeypatch):
+    """apply_dynamics: ORNs at their release fraction; on the merged brain every
+    neuron of loop_depression's classes too (nothing else); one recovery time,
+    and a conflict between the two is an error (review 2026-09-28)."""
+    import json
+    import config
+    from brain.neurons.registry import canonical_super_class
+    from simulation.engine.session import apply_dynamics
+    e = lif_native.NativeLIFEngine.from_connectome(c, seed=1, threads=1)
+    got = {}
+    real = e.set_std
+    def spy(f, tau):
+        got.update(f=np.asarray(f).copy(), tau=tau)
+        real(f, tau)
+    e.set_std = spy
+    cfg = apply_dynamics(e, c, "calibrated")
+    std, loop = cfg["orn_short_term_depression"], cfg.get("loop_depression") or {}
+    orn = np.zeros(c.n, bool)
+    orn[_orns(c)] = True
+    f = got["f"]
+    assert np.all(f[orn] == np.float32(std["release_f"]))
+    if loop.get("release_f"):
+        inl = np.isin(canonical_super_class(c.neurons), loop["classes"])
+        assert not (inl & orn).any()
+        assert np.all(f[inl] == np.float32(loop["release_f"])) and inl.sum() > 100_000
+        assert got["tau"] == loop["tau_ms"] == std["tau_ms"]
+    else:
+        inl = np.zeros(c.n, bool)
+    assert np.all(f[~inl & ~orn] == 0.0)
+    # two recovery times cannot both be honoured
+    bad = dict(cfg, loop_depression={"release_f": 0.995, "tau_ms": 500.0, "classes": ["descending"]})
+    (tmp_path / f"dynamics_clash_{config.DATASET_KEY}.json").write_text(json.dumps(bad))
+    monkeypatch.setattr(config, "METADATA_DIR", tmp_path)
+    with pytest.raises(ValueError, match="one recovery time"):
+        apply_dynamics(e, c, "clash")
+    e.close()
+
+
 def test_bilateral_consensus_equalises_mirror_pairs(c):
     m = bilateral_consensus(c)
     n = c.neurons

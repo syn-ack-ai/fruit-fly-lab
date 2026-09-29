@@ -85,6 +85,7 @@ class Avoid:
         self.side = 0.0               # -1 left, +1 right, 0 none yet
         self.last = {"active": False}
         self.steps = self.active_steps = 0
+        self._attend = None           # the attention check's own side memory (per day too)
 
     def choose(self, points_robot, desired_az: float, v: float = 0.0,
                target_dist: float | None = None) -> tuple:
@@ -207,6 +208,7 @@ class Unstick:
         self.goal = None
         self.events = 0
         self.active_s = 0.0
+        self.pulling = False           # set by the caller each step (logging)
 
     def cancel(self) -> None:
         """Stop a running pull (the robot rests, docks or yields) and forget
@@ -245,5 +247,6 @@ class Unstick:
         self.goal = (float(heading_deg) - float(OPEN_DEG[k])) % 360.0     # az + = right -> world CCW
         self.until, self.cool = t + UNSTICK_S, t + UNSTICK_S + UNSTICK_COOLDOWN_S
         self.events += 1
+        self.active_s += dt                # the trigger step pulls too
         self.hist = []
         return self.goal

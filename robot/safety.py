@@ -69,6 +69,15 @@ class ProximityGovernor:
         return v
 
 
+def finite_command(v: float, w: float) -> tuple:
+    """The last gate before the wheels: a non-finite speed or turn rate (a NaN
+    passes every min/max limit above) becomes a stop (review 2026-09-28)."""
+    v, w = float(v), float(w)
+    if not (np.isfinite(v) and np.isfinite(w)):
+        return 0.0, 0.0
+    return v, w
+
+
 # ------------------------------------------------------------ obstacles (lidar)
 OBST_STOP_M = 0.08              # clearance ahead at which forward motion stops
 OBST_FREE_M = 0.60              # from here: no limit

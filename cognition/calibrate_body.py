@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import numpy as np
 
@@ -31,14 +32,34 @@ def resting_dng100_hz(seeds=tuple(range(1, 13)), ms: float = 2000.0, warm_ms: fl
     return float(np.mean(per)), float(np.std(per, ddof=1) / np.sqrt(len(per)))
 
 
+# prose and history in the dynamics file: editing them changes no dynamics
+_TEXT_KEYS = {"rationale", "note", "note_merged", "summary", "result", "threshold_rationale", "calibration",
+              "calibration_merged", "alternatives_tested", "fitted", "name", "version", "dataset"}
+
+
+def _settings(x):
+    if isinstance(x, dict):
+        return {k: _settings(v) for k, v in sorted(x.items()) if k not in _TEXT_KEYS}
+    if isinstance(x, list):
+        return [_settings(v) for v in x]
+    return x
+
+
 def dynamics_hash() -> str:
-    """The calibrated dynamics this rate was measured with (it goes stale when they change)."""
+    """What this rate was measured with -- the calibrated dynamics' settings
+    (not their prose), the synaptic gain and the time step; it goes stale
+    when any of them changes (review 2026-09-28: the file's bytes alone
+    missed the gain and dt, and flagged edits to a rationale)."""
     import hashlib
+    import json
     import config
+    from simulation.engine.session import _calibrated_gain
     p = config.METADATA_DIR / f"dynamics_calibrated_{config.DATASET_KEY}.json"
     if not p.exists():
         p = config.METADATA_DIR / "dynamics_calibrated.json"
-    return hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+    key = {"dynamics": _settings(json.loads(p.read_text())), "gain": _calibrated_gain(),
+           "dt_ms": float(os.environ.get("FLY_DT", "0.1"))}
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def main():

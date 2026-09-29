@@ -2,6 +2,6 @@
   "dataset": "merged",
   "dng100_rest_hz": 3.1,
   "se_hz": 0.32,
-  "dynamics_sha256_16": "aa6aada6ba4b101f",
+  "dynamics_sha256_16": "7bac7f2ea237e2cd",
   "method": "cognition/calibrate_body.py: DNg100 under the resting receptor input, calibrated dynamics, 12 seeds x 2 s after a 1 s warm-up"
 }

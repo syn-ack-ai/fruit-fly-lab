@@ -202,6 +202,7 @@
   },
   "loop_depression": {
     "release_f": 0.995,
+    "tau_ms": 893.0,
     "classes": [
       "descending",
       "ascending",
@@ -212,7 +213,7 @@
       "visual_centrifugal",
       "motor"
     ],
-    "rationale": "Brain-wide short-term depression of every non-sensory neuron's output synapses (0.5% per spike, recovering with the ORN depression's 893 ms), as many central synapses do (short-term depression is common at excitatory and inhibitory synapses alike). The male CNS has loops -- DNg33 <-> AN09A005 <-> IN09A005 (brain <-> nerve cord), FR1, optic-lobe Mi18/Lawf2, DN pairs -- that could stay on after a stimulus; no calibration passed the exam's no_latching on all of 3 seed sets, and depressing only descending/ascending neurons (1-5%) did not either. Rate-dependent: at 0.5% per spike a neuron at 130 Hz transmits at ~2/3 strength, one at 5-20 Hz barely changes; the body reads DN spikes, which it does not touch.",
+    "rationale": "Brain-wide short-term depression of the output synapses of every neuron in `classes` (the non-sensory classes: ~148k neurons; ~750 unclassified, ENS, endocrine and efferent neurons are left out): 0.5% per spike, recovering in tau_ms = 893 ms (the ORN depression's; the engine has one recovery time), as many central synapses do (short-term depression is common at excitatory and inhibitory synapses alike). The male CNS has loops -- DNg33 <-> AN09A005 <-> IN09A005 (brain <-> nerve cord), FR1, optic-lobe Mi18/Lawf2, DN pairs -- that could stay on after a stimulus; no calibration passed the exam's no_latching on all of 3 seed sets, and depressing only descending/ascending neurons (1-5%) did not either. Rate-dependent: at 0.5% per spike a neuron at 130 Hz transmits at ~2/3 strength, one at 5-20 Hz barely changes; the body reads DN spikes, which it does not touch.",
     "result": "2026-09-28: no_latching passes on seed sets 0/+100/+200/+300 (was 2 of 4); exam 31/32 (exam seeds) and 30/32 on +200 (only the two odour-steering tests fail), held-out 21/21, robustness 0.89 (was 0.85). No other setting changed."
   }
 }

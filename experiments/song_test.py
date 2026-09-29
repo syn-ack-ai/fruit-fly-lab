@@ -8,10 +8,11 @@ Every condition runs on top of the resting receptor input the robot always has
 
     FLY_DATASET=merged python -m experiments.song_test
 
-2026-09-28 (merged): rest -> pIP10 0 Hz; P1 12 / 24 / 30 / 40 Hz -> pIP10
-21 / 41 / ~55 / 66 Hz, MN9 1.5 / 4 / - / 20 Hz, DNg100 1.7 / 1.0 / - / 0.3 Hz;
-a visual target alone (LC10a) -> pIP10 ~2 Hz; Or47b ORNs -> ~0.3 Hz; P1 24 Hz
-with no resting input -> about the same (44 Hz, last row). All with the
+2026-09-28 (merged, with brain-wide short-term depression): rest -> pIP10 0
+Hz; P1 12 / 24 / 30 / 40 Hz -> pIP10 24 / 46 / 54 / 66 Hz, MN9 2.5 / 5 / 7.5 /
+14 Hz, DNg100 3.7 / 2.7 / 2.5 / 1.0 Hz (rest 4.8); a visual target alone
+(LC10a) -> pIP10 ~2 Hz; Or47b ORNs -> ~0.3 Hz; P1 24 Hz with no resting input
+-> about the same (46 Hz, last row). All with the
 calibrated dynamics the robot runs; other dynamics (e.g. the published model)
 differ. Hence cortex/topdown.P1_MAX_HZ = 24.
 """

@@ -8,7 +8,11 @@ engine with the same C API. Select it with
 (the CPU `liblif.so` stays the default everywhere). Results are bit-identical
 with the CPU engine: `python native/verify_cuda.py` compares both on published
 and calibrated dynamics, silencing, input switches, gain, the pipelined
-start/wait path, the quiescence tolerance and FLY_DT=0.2.
+start/wait path, the quiescence tolerance and FLY_DT=0.2. Short-term
+depression decays lazily in both (brought up to date when a neuron spikes),
+with the same binary-powering decay (`std_decay`): libm's and CUDA's `exp`
+may round differently (review 2026-09-28; verified identical on FAFB and the
+merged brain, whose depression is brain-wide).
 
 ## Setup (user level, no sudo)
 

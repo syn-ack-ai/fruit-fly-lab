@@ -1,0 +1,21 @@
+all BM + Vib (now) (L 51 / R 40)
+   both 12Hz: MDN 24.6 DNg100  1.8 MN9  7.0 a02 R-L  +1.0
+   both 80Hz: MDN 36.8 DNg100  0.0 MN9 35.2 a02 R-L  -1.0
+   L 40: MDN 25.5 DNg100  0.0 MN9 12.8 a02 R-L  -0.7
+   R 40: MDN 23.8 DNg100  1.0 MN9  1.3 a02 R-L  +1.3
+Ant+Fr+InOc + Vib (L 35 / R 26)
+   both 12Hz: MDN  7.4 DNg100  2.0 MN9  1.0 a02 R-L  -0.7
+   both 80Hz: MDN 14.2 DNg100  0.0 MN9  0.7 a02 R-L  -2.7
+   L 40: MDN  8.2 DNg100  2.3 MN9  1.0 a02 R-L  +0.0
+   R 40: MDN  6.6 DNg100  1.0 MN9  0.2 a02 R-L  +0.0
+Ant + Vib (L 28 / R 13)
+   both 12Hz: MDN  6.6 DNg100  2.7 MN9  0.0 a02 R-L  +0.3
+   both 80Hz: MDN 14.0 DNg100  0.0 MN9  1.8 a02 R-L  -2.0
+   L 40: MDN  6.7 DNg100  1.0 MN9  0.8 a02 R-L  -1.3
+   R 40: MDN  8.7 DNg100  1.5 MN9  1.0 a02 R-L  +0.0
+Vib only (L 12 / R 10)
+   both 12Hz: MDN  3.4 DNg100  4.0 MN9  0.8 a02 R-L  +1.0
+   both 80Hz: MDN 22.3 DNg100  0.0 MN9 10.3 a02 R-L  -0.3
+   L 40: MDN  5.5 DNg100  0.3 MN9  0.0 a02 R-L  -0.7
+   R 40: MDN  2.5 DNg100  1.3 MN9  0.2 a02 R-L  -0.3
+rest: MDN  2.9 DNg100  4.8 MN9  0.2 a02 R-L  +0.3

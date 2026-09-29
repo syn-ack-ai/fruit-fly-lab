@@ -297,3 +297,27 @@ def test_touch_adapts_to_steady_contact():
     k = int(L.TOUCH_ADAPT_S * 1000 / 10) - 1                                  # one time constant in
     phasic = (later[k] / (L.TOUCH_HZ * lv) - L.TOUCH_TONIC) / (1 - L.TOUCH_TONIC)
     assert abs(phasic - np.exp(-1.0)) < 0.05                                  # the adaptation time is right
+
+
+def test_touch_drives_only_the_benign_head_bristles_on_male_brains():
+    """2026-09-28: of the male CNS's 69 untyped "BM" bristles, the ones wired
+    like fronto-orbital / orbital bristles back the fly up and extend its
+    proboscis; lidar touch drives the antennal, frontal and inter-ocular ones
+    (brain/sensory/bm_subtypes.py) with BM_Vib. FAFB: BM_Ant + BM_Vib."""
+    import config
+    from brain.neurons.registry import load_connectome
+    from brain.sensory.bm_subtypes import TOUCH_SUBTYPES, load
+    c = load_connectome()
+    t = c.neurons["primary_type"].fillna("").astype(str).to_numpy()
+    lt = LidarTouch(c, LidarScan(beam_angles(36), 0.2))
+    got = set(t[lt.indices])
+    if not config.MALE_CNS:
+        assert got == {"BM_Ant", "BM_Vib"}
+        return
+    a = load()
+    assert a is not None and len(a) == (t == "BM").sum() == 69
+    rid = c.neurons["root_id"].to_numpy().astype(np.int64)
+    bm = set(rid[lt.indices][t[lt.indices] == "BM"])
+    assert bm == set(a["root_id"][a["subtype"].isin(TOUCH_SUBTYPES)].astype(np.int64))
+    assert not bm & set(a["root_id"][a["subtype"].isin(["BM_FrOr", "BM_Or"])].astype(np.int64))
+    assert got == {"BM", "BM_Vib"} and lt._right.any() and (~lt._right).any()

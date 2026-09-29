@@ -136,3 +136,12 @@ def test_adaptive_turn_lag_passes_deliberate_turns_and_filters_jitter():
     # random same-sign runs look briefly consistent: ~1.4x the fixed lag's
     # residual, still ~6x below the 80 deg/s input
     assert out(adaptive) < 1.6 * out(fixed) and out(adaptive) < 20.0
+
+
+def test_a_nan_command_stops_the_wheels():
+    """A NaN passes min/max limits (governor, lidar brake, lag); the last gate
+    before the wheels turns it into a stop (review 2026-09-28)."""
+    from robot.safety import finite_command
+    assert finite_command(float("nan"), 0.3) == (0.0, 0.0)
+    assert finite_command(0.1, float("inf")) == (0.0, 0.0)
+    assert finite_command(0.1, -0.2) == (0.1, -0.2)

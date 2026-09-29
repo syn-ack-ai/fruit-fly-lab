@@ -1,5 +1,10 @@
 # Getting unstuck: rapidly adapting touch and the unstick reflex, 2026-09-28
 
+(Later the same day: with the walking fixes, lidar-alone stuck time returned
+to 43 s/day (`results/walking_latching_2026-09-28/`); the touch remap of
+`results/touch_subtypes_2026-09-28/` lowers it a little; the unstick
+reflex belongs with lidar steering.)
+
 ## The problem
 
 On the held-out runs of 2026-09-27, Milo sat within touch distance of a wall
@@ -50,7 +55,8 @@ changed ~1.5 deg: the touch response dominated.
      (review).
    - **Pivot:** the pivot reflex is told the same side.
    - **Not while standing still on purpose:** it does not trigger while
-     docked or mid-meal, while yielding, or beside the person.
+     at the dock or mid-meal, while yielding, or within 1 m of the person
+     while going to them.
 
 ## Results
 
@@ -136,7 +142,9 @@ is almost all in "life": it walks ~3x further and so reaches its dock and its
 person more often.
 
 The male brain is far safer. It needs the lidar brake ~40x less and is pinned
-5-15x less. It is equally alive by the aliveness score, twitching a little
+5-15x less. (Superseded: most of that was the male brain barely moving. Once
+it walked at its own pace, it needed the brake ~3x less than FAFB and pressed
+as much: `results/walking_latching_2026-09-28/`.) It is equally alive by the aliveness score, twitching a little
 more (3.5 vs 2 reversals a minute).
 
 The male brain's low activity is now the main gap (ROADMAP.md).

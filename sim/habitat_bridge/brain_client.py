@@ -195,7 +195,7 @@ def robot_command(body_state) -> tuple:
 
 def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 seed: int, video_dir: str | None, brain=None, home=None, cortex=None,
-                safe_speed: bool = False, person=None, personality=None, face=None) -> dict:
+                safe_speed: bool = True, person=None, personality=None, face=None) -> dict:
     from fly.body.foraging_body import ForagingBody
     from robot.safety import ProximityGovernor
     governor = ProximityGovernor() if safe_speed else None
@@ -294,36 +294,53 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 cmd = cortex.act(obs, home, t_sim, fr_prev)
                 if getattr(ses, "avoid", None) is not None:
                     ses.avoid.last = {"active": False}   # this step's state only (review 2026-09-27)
-                if getattr(cortex, "resting", False) and getattr(ses, "unstick", None) is not None:
-                    ses.unstick.cancel()                  # a nap is not being stuck
+                if getattr(ses, "unstick", None) is not None:
+                    ses.unstick.pulling = False           # this step's state only
+                    if getattr(cortex, "resting", False):
+                        ses.unstick.cancel()              # a nap is not being stuck
                 if (getattr(ses, "avoid", None) is not None and ses.lidar[0].t is not None
                         and not getattr(cortex, "resting", False)):
                     # steer around obstacles before reaching them (robot/avoid.py)
                     from robot.safety import person_distance, scan_points_robot
                     td = ta = None
-                    if getattr(cortex, "goal", None) and cortex.goal[1] == "owner" and obs["visible"]:
+                    if ((cmd.get("goal_is_person") or (getattr(cortex, "goal", None) and cortex.goal[1] == "owner"))
+                            and obs["visible"]):
                         td = person_distance(obs["half"])      # the person is the target, not an obstacle
                     if cmd.get("attend_explicit") and obs["visible"]:
                         ta = person_distance(obs["half"])      # the orienting reflex points at the person
                     pts = scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles)
                     cmd = ses.avoid.adjust(cmd, float(obs["robot"][2]) % 360.0, pts, last_v, td, attend_dist=ta)
-                    un = getattr(ses, "unstick", None)
-                    if un is not None:
-                        # stuck near something and not moving: pull toward the
-                        # most open way (robot/avoid.Unstick); the fly brain turns.
-                        # Not while it means to stand still (review 2026-09-28)
-                        from cortex.topdown import goal_azimuth
-                        h = float(obs["robot"][2]) % 360.0
-                        near_person = obs["visible"] and person_distance(obs["half"]) < 1.0
-                        still = bool((home is not None and home.taste == "sweet")
-                                     or (home is not None and home.battery is not None and home.battery.meal)
-                                     or getattr(cortex, "manner", None) == "yield"
-                                     or (near_person and getattr(cortex, "goal", None) and cortex.goal[1] == "owner"))
-                        ug = un.step(t_sim, obs["robot"][:2], float(ses.lidar[0].clearance().min()), pts,
-                                     period_ms / 1000.0, h, may_trigger=not still)
-                        if ug is not None:
-                            uaz = goal_azimuth(ug, h)
-                            cmd = dict(cmd, goal_deg=ug, goal_gain=1.0, attend_az=uaz, attend_gain=1.0, attend_explicit=True)
+                un = getattr(ses, "unstick", None)
+                if (un is not None and ses.lidar[0].t is not None
+                        and not getattr(cortex, "resting", False)):
+                    # stuck near something and not moving: pull toward the most
+                    # open way (robot/avoid.Unstick); the fly brain turns. Not
+                    # while it means to stand still (review 2026-09-28). With
+                    # lidar steering or, FLY_UNSTICK_LIDAR, lidar alone.
+                    from cortex.topdown import goal_azimuth, reflex_channel
+                    from robot.safety import person_distance, scan_points_robot
+                    pts = scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles)
+                    h = float(obs["robot"][2]) % 360.0
+                    near_person = obs["visible"] and person_distance(obs["half"]) < 1.0
+                    still = bool((home is not None and home.taste == "sweet")
+                                 or (home is not None and home.battery is not None and home.battery.meal)
+                                 or getattr(cortex, "manner", None) == "yield"
+                                 or (near_person and (cmd.get("goal_is_person")
+                                                      or (getattr(cortex, "goal", None) and cortex.goal[1] == "owner"))))
+                    ug = un.step(t_sim, obs["robot"][:2], float(ses.lidar[0].clearance().min()), pts,
+                                 period_ms / 1000.0, h, may_trigger=not still)
+                    if ug is not None:
+                        uaz = goal_azimuth(ug, h)
+                        # the pull replaces the goal AND any attention (the orienting
+                        # reflex's, or avoid's bend of it): nothing may pull elsewhere
+                        cmd = {k: v_ for k, v_ in cmd.items() if k not in ("attend_az", "attend_gain", "attend_explicit")}
+                        cmd.update(goal_deg=ug, goal_gain=1.0, goal_is_person=False)
+                        if reflex_channel("unstick") == "attend":     # not on male brains (cortex/topdown.py)
+                            cmd.update(attend_az=uaz, attend_gain=1.0, attend_explicit=True)
+                        else:
+                            cmd.update(attend_az=uaz, attend_gain=0.0, attend_explicit=True)   # LC10a off
+                        un.pulling = True
+                        if getattr(ses, "avoid", None) is not None:
                             # the pivot reflex must turn the same way (review 2026-09-28)
                             ses.avoid.last.update(active=True, chosen=round(uaz, 1), source="unstick")
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)
@@ -381,6 +398,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         v_lidar = v                               # after the lidar layer (the "brake" it applied)
         if home is not None and home.battery is not None and home.battery.flat:
             v, w = 0.0, 0.0                       # a flat battery: the robot stops
+        from robot.safety import finite_command
+        v, w = finite_command(v, w)                # a NaN would pass every limit above
         if motor is not None:
             # the lag continues from what the wheels actually do: after a brake,
             # the emergency return or a pivot it starts up smoothly again instead
@@ -429,7 +448,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             if getattr(ses, "avoid", None) is not None:
                 log[-1]["lidar"]["avoid"] = dict(ses.avoid.last)       # a copy: later steps must not rewrite it
             if getattr(ses, "unstick", None) is not None:
-                log[-1]["lidar"]["unstick"] = bool(t_sim < ses.unstick.until)
+                # pulling THIS step (t_sim has already advanced: review 2026-09-28)
+                log[-1]["lidar"]["unstick"] = bool(getattr(ses.unstick, "pulling", False))
         if home is not None:
             log[-1].update({"odour": [round(float(home.conc["L"].sum()), 3), round(float(home.conc["R"].sum()), 3)],
                             "taste": home.taste, "pet": home.petting, "treat": home.treating,
@@ -616,22 +636,26 @@ def _events(pers, t, obs, home, fr, prev):
 
 def _song(song, fr, t, dt):
     """Song bouts from the song channel: on at SONG_ON, off below SONG_OFF; a
-    bout counts (and song["onset"] is set, once) when it has lasted SONG_MIN_S
-    and began SONG_GAP_S after the previous counted bout ended."""
+    bout counts when it has lasted SONG_MIN_S. One that began SONG_GAP_S after
+    the previous counted bout ended is a new bout (song["onset"] is set, once);
+    one that resumed sooner continues that bout -- its time counts, no new
+    onset (review 2026-09-28: it was never counted). Blips count neither way."""
     act = float(fr.get("song_step", fr["channels"].get("song", 0.0)))
     song["onset"] = False
     if act >= SONG_ON or (song["on"] and act >= SONG_OFF):
         if not song["on"]:
             song["on"], song["start_t"], song["counted"] = True, t, False
+            song["resumed"] = t - song["off_t"] < SONG_GAP_S
             song["peak_hz"] = 0.0
         if song["counted"]:
             song["s"] += dt                              # (blips are not song)
         song["peak_hz"] = max(song["peak_hz"], float(fr.get("hz_pIP10_step", fr["channels"].get("hz_pIP10", 0.0))))
-        if (not song["counted"] and t - song["start_t"] + dt >= SONG_MIN_S - 1e-9
-                and song["start_t"] - song["off_t"] >= SONG_GAP_S):
-            song["counted"], song["onset"] = True, True
-            song["bouts"] += 1
+        if not song["counted"] and t - song["start_t"] + dt >= SONG_MIN_S - 1e-9:
+            song["counted"] = True
             song["s"] += t - song["start_t"] + dt
+            if not song.get("resumed"):
+                song["onset"] = True
+                song["bouts"] += 1
     elif song["on"]:
         song["on"] = False
         if song["counted"]:
@@ -719,8 +743,9 @@ def main():
                          "(cortex/obstacle_map.py)")
     ap.add_argument("--body", choices=("spot", "rover"), default="spot",
                     help="the robot's footprint; must match the server's --body (sim/habitat_bridge/bodies.py)")
-    ap.add_argument("--safe-speed", action="store_true",
-                    help="robot safety layer: slow down near the person (robot/safety.py)")
+    ap.add_argument("--safe-speed", action=argparse.BooleanOptionalAction, default=True,
+                    help="robot safety layer: slow down near the person (robot/safety.py); on by "
+                         "default (review 2026-09-28), --no-safe-speed for brain-only studies")
     a = ap.parse_args()
     os.environ.setdefault("FLY_DYNAMICS", "calibrated")
     home = None
@@ -734,14 +759,16 @@ def main():
         home = HomeWorld(pet_rate=0.0 if rs else a.pet_rate, treat_rate=0.0 if rs else a.treat_rate,
                          plant=not rs, seed=a.seed, battery=battery,
                          hunger_senses=not a.dock_reflex, body=a.body, odour=not rs)
+    import config
     learning = None if a.learning is None else a.learning == "on"
     chans = tuple(x for x in a.channels.split(",") if x) if a.cortex != "none" else None
     if a.cortex == "pet" and "rest" not in chans:
         chans += ("rest",)       # naps drive ER5 (attached only here: an idle input would shift the RNG stream)
-    if a.cortex == "pet" and "excite" not in chans and os.environ.get("FLY_VOICE", "1") != "0":
+    if a.cortex == "pet" and "excite" not in chans and config.env_flag("FLY_VOICE"):
         # excitement -> P1 -> song. Attached only with the voice on: a stimulus
         # adds Poisson targets (RNG stream, no refractory period), so FLY_VOICE=0
-        # reproduces the earlier pet runs (review 2026-09-28)
+        # leaves the brain's inputs as they were before the voice (not the earlier
+        # runs' results: the dynamics and body readout changed since)
         chans += ("excite",)
     brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar,
                          lidar_senses=a.lidar_use in ("both", "senses", "ttc"), body=a.body)
@@ -756,9 +783,12 @@ def main():
                 raise SystemExit("--avoid steers through the neocortex's goal channel: needs --cortex")
             from robot.avoid import Avoid
             brain[0].avoid = Avoid(*brain[0].body_dims)
-            if os.environ.get("FLY_UNSTICK", "1") != "0":
-                from robot.avoid import Unstick
-                brain[0].unstick = Unstick(*brain[0].body_dims)  # the unstick reflex (with --avoid)
+        # the unstick reflex pulls through the neocortex's goal channel: with
+        # lidar steering, and with lidar alone when FLY_UNSTICK_LIDAR is on
+        if (config.env_flag("FLY_UNSTICK") and chans and "goal" in chans
+                and (a.avoid or config.env_flag("FLY_UNSTICK_LIDAR", False))):
+            from robot.avoid import Unstick
+            brain[0].unstick = Unstick(*brain[0].body_dims)
     cortex = None
     if a.cortex != "none" and brain is not None:
         from cortex.agent import make_cortex
@@ -787,7 +817,7 @@ def main():
         from cortex.personality import Personality
         personality = Personality(url=a.personality, model=a.llm_model, name=a.pet_name,
                                   state_path=a.cortex_state,
-                                  urge_gate=os.environ.get("FLY_URGE_GATE", "1") != "0")
+                                  urge_gate=config.env_flag("FLY_URGE_GATE"))
     if a.face:
         from robot.face import FaceModel, FacePublisher
         face = (FaceModel(), FacePublisher(a.face))

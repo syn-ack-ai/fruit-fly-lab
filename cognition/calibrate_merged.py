@@ -184,7 +184,7 @@ def main():
                     help="extra seed sets (FLY_EXAM_SEED_OFFSET) the top candidates must also pass; never 200 "
                          "(the report set). 2026-09-27: 100,300 -- one extra set let chance decide no_latching")
     ap.add_argument("--validate", type=int, default=5,
-                    help="re-run the best N on a second seed set (FLY_EXAM_SEED_OFFSET=100) and rank by the worst; +200 is the report set, never used here")
+                    help="re-run the best N on the --choose-offsets seed sets and rank by the worst; +200 is the report set, never used here")
     a = ap.parse_args()
     if config.DATASET_KEY != "merged":
         raise SystemExit("run with FLY_DATASET=merged")

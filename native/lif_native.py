@@ -254,6 +254,8 @@ class NativeLIFEngine:
 
     def std_depletion(self):
         """Current depletion d per neuron (a copy), or None when off."""
+        if getattr(self, "_busy", False):
+            raise RuntimeError("std_depletion() during a start()ed run: wait() first")
         p = self._lib.lif_std_depletion(self._h)
         return None if not p else np.ctypeslib.as_array(p, (self.n,)).copy()
 

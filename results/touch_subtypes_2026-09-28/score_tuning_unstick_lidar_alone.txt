@@ -1,0 +1,58 @@
+
+=== petlidar  (lidar on)
+                                            C_no_unstick (9 d)     D_unstick_lidar (9 d)
+  furniture bumps/day                           0.44 ->  91.1%            0.22 ->  95.6%
+  pet-caused person bumps/day                   0.44 ->  66.7%            0.33 ->  66.7%
+  safety-layer brake s/day                     22.44 ->  62.6%           29.22 ->  51.3%
+  pinned/pressing s/day                         2.38 ->  92.1%            6.95 ->  76.8%
+  s/day below 20% battery                       0.00 -> 100.0%            0.00 -> 100.0%
+  fraction of days with a flat battery            0.00 -> 100.0%            0.00 -> 100.0%
+  s/day eating when full                        0.00 -> 100.0%            0.00 -> 100.0%
+  walked m/day                                 14.40 ->  72.0%           13.50 ->  67.5%
+  s/day near the person                        13.71 ->  45.7%           13.17 ->  43.9%
+  speed variation (CV) while moving             0.60 -> 100.0%            0.63 -> 100.0%
+  heading reversals / active min                0.62 ->  96.9%            0.17 ->  99.1%
+  move/pause bouts / min                        3.50 -> 100.0%            3.39 -> 100.0%
+  irregularity of bouts (CV)                    0.82 -> 100.0%            0.82 -> 100.0%
+  turns toward person on appearance             0.89 ->  88.9%            0.67 ->  66.7%
+  SAFETY (28)                                            78.5%                     76.8%
+  SELF-CARE (21)                                        100.0%                    100.0%
+  LIFE (21)                                              58.8%                     55.7%
+  ALIVENESS (30)                                         96.2%                     90.9%
+  TOTAL (range over seeds)                       84.2% [74-90]             81.5% [68-89]
+    without aliveness                                    79.1%                     77.4%
+    C_no_unstick: stuck against something 34.0 s/day, song bouts 1.7/day
+    C_no_unstick: dock 2/9 days, meals 0, eating 0.8 s/day, battery at day end 0.48
+    D_unstick_lidar: stuck against something 43.4 s/day, song bouts 1.7/day
+    D_unstick_lidar: dock 0/9 days, meals 0, eating 0.0 s/day, battery at day end 0.47
+
+=== petsteer  (lidar on)
+                                            C_no_unstick (9 d)
+  furniture bumps/day                           0.00 -> 100.0%
+  pet-caused person bumps/day                   0.22 ->  66.7%
+  safety-layer brake s/day                      9.72 ->  83.8%
+  pinned/pressing s/day                         4.07 ->  86.4%
+  s/day below 20% battery                       0.00 -> 100.0%
+  fraction of days with a flat battery            0.00 -> 100.0%
+  s/day eating when full                        0.00 -> 100.0%
+  walked m/day                                 18.45 ->  86.6%
+  s/day near the person                        16.19 ->  54.0%
+  speed variation (CV) while moving             0.57 -> 100.0%
+  heading reversals / active min                1.17 ->  94.1%
+  move/pause bouts / min                        3.56 -> 100.0%
+  irregularity of bouts (CV)                    0.84 -> 100.0%
+  turns toward person on appearance             0.93 ->  92.6%
+  SAFETY (28)                                            83.8%
+  SELF-CARE (21)                                        100.0%
+  LIFE (21)                                              70.3%
+  ALIVENESS (30)                                         96.5%
+  TOTAL (range over seeds)                       88.2% [80-93]
+    without aliveness                                    84.6%
+    C_no_unstick: stuck against something 0.0 s/day, song bouts 3.0/day
+    C_no_unstick: dock 4/9 days, meals 0, eating 3.8 s/day, battery at day end 0.51
+
+=== overall
+  total              C_no_unstick all conditions  86.2%   with lidar (the rover's setup)  86.2%
+  total              D_unstick_lidar all conditions  81.5%   with lidar (the rover's setup)  81.5%
+  without aliveness  C_no_unstick all conditions  81.8%   with lidar (the rover's setup)  81.8%
+  without aliveness  D_unstick_lidar all conditions  77.4%   with lidar (the rover's setup)  77.4%

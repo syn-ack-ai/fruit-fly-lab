@@ -21,30 +21,35 @@ as the language centre":
 ## 1. What makes the male fly brain sing (`song_test.txt`, `experiments/song_test.py`)
 
 All conditions run on the resting receptor input the robot always has, with
-calibrated dynamics (3 seeds x 1 s). Values in Hz:
+calibrated dynamics (3 seeds x 1 s). Values in Hz, re-measured after
+brain-wide short-term depression (`results/walking_latching_2026-09-28/`;
+the first measurement's pIP10, MN9 and DNg100 in brackets where they
+differed; the full first table is in git history). Rest DNg100 here is 4.8 Hz
+over 1 s; the body's walking readout uses 3.1 Hz, measured over 2 s after a
+1 s warm-up (`cognition/calibrate_body.py`):
 
 | input | pIP10 (song command) | dPR1 | vPR9 | TN1a | MN9 (proboscis) | DNg100 (walk) |
 |---|---|---|---|---|---|---|
-| rest | 0 | 5 | 2.5 | 0.4 | 0.2 | 3.8 |
-| P1 12 Hz | 21 | 46 | 18 | 7 | 1.5 | 1.7 |
-| P1 24 Hz | **41** | 66 | 25 | 12 | 4 | 1.0 |
-| P1 30 Hz | 55 | 75 | 28 | 14 | 6 | 0.3 |
-| P1 40 Hz | 66 | 81 | 33 | 17 | **20** | 0.3 |
-| visual target alone (LC10a) | 1.8 | 8 | 4 | 1.4 | 0.2 | 2.8 |
-| Or47b pheromone ORNs | 0.3 | 4 | 2 | 0.5 | 0.2 | 2.7 |
-| P1 24 Hz, no resting input | 44 | 61 | 25 | 12 | 6 | 0.0 |
+| rest | 0 | 5.5 | 2.5 | 0.4 | 0.2 | 4.8 (3.8) |
+| P1 12 Hz | 24 (21) | 50 | 18 | 8 | 2.5 (1.5) | 3.7 (1.7) |
+| P1 24 Hz | **46** (41) | 65 | 22 | 12 | 5 (4) | 2.7 (1.0) |
+| P1 30 Hz | 54 (55) | 70 | 24 | 12 | 7.5 (6) | 2.5 (0.3) |
+| P1 40 Hz | 66 | 77 | 27 | 14 | **14** (20) | 1.0 (0.3) |
+| visual target alone (LC10a) | 1.8 | 9 | 4.5 | 1.4 | 0 (0.2) | 4.2 (2.8) |
+| Or47b pheromone ORNs | 0.3 | 12 | 5 | 1.0 | 1.0 (0.2) | 8.0 (2.7) |
+| P1 24 Hz, no resting input | 46 (44) | 64 | 22 | 11 | 7 (6) | 0.7 (0.0) |
 
 - **P1 is the switch** (von Philipsborn et al. 2011): it drives pIP10 and the
   nerve cord's song pattern generator (dPR1, vPR9, TN1a).
 - **P1 = 86 cells** in the complete male brain: pC1 types also named pMP4 /
   pMP-e.
-- **Cap at 24 Hz.** At 40 Hz P1 also drives MN9 past the body's proboscis
-  threshold. That is the courtship "lick" step (orient, tap, sing, lick),
-  which would freeze the robot. The excitement channel is therefore capped at
-  24 Hz (`cortex/topdown.P1_MAX_HZ`). Walking slows while P1 is on, so Milo
-  pauses to sing.
+- **Cap at 24 Hz.** At 40 Hz P1 also drives MN9 (now 14 Hz, ~3x its level
+  at 24 Hz); in Habitat that extended the proboscis and froze the robot.
+  That is the courtship "lick" step (orient, tap, sing, lick). The excitement channel is therefore capped at
+  24 Hz (`cortex/topdown.P1_MAX_HZ`). Walking slows while P1 is on (DNg100 4.8 -> 2.7
+  Hz), so Milo slows down to sing.
 - **With the calibrated dynamics the robot runs**, the result is about the
-  same without the resting input (P1 24 Hz -> pIP10 44 Hz). Other dynamics
+  same without the resting input (P1 24 Hz -> pIP10 46 Hz). Other dynamics
   (e.g. the published, uncalibrated model) differ.
 - **Female brain.** pIP10 and P1 do not exist in the female FAFB brain; there
   the voice is off.

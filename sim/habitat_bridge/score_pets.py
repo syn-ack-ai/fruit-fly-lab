@@ -133,7 +133,7 @@ def stuck_s(log: list, min_s: float = 5.0, near_m: float = 0.15, move_m: float =
         if t[i] - t[j0] >= window_s - 0.15:
             w = xy[j0:i + 1]
             ext = float(np.hypot(*(w.max(0) - w.min(0))))
-            still[i] = clear[j0:i + 1].max() <= near_m and ext < move_m
+            still[i] = clear[j0:i + 1].max() < near_m and ext < move_m     # as Unstick: near < STUCK_NEAR_M
     dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.1
     return float(sum(ln for _s, ln in _runs(still) if ln * dt >= min_s) * dt)
 

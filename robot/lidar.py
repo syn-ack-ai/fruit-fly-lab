@@ -28,6 +28,7 @@ no leg mechanosensation, so head bristles carry "touch".
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 
@@ -211,22 +212,38 @@ class LidarLooming:
 class LidarTouch:
     """Session encoder: near obstacles -> antennal / vibrissal bristles by side."""
 
-    # FlyWire: antennal + vibrissal bristles. The MaleCNS does not separate
-    # BM_Ant: its 69 head bristles typed "BM" (a mix of seven FlyWire bristle
-    # types, BM_Ant among them) stand in, with its BM_Vib.
+    # FlyWire: antennal + vibrissal bristles. The MaleCNS types its 69 head
+    # bristles only as "BM" (a mix of seven FlyWire bristle types); each is
+    # assigned one by its wiring (brain/sensory/bm_subtypes.py) and touch
+    # drives the antennal, frontal and inter-ocular ones with BM_Vib. Not the
+    # fronto-orbital / orbital ones: they back the male fly up (MDN) and
+    # extend its proboscis (MN9), which kept the robot backing and freezing at
+    # walls (2026-09-28). FLY_TOUCH_BM=all drives all 69 (the old mapping).
     CELL_TYPES = ("BM_Ant", "BM_Vib", "BM")
 
     def __init__(self, connectome, scan: LidarScan):
         n = connectome.neurons
         t = n["primary_type"].fillna("").astype(str).to_numpy()
         side = n["side"].fillna("").astype(str).to_numpy()
-        idx = np.flatnonzero(np.isin(t, self.CELL_TYPES) & np.isin(side, ["left", "right"]))
+        use = np.isin(t, self.CELL_TYPES)
+        if (t == "BM").any() and os.environ.get("FLY_TOUCH_BM", "subtypes").strip().lower() != "all":
+            from brain.sensory.bm_subtypes import TOUCH_SUBTYPES, load
+            a = load()
+            if a is None:
+                import warnings
+                warnings.warn("no data/metadata/bm_subtypes_malecns.csv: lidar touch drives all 69 male BM "
+                              "cells (python -m brain.sensory.bm_subtypes)")
+            else:
+                ok = set(a["root_id"][a["subtype"].isin(TOUCH_SUBTYPES)].astype(np.int64))
+                rid = n["root_id"].to_numpy().astype(np.int64)
+                use &= (t != "BM") | np.isin(rid, list(ok))
+        idx = np.flatnonzero(use & np.isin(side, ["left", "right"]))
         self.indices = np.sort(idx)
         self._right = side[self.indices] == "right"
         self.scan = scan
         self.last = {"left": 0.0, "right": 0.0}
-        import os
-        self.adapt = os.environ.get("FLY_TOUCH_ADAPT", "1") != "0"
+        import config
+        self.adapt = config.env_flag("FLY_TOUCH_ADAPT")
         self.reset()
 
     def reset(self) -> None:

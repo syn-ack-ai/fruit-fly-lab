@@ -72,7 +72,7 @@ DNG100_REST_HZ = 14.6            # model DNg100 rate under resting sensory input
 def _dng100_rest_hz() -> float:
     """The dataset's own resting DNg100 rate (cognition/calibrate_body.py ->
     data/metadata/body_readout_<dataset>.json), else the FAFB constant. The
-    complete male brain rests at ~4 Hz: read with FAFB's 14.6 Hz it walked at a
+    complete male brain rests at ~3 Hz: read with FAFB's 14.6 Hz it walked at a
     quarter of a fly's pace -- the whole "walks 3x less than FAFB" gap in
     Habitat (2026-09-28)."""
     import json
@@ -88,10 +88,13 @@ def _dng100_rest_hz() -> float:
                               "python -m cognition.calibrate_body --write")
         except Exception:
             pass
-        return float(d["dng100_rest_hz"])
+        hz = float(d["dng100_rest_hz"])
+        if not (np.isfinite(hz) and hz >= 0.5):         # speed = rate / hz: must be a real rate
+            raise ValueError(f"{p}: dng100_rest_hz {hz!r} is not a usable resting rate")
+        return hz
     if config.MALE_CNS:
         warnings.warn(f"no {p.name}: the body uses FAFB's resting DNg100 rate (14.6 Hz) for a male brain, "
-                      "which rests near 4 Hz -- run python -m cognition.calibrate_body --write")
+                      "which rests near 3 Hz -- run python -m cognition.calibrate_body --write")
     return DNG100_REST_HZ
 
 

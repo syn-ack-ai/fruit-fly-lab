@@ -55,7 +55,7 @@ from collections import deque
 
 import numpy as np
 
-from cortex.topdown import bearing_deg
+from cortex.topdown import bearing_deg, reflex_channel
 from robot.safety import person_distance
 
 CELL_M = 0.5
@@ -103,9 +103,8 @@ MEAL_SETTLE = 0.6           # rest drive while at the bowl during a meal
 # without the motor lag (2026-09-27, held-out Habitat runs).
 ORIENT_S, ORIENT_AWAY_S = 2.0, 1.0
 # which top-down channel the reflex uses: "attend" (the pursuit neurons LC10a)
-# or "goal" (the central complex, FC2): see cortex/topdown.attend_from_goal
+# or "goal" (the central complex, FC2): cortex/topdown.reflex_channel
 import os as _os
-ORIENT_CHANNEL = _os.environ.get("FLY_ORIENT_CHANNEL", "attend")
 # excitement (voice=True, the pet): a social state that drives the fly's male
 # P1 courtship-arousal neurons (the "excite" channel, cortex/topdown.py); the
 # connectome's song command pIP10 follows and the robot voices it. Bumped by
@@ -511,9 +510,11 @@ class CortexV0:
             if self._orienting:
                 # (not during a meal: a pet at its dock mid-meal ignores you --
                 # second review 2026-09-27)
-                if ORIENT_CHANNEL == "goal":
+                if reflex_channel("orient") == "goal":
                     # through the central complex: a goal at the person's bearing
+                    # (the avoid layer treats the person as its target, not an obstacle)
                     cmd["goal_deg"], cmd["goal_gain"] = (yaw - float(obs["az"])) % 360.0, 1.0
+                    cmd["goal_is_person"] = True
                 else:
                     cmd["attend_az"], cmd["attend_gain"], cmd["attend_explicit"] = float(obs["az"]), 1.0, True
                 self.day_log["orient_s"] = self.day_log.get("orient_s", 0.0) + dt

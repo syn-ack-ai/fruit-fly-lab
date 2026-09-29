@@ -57,9 +57,10 @@ def make_cortex(kind: str, state_path: str | None = None, seed: int = 0):
     if kind == "oracle":
         return OracleCortex()
     if kind in ("v0", "v0_amnesic", "v0_manners", "pet"):
+        import config
         from cortex.v0 import CortexV0
         return CortexV0(state_path=state_path, seed=seed, amnesic=kind == "v0_amnesic",
                         manners=kind in ("v0_manners", "pet"), naps=kind == "pet",
-                        orient=kind == "pet" and os.environ.get("FLY_ORIENT", "1") != "0",
-                        voice=kind == "pet" and os.environ.get("FLY_VOICE", "1") != "0")
+                        orient=kind == "pet" and config.env_flag("FLY_ORIENT"),
+                        voice=kind == "pet" and config.env_flag("FLY_VOICE"))
     raise ValueError(kind)

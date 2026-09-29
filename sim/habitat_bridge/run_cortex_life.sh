@@ -17,7 +17,7 @@
 #   petsteer petlidar + steering toward open space before obstacles (robot/avoid.py)
 #   petroute petsteer + the neocortex's obstacle map and routes around it (cortex/obstacle_map.py)
 #   pettalk  the battery pet + personality + scripted talking person
-# SAFE_SPEED=1 adds the robot's near-person speed limit (robot/safety.py) to every condition.
+# The robot's near-person speed limit (robot/safety.py) is on in every condition; SAFE_SPEED=0 turns it off.
 # SPEECH=1 lets the scripted person talk in every condition (only "talk" listens).
 # FACE_URL=http://127.0.0.1:8010/state shows the face (robot/face_server.py); one pet only.
 # PORT0 (default 6040) sets the first Habitat port.
@@ -40,7 +40,7 @@ SECS=${SECS:-120}
 HFOV=${HFOV:-150}
 SEEDS=${SEEDS:-1}
 CONDS=(${CONDS:-none v0 amnesic})
-SAFE=""; [ "${SAFE_SPEED:-0}" = 1 ] && SAFE=--safe-speed
+SAFE=--safe-speed; [ "${SAFE_SPEED:-1}" = 0 ] && SAFE=--no-safe-speed
 [ "${SPEECH:-0}" = 1 ] && SAFE="$SAFE --speech"
 [ -n "${FACE_URL:-}" ] && SAFE="$SAFE --face $FACE_URL"
 [ "${REAL:-0}" = 1 ] && SAFE="$SAFE --real-senses"

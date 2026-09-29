@@ -63,8 +63,13 @@ def test_song_bouts_need_duration_and_spacing():
     assert not any(run([0, 0.5, 0, 0.6, 0], 0.0))                  # 100 ms blips: no song
     on = run([0.5, 0.2, 0.4, 0.1, 0], 1.0)                        # 0.3 s held (0.2 keeps it on): one bout
     assert on.count(True) == 1 and s["bouts"] == 1
+    assert s["s"] == pytest.approx(0.3)
     assert not any(run([0.5] * 5 + [0], 1.6))                     # too soon after: merged, no new song
+    assert s["s"] == pytest.approx(0.8)                           # ... but its time counts (review)
+    assert not any(run([0, 0.5, 0], 2.5))                         # a blip soon after: nothing (review)
+    assert s["s"] == pytest.approx(0.8) and s["bouts"] == 1
     assert run([0] + [0.5] * 5, 1.6 + SONG_GAP_S + 1.0).count(True) == 1 and s["bouts"] == 2
+    assert s["s"] == pytest.approx(1.3)
 
 
 def test_words_need_a_vocal_urge_when_the_call_is_made():
@@ -164,7 +169,7 @@ def test_stuck_metric_matches_the_unstick_definition():
     assert stuck_s([{"t": 0.1 * k, "robot": [0, 0, 0]} for k in range(n)]) is None   # no lidar: n/a
 
 
-def test_navigation_goals_skip_the_pursuit_neurons_on_male_brains():
+def test_navigation_goals_skip_the_pursuit_neurons_on_male_brains(monkeypatch):
     """2026-09-28: in the male CNS the pursuit neurons (LC10a) made the robot
     walk backward (MDN); navigation goals go through the central complex only.
     Explicit attention (the orienting / unstick reflexes) still applies."""
@@ -172,6 +177,7 @@ def test_navigation_goals_skip_the_pursuit_neurons_on_male_brains():
     from cortex.topdown import TopDown
     class Obj:
         indices = np.empty(0, np.int64); _az = _el = _sigma = np.empty(0); MAX_HZ = 150.0; arousal = 1.0
+    monkeypatch.delenv("FLY_ATTEND_FROM_GOAL", raising=False)
     td = TopDown(load_connectome(), Obj(), channels=("goal", "attend"))
     assert td.attend_from_goal == (not config.MALE_CNS)
     td.apply(90.0, {"goal_deg": 45.0, "goal_gain": 1.0})
@@ -184,7 +190,7 @@ def test_navigation_goals_skip_the_pursuit_neurons_on_male_brains():
 
 def test_body_walks_at_a_flys_pace_on_its_own_brains_resting_rate():
     """2026-09-28: the body's DNg100 -> speed constant was FAFB's resting rate;
-    the male brain rests at ~4 Hz and walked at a quarter of a fly's pace."""
+    the male brain rests at ~3 Hz and walked at a quarter of a fly's pace."""
     import json
     import fly.body.foraging_body as fb
     p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"

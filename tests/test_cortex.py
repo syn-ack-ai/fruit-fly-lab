@@ -85,10 +85,11 @@ def test_v0_learns_where_food_is():
     assert cx.summary()["food_places"] >= 1
 
 
-def test_orienting_reflex_attends_to_a_person_who_appears():
+def test_orienting_reflex_attends_to_a_person_who_appears(monkeypatch):
     """A person coming into view snaps the pursuit channel (attend) to their
     bearing for ORIENT_S; not while they stay in view, not when resting."""
     from cortex.v0 import CortexV0, ORIENT_S
+    monkeypatch.setenv("FLY_ORIENT_CHANNEL", "attend")
     cx = CortexV0(seed=0, manners=True, naps=True, orient=True)
     cx.reset(0, None, None)
     obs = lambda t, vis, az=40.0: {"robot": [0.0, 0.0, 0.0], "visible": vis, "az": az, "half": 5.0, "human": [1.0, 1.0], "dist": 2.0}
@@ -97,12 +98,37 @@ def test_orienting_reflex_attends_to_a_person_who_appears():
     assert not any(on[:20]) and on[20] and on[20 + int(ORIENT_S / 0.1) - 2]
     assert not any(on[20 + int(ORIENT_S / 0.1) + 1:])          # stays in view: no re-trigger
     assert cmds[20]["attend_az"] == 40.0 and cmds[20]["attend_gain"] == 1.0
+    # explicit: TopDown applies it even where goals don't drive LC10a (review)
+    assert cmds[20]["attend_explicit"] is True
+
+
+def test_orienting_reflex_through_the_central_complex(monkeypatch):
+    """The "goal" channel (FLY_ORIENT_CHANNEL=goal): a goal at the person's
+    bearing, marked as the person so the avoid layer does not steer around
+    them. Default "attend" on every brain (cortex/topdown.reflex_channel)."""
+    from cortex.topdown import reflex_channel
+    from cortex.v0 import CortexV0
+    monkeypatch.delenv("FLY_ORIENT_CHANNEL", raising=False)
+    assert reflex_channel("orient") == "attend"
+    monkeypatch.setenv("FLY_ORIENT_CHANNEL", "goal")
+    assert reflex_channel("orient") == "goal"
+    cx = CortexV0(seed=0, manners=True, naps=True, orient=True)
+    cx.reset(0, None, None)
+    obs = lambda vis: {"robot": [0.0, 0.0, 0.0], "visible": vis, "az": 40.0, "half": 5.0, "human": [1.0, 1.0], "dist": 2.0}
+    cmds = [cx.act(obs(k >= 5), None, 0.1 * k, None) for k in range(8)]
+    c = cmds[5]
+    assert "attend_az" not in c and c["goal_is_person"] and c["goal_gain"] == 1.0
+    assert c["goal_deg"] == pytest.approx(320.0)                   # 40 deg right of heading 0
+    monkeypatch.setenv("FLY_UNSTICK_CHANNEL", "sideways")
+    with pytest.raises(ValueError):
+        reflex_channel("unstick")
 
 
 
-def test_orienting_reflex_stays_quiet_when_it_should():
+def test_orienting_reflex_stays_quiet_when_it_should(monkeypatch):
     """Not while resting, not mid-meal, not while giving the person space."""
     import types
+    monkeypatch.setenv("FLY_ORIENT_CHANNEL", "attend")
     from cortex.v0 import CortexV0
     obs = lambda vis: {"robot": [0.0, 0.0, 0.0], "visible": vis, "az": 40.0, "half": 5.0, "human": [1.0, 1.0], "dist": 2.0}
     def run(setup, home=None):

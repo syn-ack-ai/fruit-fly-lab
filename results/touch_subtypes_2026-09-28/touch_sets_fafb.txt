@@ -1,0 +1,6 @@
+FAFB Ant + Vib (L 38 / R 40)
+   both 12Hz: MDN  0.0 DNg100 12.3 a02 R-L  +1.7
+   both 80Hz: MDN  0.0 DNg100 10.2 a02 R-L  +3.7
+   L 40: MDN  0.1 DNg100 21.5 a02 R-L  -3.0
+   R 40: MDN  0.0 DNg100 13.0 a02 R-L  +4.3
+rest: MDN  0.0 DNg100 18.2 a02 R-L  +1.0

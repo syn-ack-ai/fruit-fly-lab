@@ -81,11 +81,18 @@ calibration. It measures whether activity dies away after an odour ends.
 | held-out | 21/21 | 21/21 |
 | robustness | 0.85 | **0.89** |
 
+**Caveat (review).** This choice was made by comparing candidates on all four
+seed sets, +200 included. So +200, normally the report-only set
+(`cognition/calibrate_merged.py`), is not held out for it; the exam's own
+held-out tests (21/21) still are.
+
 The CPU engine decayed every depressed neuron each 0.1 ms step: 151k neurons
 instead of 2.6k ORNs made it 2.3x slower (review). The decay is now lazy
 (`native/lif_native.c`: brought up to date when a neuron spikes). It is 3x
 faster and statistically equivalent to the per-step decay over 6 seeds; it is
-not bit-identical, because float rounding differs.
+not bit-identical, because float rounding differs (within 1e-5 of a float64
+per-step reference: `tests/test_depression_consensus.py`). The CUDA engine
+does the same, bit-identical with the CPU engine (`native/verify_cuda.py`).
 
 ## 3. Final validation
 

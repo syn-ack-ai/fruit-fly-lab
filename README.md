@@ -34,13 +34,18 @@
 >   command pIP10 fires; Milo plays the fly's song; the LLM speaks only on a
 >   vocal urge and describes the fly brain's live state.
 > - **Getting unstuck** (`results/unstuck_2026-09-28/`). Touch is now rapidly
->   adapting, and an unstick reflex frees Milo from walls: stuck time fell by
->   two thirds (lidar) and ~90% (lidar steering).
+>   adapting, and an unstick reflex frees Milo from walls: with lidar steering,
+>   stuck time fell ~90%. (With lidar alone it later returned to ~40 s/day
+>   once Milo walked faster; the unstick reflex needs the steering layer.)
 > - **Walking and latching** (`results/walking_latching_2026-09-28/`). The body's
 >   walking speed now uses each brain's own resting DNg100 rate (it used FAFB's:
 >   the male brain walked at a quarter pace). Male navigation goes through the
 >   central complex (its pursuit neurons made it walk backward). Brain-wide
 >   short-term depression stops post-stimulus latching (robustness 0.89).
+> - **Which head bristles are touch** (`results/touch_subtypes_2026-09-28/`). The
+>   male brain's 69 untyped bristle neurons were sorted by wiring
+>   (`brain/sensory/bm_subtypes.py`); lidar touch skips the fronto-orbital-like
+>   ones, which made Milo back up and freeze at walls.
 > - **Real-world Habitat test** (no smell, camera and lidar only), scored 0-100 on
 >   safety, self-care, life and "aliveness" (`sim/habitat_bridge/score_pets.py`).
 >   See `results/habitat_real_world_2026-09-27/`.
@@ -97,7 +102,7 @@ The second run uses a seed set that was never used for fitting.
 the brains locally:
 
 ```bash
-HAB_HOST=user@box REAL=1 BODY=rover SAFE_SPEED=1 CONDS="petlidar petsteer" SEEDS="1 2 3" \
+HAB_HOST=user@box REAL=1 BODY=rover CONDS="petlidar petsteer" SEEDS="1 2 3" \
     OUT=simulation/outputs/habitat/run bash sim/habitat_bridge/run_cortex_life.sh
 python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 ```
@@ -117,9 +122,12 @@ python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 | `FLY_VOICE` | excitement -> P1 -> the fly's song command pIP10 -> Milo's "song" (`1`; male brains) |
 | `FLY_URGE_GATE` | the personality speaks only after a vocal urge from the fly brain (`1`) |
 | `FLY_UNSTICK` | the unstick reflex with lidar steering (`1`) |
+| `FLY_UNSTICK_LIDAR` | the unstick reflex with lidar alone too (`0`: it made things worse, `results/touch_subtypes_2026-09-28/`) |
+| `FLY_UNSTICK_CHANNEL` | the unstick reflex's channel: `goal` (male default) or `attend` (FAFB default) |
 | `FLY_TOUCH_ADAPT` | lidar touch as rapidly adapting bristles (`1`; `0` = the old steady drive) |
+| `FLY_TOUCH_BM` | male brains: lidar touch drives the antennal-like head bristles (`subtypes`, `brain/sensory/bm_subtypes.py`) or `all` 69 "BM" cells |
 | `FLY_ATTEND_FROM_GOAL` | navigation goals also drive the pursuit neurons LC10a (FAFB `1`; male brains `0`: it made them walk backward) |
-| `FLY_ORIENT_CHANNEL` | the orienting reflex's channel: `attend` (LC10a, default) or `goal` (central complex) |
+| `FLY_ORIENT_CHANNEL` | the orienting reflex's channel: `attend` (LC10a, default on every brain) or `goal` (central complex) |
 | `FLY_POP_READOUT` | pooled descending-neuron readout for all channels (off; the long-mode escape is always pooled) |
 | `FLY_EXAM_SEED_OFFSET` | shifts every exam seed (0; 100 = calibration's second set, 200 = report set) |
 | `FLYWIRE_V783_DIR` | FlyWire files (default: a `flywire_v783/` folder next to the repository) |
@@ -127,7 +135,8 @@ python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 
 Run-script variables (`sim/habitat_bridge/run_cortex_life.sh`): `HAB_HOST` (split
 mode), `REAL=1` (real senses: no smell), `BODY=rover`, `DATASET`, `SEEDS`, `DAYS`,
-`CONDS`, `THREADS`, `PORT0`, `OUT`.
+`CONDS`, `THREADS`, `PORT0`, `OUT`, `SAFE_SPEED` (the near-person speed
+limit, on by default; `0` turns it off).
 
 ---
 

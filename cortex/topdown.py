@@ -112,11 +112,11 @@ class DopamineEncoder:
 
 
 REST_HZ = 80.0
-# excitement 1 -> P1 at 24 Hz: pIP10 ~41 Hz (sings) while the proboscis motor
-# neuron MN9 stays at ~4 Hz. At 40 Hz P1 also drives MN9 to ~20 Hz, past the
-# body's extension threshold -- the courtship "licking" step (orient, tap,
-# sing, lick), which would freeze the robot. Walking slows while P1 is on
-# (DNg100 3.8 -> 1.0 Hz): Milo pauses to sing. Measured with the calibrated
+# excitement 1 -> P1 at 24 Hz: pIP10 ~46 Hz (sings) while the proboscis motor
+# neuron MN9 stays at ~5 Hz. At 40 Hz P1 drives MN9 to ~14 Hz (~20 before
+# brain-wide depression), which extended the proboscis in Habitat -- the
+# courtship "licking" step (orient, tap, sing, lick) -- and froze the robot.
+# Walking slows while P1 is on (DNg100 4.8 -> 2.7 Hz): Milo slows to sing. Measured with the calibrated
 # dynamics the robot runs, on its resting receptor input (and about the same
 # without it); experiments/song_test.py, 2026-09-28.
 P1_MAX_HZ = 24.0
@@ -181,6 +181,28 @@ class RestEncoder:
         return {"kind": "cortex_rest", "active": self.level > 0, "level": round(self.level, 2)}
 
 
+def reflex_channel(reflex: str) -> str:
+    """The top-down channel a robot reflex steers with: "attend" drives the
+    pursuit neurons LC10a at the target's bearing, "goal" sets a
+    central-complex goal there. On male brains LC10a also walks the body
+    BACKWARD (see TopDown.attend_from_goal; review 2026-09-28).
+
+    "orient" (cortex/v0.py): "attend" on every brain. Through the goal the
+    male robot turned toward a person who appeared 67% / 52% of the time
+    instead of 86% / 77% (tuning seeds 11-13, lidar / lidar steering,
+    2026-09-28); the reflex lasts 2 s. FLY_ORIENT_CHANNEL overrides.
+    "unstick" (robot/avoid.Unstick): "goal" on male brains, where LC10a
+    fights the pull away from the wall; "attend" on FAFB
+    (results/touch_subtypes_2026-09-28/). FLY_UNSTICK_CHANNEL overrides."""
+    import os
+    import config
+    default = {"orient": "attend", "unstick": "goal" if config.MALE_CNS else "attend"}[reflex]
+    v = (os.environ.get(f"FLY_{reflex.upper()}_CHANNEL") or default).strip().lower()
+    if v not in ("goal", "attend"):
+        raise ValueError(f"FLY_{reflex.upper()}_CHANNEL must be 'goal' or 'attend', not {v!r}")
+    return v
+
+
 class TopDown:
     """All cortex -> fly channels for one Session. Call attach() after every
     Session.reset() (which clears stimuli), then apply() each control step."""
@@ -200,9 +222,8 @@ class TopDown:
         # orienting and unstick reflexes, cmd["attend_explicit"]) always applies.
         import os
         import config
-        env = os.environ.get("FLY_ATTEND_FROM_GOAL")
-        self.attend_from_goal = (env.strip().lower() not in ("0", "false", "no", "off", "")) if env is not None else (
-            (not config.MALE_CNS) if attend_from_goal is None else bool(attend_from_goal))
+        self.attend_from_goal = config.env_flag(
+            "FLY_ATTEND_FROM_GOAL", (not config.MALE_CNS) if attend_from_goal is None else bool(attend_from_goal))
         cx = Compass(connectome)
         self.compass = CompassDrive(cx)
         self.goal = GoalDrive(GoalCircuit(connectome, cx))

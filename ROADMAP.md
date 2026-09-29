@@ -34,14 +34,22 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
   now rapidly adapting, as bristles are, and an unstick reflex points the goal
   at the most open way. Held-out: stuck time 44 -> 15 s/day (lidar) and
   25 -> 2 s/day (lidar steering); furniture bumps 7x fewer.
-- **next** With lidar alone (no steering, so no unstick reflex) Milo is stuck
-  43 s/day now that it walks at a fly's pace. Decide whether the unstick
-  reflex belongs to the lidar layer itself.
-- **next** Walking: the complete brain now walks at a fly's pace at rest, but
-  in the closed loop only half as far as FAFB (9-13 vs 19-29 m/day;
-  `results/walking_latching_2026-09-28/`). Find what holds DNg100 below its
-  resting rate in Habitat (P1 excitement, the goal and touch inputs), and make
-  the lidar layer speed-aware.
+- **done** Which head bristles are touch (`results/touch_subtypes_2026-09-28/`).
+  The male CNS's 69 untyped "BM" bristles were classified by wiring into
+  FlyWire's subtypes (`brain/sensory/bm_subtypes.py`, 72/81 on FAFB). The
+  fronto-orbital-like ones made Milo back up and freeze at walls; lidar touch
+  now skips them. In the closed loop, MDN during touch fell from ~13 Hz to its
+  no-touch level. The held-out behaviour did not change significantly.
+- **done** Does the unstick reflex belong to the lidar layer? No: with lidar
+  alone it made stuck time worse (34 -> 43 s/day). It needs lidar steering,
+  which the rover will run.
+- **next** Walking: the complete brain still walks about half as far as FAFB
+  (10-16 vs 19-29 m/day). It is no longer backing: MDN is at rest. In the
+  closed loop the male brain's DNg100 sits at ~1.2x its resting rate, FAFB's
+  at ~1.6x. Find which inputs (vision, the goal, P1 excitement) drive FAFB's
+  walking above rest and not the male's. Make the lidar layer speed-aware.
+- **next** With lidar alone Milo is still stuck ~35 s/day (FAFB 28). Lidar
+  steering fixes it (~1 s/day).
 - **done** Speed smoothness: 0.56-0.58 in the latest held-out runs (ideal
   0.3-0.7).
 - **done** Why the complete brain walked so little
@@ -163,6 +171,13 @@ decides the *words*.
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
 
 ## Done recently (2026-09-28)
+
+- The male brain's head bristles sorted by wiring; lidar touch no longer
+  makes Milo back up and freeze (`results/touch_subtypes_2026-09-28/`).
+- Full code review: the CPU and CUDA engines are bit-identical again; a NaN
+  speed now stops the wheels; the near-person speed limit is on by default;
+  song time is counted correctly; the unstick reflex no longer drives the
+  male brain's backward-walking pursuit neurons.
 
 - Milo's voice from the fly brain: excitement -> P1 -> the song command pIP10
   -> Milo's song; the LLM speaks on a vocal urge and describes the fly brain's

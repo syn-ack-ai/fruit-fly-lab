@@ -90,6 +90,16 @@ for _d in (DERIVED_DIR, METADATA_DIR, OUTPUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
+def env_flag(name: str, default: bool = True) -> bool:
+    """An on/off environment switch: 0, false, no, off (any case) or empty
+    turn it off, anything else on; unset -> default. (One rule for every FLY_*
+    switch -- review 2026-09-28: FLY_VOICE=false turned the voice ON.)"""
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def require_source_files() -> None:
     """Fail loudly if the real FlyWire files are absent. Never silently substitute."""
     missing = [f"{k}: {p}" for k, p in SRC.items() if not p.exists()]

@@ -1,0 +1,4 @@
+fafb: 62 proboscis motor neurons, gain 1.00
+sugar 120 Hz            15.1 Hz   extended: now 98.6%   before 55.2%
+resting input            0.0 Hz   extended: now  0.0%   before  0.0%
+sugar then resting input          retracted after  1052 ms (median; max 1059)

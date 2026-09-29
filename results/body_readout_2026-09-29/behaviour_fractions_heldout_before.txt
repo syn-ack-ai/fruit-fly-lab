@@ -1,0 +1,7 @@
+fraction of logged steps (10 Hz) per body behaviour, held-out seeds 41-43, 10 days
+heldout_touch/fafb petlidar {'walking': 0.595, 'walking forward': 0.305, 'feeding': 0.058, 'flying': 0.018, 'turning left': 0.007, 'resting': 0.006, 'turning right': 0.006, 'landing': 0.002}
+heldout_touch/fafb petsteer {'walking': 0.533, 'walking forward': 0.312, 'feeding': 0.077, 'flying': 0.048, 'turning left': 0.006, 'turning right': 0.006, 'resting': 0.006, 'landing': 0.006}
+heldout_rest/fafb petlidar {'walking': 0.583, 'walking forward': 0.3, 'feeding': 0.067, 'flying': 0.021, 'turning left': 0.007, 'resting': 0.007, 'turning right': 0.007, 'landing': 0.003}
+heldout_rest/fafb petsteer {'walking': 0.533, 'walking forward': 0.315, 'feeding': 0.079, 'flying': 0.043, 'turning left': 0.007, 'turning right': 0.007, 'landing': 0.005, 'resting': 0.005}
+heldout_touch/merged petlidar {'walking': 0.738, 'walking backward': 0.075, 'resting': 0.051, 'walking forward': 0.036, 'feeding': 0.035, 'turning left': 0.027, 'turning right': 0.027, 'flying': 0.007}
+heldout_touch/merged petsteer {'walking': 0.72, 'walking backward': 0.076, 'resting': 0.042, 'walking forward': 0.04, 'feeding': 0.04, 'turning left': 0.027, 'turning right': 0.027, 'flying': 0.015}

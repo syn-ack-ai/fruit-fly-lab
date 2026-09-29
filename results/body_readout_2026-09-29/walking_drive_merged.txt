@@ -1,0 +1,12 @@
+merged: DNg100 2, MDN 4, DNa01 2, DNa02 2
+rest                         DNg100   3.2 (1.00x)  MDN   6.0  DNa01   1.3  DNa02   2.7
+compass                      DNg100   2.8 (0.88x)  MDN   4.0  DNa01   1.2  DNa02   2.8
+compass + goal +0            DNg100   4.1 (1.30x)  MDN   5.2  DNa01   1.1  DNa02   5.7
+compass + goal +60           DNg100   4.6 (1.46x)  MDN   4.6  DNa01   1.2  DNa02   6.0
+compass + goal +180          DNg100   3.5 (1.09x)  MDN   5.0  DNa01   1.3  DNa02   8.2
+attend +0 (LC10a)            DNg100   4.0 (1.28x)  MDN  12.8  DNa01   1.8  DNa02  46.3
+attend +30 (LC10a)           DNg100   4.6 (1.45x)  MDN   9.8  DNa01   2.6  DNa02  45.5
+compass + goal 0 + attend 0  DNg100   3.7 (1.16x)  MDN  11.5  DNa01   1.7  DNa02  43.9
+excite 0.3 (P1)              DNg100   2.5 (0.78x)  MDN   4.4  DNa01   2.1  DNa02   3.5
+excite 1.0 (P1)              DNg100   0.8 (0.26x)  MDN   3.9  DNa01   2.7  DNa02   2.7
+rest 1 (ER5)                 DNg100   3.2 (1.01x)  MDN   3.6  DNa01   1.0  DNa02   1.9

@@ -46,6 +46,15 @@
 >   male brain's 69 untyped bristle neurons were sorted by wiring
 >   (`brain/sensory/bm_subtypes.py`); lidar touch skips the fronto-orbital-like
 >   ones, which made Milo back up and freeze at walls.
+> - **The body's readouts, fitted to each brain** (`results/body_readout_2026-09-29/`).
+>   They were tuned on FAFB, whose command neurons fire several times faster.
+>   The male robot's proboscis flickered at its dock (it never finished a
+>   meal), chance bursts of two MDN cells walked it backward 7.5% of the time,
+>   and speed limits clipped its noisy DNg100. Now each brain is read relative
+>   to its own rates, over the same expected number of spikes. Held-out: Milo
+>   eats like FAFB, walks ~40% further with lidar steering, and the complete
+>   brain ties FAFB overall (79.8% vs 79.8%). FAFB's resting rate itself was
+>   stale (18.5 Hz, not 14.6).
 > - **Real-world Habitat test** (no smell, camera and lidar only), scored 0-100 on
 >   safety, self-care, life and "aliveness" (`sim/habitat_bridge/score_pets.py`).
 >   See `results/habitat_real_world_2026-09-27/`.
@@ -128,6 +137,9 @@ python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 | `FLY_TOUCH_BM` | male brains: lidar touch drives the antennal-like head bristles (`subtypes`, `brain/sensory/bm_subtypes.py`) or `all` 69 "BM" cells |
 | `FLY_ATTEND_FROM_GOAL` | navigation goals also drive the pursuit neurons LC10a (FAFB `1`; male brains `0`: it made them walk backward) |
 | `FLY_ORIENT_CHANNEL` | the orienting reflex's channel: `attend` (LC10a, default on every brain) or `goal` (central complex) |
+| `FLY_PROBOSCIS_HOLD` | the proboscis follows its motor neurons' rate over ~1 s, scaled to FAFB's (`1`; `0` = the 50 ms readout before 2026-09-29) |
+| `FLY_WALK_CMD_TAU` | s over which walking-direction commands must hold, with DNg100 read relative to rest (`0.2`; `0` = the readout before 2026-09-29) |
+| `FLY_DNG100_TAU_SCALE` | DNg100 smoothing scaled to the brain's spike count (`1`; `0` = FAFB's times on every brain) |
 | `FLY_POP_READOUT` | pooled descending-neuron readout for all channels (off; the long-mode escape is always pooled) |
 | `FLY_EXAM_SEED_OFFSET` | shifts every exam seed (0; 100 = calibration's second set, 200 = report set) |
 | `FLYWIRE_V783_DIR` | FlyWire files (default: a `flywire_v783/` folder next to the repository) |

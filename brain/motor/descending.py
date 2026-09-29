@@ -285,6 +285,37 @@ READOUT_TYPES = ("DNa01", "DNa02", "DNp09", "DNg100", "pIP10")
 # C: rate at which a channel is considered fully driven (Hz, per DN).
 CHANNEL_HALF_MAX_HZ = 60.0
 
+# C: the proboscis readout's reference: FAFB's proboscis motor group under
+# sustained sugar (120 Hz sugar GRNs + the resting input, calibrated dynamics,
+# seconds 2-10 after onset: 15.05 Hz, 2026-09-29). The body's extension
+# threshold (fly_body.PROBOSCIS_THRESHOLD) was set on FAFB. Other brains are
+# scaled to their own sustained sugar rate (cognition/calibrate_body.py ->
+# body_readout_<dataset>.json "proboscis_sugar_hz"), as walking is scaled to
+# each brain's resting DNg100: the male brain's two MN9 cells hold 8.6 Hz,
+# just under FAFB's threshold, so at its dock it ate 16% of the time vs
+# FAFB's 50% and never finished a meal (results/body_readout_2026-09-29/).
+PROBOSCIS_REF_SUGAR_HZ = 15.05
+
+
+def proboscis_gain() -> float:
+    """PROBOSCIS_REF_SUGAR_HZ / this dataset's sustained sugar rate, or 1.0
+    if it has not been measured (or FLY_PROBOSCIS_HOLD=0: the readout before
+    2026-09-29, for comparisons)."""
+    import json
+    import config
+    if not config.env_flag("FLY_PROBOSCIS_HOLD", True):
+        return 1.0
+    p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"
+    if not p.exists():
+        return 1.0
+    hz = json.loads(p.read_text()).get("proboscis_sugar_hz")
+    if hz is None:
+        return 1.0
+    hz = float(hz)
+    if not (np.isfinite(hz) and hz >= 1.0):
+        raise ValueError(f"{p}: proboscis_sugar_hz {hz!r} is not a usable rate")
+    return PROBOSCIS_REF_SUGAR_HZ / hz
+
 
 def _mean(v: list) -> float:
     """float(np.mean(v)), without numpy's per-call overhead. For fewer than 8
@@ -358,6 +389,7 @@ class DescendingReadout:
         if self.proboscis_idx.size == 0:
             # an empty group means the body can never eat (review 2026-09-27)
             raise ValueError("no proboscis motor neurons found for dataset %r" % __import__("config").DATASET_KEY)
+        self.proboscis_gain = proboscis_gain()
 
     def _label_group_indices(self, group: str) -> np.ndarray:
         if group == "proboscis_motor":
@@ -379,16 +411,22 @@ class DescendingReadout:
         """
         if self.proboscis_idx.size == 0 or window_ms <= 0:
             return 0.0
-        hz = float(spike_counts[self.proboscis_idx].sum()
-                   / self.proboscis_idx.size / (window_ms * 1e-3))
+        return self.proboscis_drive_from_total(int(spike_counts[self.proboscis_idx].sum()), window_ms)
+
+    def proboscis_hz_from_total(self, total_spikes: int, window_ms: float) -> float:
+        """The proboscis motor neurons' mean rate over a window, scaled to
+        FAFB's (proboscis_gain)."""
+        if self.proboscis_idx.size == 0 or window_ms <= 0:
+            return 0.0
+        return self.proboscis_gain * float(total_spikes / self.proboscis_idx.size / (window_ms * 1e-3))
+
+    @staticmethod
+    def proboscis_drive_from_hz(hz: float) -> float:
         return hz / (hz + CHANNEL_HALF_MAX_HZ)
 
     def proboscis_drive_from_total(self, total_spikes: int, window_ms: float) -> float:
         """proboscis_drive() given the proboscis motor neurons' window total."""
-        if self.proboscis_idx.size == 0 or window_ms <= 0:
-            return 0.0
-        hz = float(total_spikes / self.proboscis_idx.size / (window_ms * 1e-3))
-        return hz / (hz + CHANNEL_HALF_MAX_HZ)
+        return self.proboscis_drive_from_hz(self.proboscis_hz_from_total(total_spikes, window_ms))
 
     # ------------------------------------------------------------------ read
     def group_sums(self, spike_counts: np.ndarray) -> np.ndarray:

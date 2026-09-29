@@ -317,9 +317,17 @@ set reported, never optimised), including two new mechanisms:
   (`results/walking_latching_2026-09-28/`).
 - *walking readout and steering route* (category C, 2026-09-28): the body's
   speed scales with DNg100 relative to the dataset's OWN resting rate (merged
-  3.1 Hz; FAFB 14.6), and on male brains the neocortex's navigation goals go
-  through the central complex only, because the pursuit neurons LC10a
-  (courtship pursuit in males) made the robot walk backward.
+  3.1 Hz; FAFB 18.5, measured the same way on 2026-09-29 -- its earlier 14.6
+  Hz had no warm-up and made FAFB walk 27% faster). The walking readouts
+  were tuned on FAFB's DNg100 (2 cells at 18.5 Hz); the male brain's rest
+  at 3.1 Hz, so they now read DNg100 relative to each brain's own rest, average
+  the same expected number of spikes (smoothing x 18.5 / 3.1), and switch
+  walking direction only on a command held for ~0.2 s: 50 ms chance bursts of
+  2-cell MDN groups had walked the male robot backward 7.5% of the time
+  (category C, 2026-09-29, `results/body_readout_2026-09-29/`). On male
+  brains the neocortex's navigation goals go through the central complex
+  only, because the pursuit neurons LC10a (courtship pursuit in males) made
+  the robot walk backward.
 - *robot senses and states* (category C, 2026-09-28): the lidar's touch drives
   the head bristles as RAPIDLY ADAPTING mechanoreceptors (NompC; Walker,
   Willingham & Zuker 2000), which fall mostly silent under steady contact. The
@@ -328,7 +336,12 @@ set reported, never optimised), including two new mechanisms:
   (`experiments/song_test.py`).
 - *proboscis readout*: the male brains read proboscis extension from MN9, the
   proboscis-extension motor neuron (FlyWire's proboscis label group does not
-  exist in the MaleCNS).
+  exist in the MaleCNS). Each brain's proboscis rate is scaled to FAFB's under
+  the same sustained sugar (male MN9 8.6 Hz, FAFB's group 15.1 Hz), and the
+  body holds the proboscis out while the rate over the last ~second stays up,
+  with hysteresis (category C, 2026-09-29): the model's proboscis motor neurons
+  fire in ~250 ms bursts, and with a 50 ms threshold the male brain's two MN9
+  cells let the proboscis flicker at its dock (`results/body_readout_2026-09-29/`).
 - *ORN -> PN input normalisation* (Tobin, Wilson & Lee 2017, generalised across
   glomeruli, clipped 0.5-2x, uniglomerular PNs only): PNs with more receptor
   synapses have lower input resistance. Needed for the male-enlarged VA1v

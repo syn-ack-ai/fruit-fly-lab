@@ -51,6 +51,7 @@ import math
 
 import numpy as np
 
+from brain.motor.descending import CHANNEL_HALF_MAX_HZ
 from fly.body.fly_body import (BACKWARD_SPEED_MM_S, BACKWARD_THRESHOLD,
                                ESCAPE_THRESHOLD, FORWARD_THRESHOLD,
                                GF_TAKEOFF_LATENCY_MS, JUMP_SPEED_MM_S,
@@ -66,14 +67,35 @@ TURN_NOISE_DEG_S = 90.0          # SD of spontaneous angular velocity
 TURN_TAU_S = 0.25
 SPONT_TAKEOFF_PER_S = 1 / 60.0   # while walking
 # --- neural readout gains (see docstring) ----------------------------------------
-DNG100_REST_HZ = 14.6            # model DNg100 rate under resting sensory input (C; measured 2026-09-25, FAFB)
+# model DNg100 rate under resting sensory input, FAFB (C; cognition/calibrate_body.py,
+# 2026-09-29: 18.5 Hz. The first value, 14.6 Hz on 2026-09-25, had no warm-up and made
+# FAFB walk 27% faster). Each brain's own rate comes from body_readout_<dataset>.json;
+# FAFB's is also the reference the forward threshold was set on (tests check they agree).
+FAFB_DNG100_REST_HZ = 18.5
+# C: holding the proboscis out. A feeding fly keeps its proboscis extended for
+# seconds while it drinks; the model's proboscis motor neurons fire in bursts
+# of ~250 ms with pauses (the male brain's two MN9 cells: 0-40 Hz per 250 ms at
+# a mean of 8.6 Hz). The body follows their rate over the last ~second
+# (PROBOSCIS_TAU_MS, averaged before the readout's saturation), extends above
+# PROBOSCIS_THRESHOLD and retracts below PROBOSCIS_RELEASE x that. Replayed
+# spike trains (2026-09-29, experiments/feeding_hold_test.py): sustained sugar
+# -> extended 98% (male, scaled; FAFB 99%), resting input 0%, the P1
+# excitement channel at its maximum 7% (the 50 ms window without hysteresis:
+# 16% / 55% / 1.5% / 9%). After sugar it retracts in a median 1.2 s on the
+# resting input and 2.9 s under maximal excitement. The release point is
+# above the male brain's MN9 rate under maximal excitement (3.5 Hz, 6.2
+# scaled); at 0.5 x the threshold excitement right after a meal held the
+# proboscis out (and the robot still) about twice as long.
+PROBOSCIS_TAU_MS = 1000.0
+PROBOSCIS_RELEASE = 0.65
+PROBOSCIS_MAX_HZ = 500.0         # a rate the readout cannot exceed (guards the average)
 
 
 def _dng100_rest_hz() -> float:
     """The dataset's own resting DNg100 rate (cognition/calibrate_body.py ->
-    data/metadata/body_readout_<dataset>.json), else the FAFB constant. The
-    complete male brain rests at ~3 Hz: read with FAFB's 14.6 Hz it walked at a
-    quarter of a fly's pace -- the whole "walks 3x less than FAFB" gap in
+    data/metadata/body_readout_<dataset>.json), else FAFB's (FAFB_DNG100_REST_HZ).
+    The complete male brain rests at ~3 Hz: read with FAFB's rate it walked at
+    a quarter of a fly's pace -- the whole "walks 3x less than FAFB" gap in
     Habitat (2026-09-28)."""
     import json
     import warnings
@@ -93,9 +115,9 @@ def _dng100_rest_hz() -> float:
             raise ValueError(f"{p}: dng100_rest_hz {hz!r} is not a usable resting rate")
         return hz
     if config.MALE_CNS:
-        warnings.warn(f"no {p.name}: the body uses FAFB's resting DNg100 rate (14.6 Hz) for a male brain, "
+        warnings.warn(f"no {p.name}: the body uses FAFB's resting DNg100 rate ({FAFB_DNG100_REST_HZ} Hz) for a male brain, "
                       "which rests near 3 Hz -- run python -m cognition.calibrate_body --write")
-    return DNG100_REST_HZ
+    return FAFB_DNG100_REST_HZ
 
 
 DNG100_REST_HZ = _dng100_rest_hz()
@@ -106,6 +128,26 @@ DNA01_TURN_DEG_S = 200.0         # lower gain (Rayshubskiy et al. 2025)
 DNA02_HP_TAU_S = 0.5             # biphasic filter: slow (negative) lobe (C)
 STEER_FAST_TAU_S = 0.1           # fast lobe / monophasic smoothing of DN rates (C)
 SPEED_TAU_S = 0.3                # stepping frequency follows DNg100 smoothly (C)
+# C: switching walking direction follows the forward / backward command
+# channels over ~WALK_CMD_TAU_S (a step or two), not one 50 ms window. The
+# male brain's MDN groups are 2 cells per side at ~5 Hz: a chance burst of 3
+# spikes in 50 ms read as 30 Hz and walked the robot backward 7.5% of the time
+# in Habitat (FAFB, MDN ~0.3 Hz: never), 2026-09-29. FLY_WALK_CMD_TAU=0: the
+# readout before (for comparisons): no smoothing and no scaled DNg100 trigger.
+WALK_CMD_TAU_S = 0.2
+# ... and a bout starts when DNg100, scaled to FAFB's resting rate (the
+# reference the forward threshold was set on; cognition/calibrate_body.py),
+# reaches FORWARD_THRESHOLD: the male brain's DNg100 fires ~6x slower, so its
+# absolute rate never did, except in chance 50 ms bursts.
+DNG100_REF_REST_HZ = FAFB_DNG100_REST_HZ
+# C: the DNg100 readouts average the same expected number of spikes on every
+# brain: the smoothing times above were set on FAFB (2 cells at 18.5 Hz); the
+# male brain's 2 cells rest at 3.1 Hz, so read over 0.3 s its speed was mostly
+# shot noise (SD 1.6x rest vs FAFB 0.74x) and the speed limits cut its bursts
+# off: mean 1.30x rest, 0.81x after the wheels' 0.5 m/s (FAFB 1.32 -> 1.15),
+# 2026-09-29. DNG100_TAU_SCALE stretches SPEED_TAU_S and WALK_CMD_TAU_S for
+# DNg100 by FAFB's resting rate / this brain's (1 on FAFB).
+DNG100_TAU_SCALE = max(1.0, DNG100_REF_REST_HZ / DNG100_REST_HZ)
 MAX_WALK_TURN_DEG_S = 800.0
 # --- C: flight -------------------------------------------------------------------
 CRUISE_SPEED_MM_S = 250.0
@@ -119,6 +161,21 @@ LAND_DESCENT_MM_S = 150.0
 LANDING_THRESHOLD = 0.30
 FLIGHT_ESCAPE_THRESHOLD = 0.35
 GRAVITY_MM_S2 = 9810.0
+
+
+def _env_seconds(name: str, default: float) -> float:
+    """A time constant from the environment: a number of seconds, or
+    0/false/no/off/"" (config.env_flag's off words) for none."""
+    import os
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    if v.strip().lower() in ("", "0", "false", "no", "off"):
+        return 0.0
+    x = float(v)
+    if not (np.isfinite(x) and x >= 0.0):
+        raise ValueError(f"{name} must be >= 0 seconds, not {v!r}")
+    return x
 
 
 class ForagingBody:
@@ -138,6 +195,10 @@ class ForagingBody:
         self._turn_noise = 0.0
         self._escape_armed_at = None
         self._escape_mode = None
+        self._prob_hz = 0.0
+        self._prob_on = False
+        import config
+        self._prob_hold = config.env_flag("FLY_PROBOSCIS_HOLD", True)   # 0: the 50 ms readout before 2026-09-29
         self._escape_complete = False
         self._phase = "ground"          # ground | jump | cruise | landing
         self._flight_end = 0.0
@@ -148,6 +209,11 @@ class ForagingBody:
         self._a01_f = 0.0               # smoothed DNa01 L-R (monophasic)
         self._p09_f = 0.0
         self._hz100 = None              # smoothed DNg100 rate
+        self._fwd_s = self._bwd_s = 0.0  # smoothed forward / backward channels
+        self._dng_s = 0.0                # smoothed DNg100, scaled to FAFB's rest (Hz)
+        self._cmd_tau_s = _env_seconds("FLY_WALK_CMD_TAU", WALK_CMD_TAU_S)
+        # FLY_DNG100_TAU_SCALE=0: FAFB's smoothing times on every brain (before 2026-09-29)
+        self._dng_tau_scale = DNG100_TAU_SCALE if config.env_flag("FLY_DNG100_TAU_SCALE", True) else 1.0
         # Rest / sleep pressure (0..1), set top-down (cortex/topdown.py "rest").
         # The brain side drives ER5 ring neurons; this is the missing nerve
         # cord's side: sleep-promoting VNC neurons (VNC-SP; Jones et al. 2023
@@ -214,8 +280,19 @@ class ForagingBody:
                     self._takeoff(t_ms, laterality, directed=True, why="escape (long mode)")
             return
 
-        # proboscis (real motor neurons); feeding needs the fly to stand still
-        target = 1.0 if prob >= PROBOSCIS_THRESHOLD else 0.0
+        # proboscis (real motor neurons); feeding needs the fly to stand still.
+        # The drive stands for a rate (readout: hz / (hz + CHANNEL_HALF_MAX_HZ));
+        # the rate is averaged, then saturated again (PROBOSCIS_TAU_MS).
+        half = CHANNEL_HALF_MAX_HZ
+        hz = half * prob / max(1e-9, 1.0 - prob) if np.isfinite(prob) else 0.0
+        hz = min(max(hz, 0.0), PROBOSCIS_MAX_HZ)
+        if self._prob_hold:
+            self._prob_hz += (hz - self._prob_hz) * (1.0 - math.exp(-dt_ms / PROBOSCIS_TAU_MS))
+            held = self._prob_hz / (self._prob_hz + half)
+            self._prob_on = held >= PROBOSCIS_THRESHOLD * (PROBOSCIS_RELEASE if self._prob_on else 1.0)
+        else:
+            self._prob_on = prob >= PROBOSCIS_THRESHOLD
+        target = 1.0 if self._prob_on else 0.0
         s.proboscis_extension += (target - s.proboscis_extension) * min(1.0, dt_ms / 40.0)
         s.wing_angle_deg *= 0.92
         s.leg_extension *= 0.9
@@ -231,6 +308,15 @@ class ForagingBody:
 
         beh = "walking" if self._walking else "resting"
         # neural modulation (see docstring)
+        if self._cmd_tau_s > 0:
+            k = 1.0 - math.exp(-dt_s / self._cmd_tau_s)
+            self._fwd_s += (forward - self._fwd_s) * k
+            self._bwd_s += (backward - self._bwd_s) * k
+            forward, backward = self._fwd_s, self._bwd_s
+            if ch.get("hz_DNg100") is not None:
+                kd = 1.0 - math.exp(-dt_s / (self._cmd_tau_s * self._dng_tau_scale))
+                self._dng_s += (ch["hz_DNg100"] * DNG100_REF_REST_HZ / DNG100_REST_HZ - self._dng_s) * kd
+                forward = max(forward, self._dng_s / (self._dng_s + CHANNEL_HALF_MAX_HZ))
         hz100 = ch.get("hz_DNg100")
         if forward >= FORWARD_THRESHOLD:
             self._walking = True                      # command neurons start a bout
@@ -240,7 +326,7 @@ class ForagingBody:
         else:
             if self._hz100 is None:
                 self._hz100 = DNG100_REST_HZ
-            self._hz100 += (hz100 - self._hz100) * min(1.0, dt_s / SPEED_TAU_S)
+            self._hz100 += (hz100 - self._hz100) * min(1.0, dt_s / (SPEED_TAU_S * self._dng_tau_scale))
             speed = (min(MAX_NEURAL_WALK_MM_S, DNG100_MM_PER_HZ * self._hz100)
                      if self._walking else 0.0)
         turn = self._turn_noise if self._walking else 0.0
@@ -285,6 +371,8 @@ class ForagingBody:
         s.speed_mm_s = max(s.speed_mm_s, 0.5 * JUMP_SPEED_MM_S)
         s.wing_angle_deg = 90.0
         s.proboscis_extension = 0.0
+        self._prob_hz, self._prob_on = 0.0, False      # an escape interrupts feeding
+        self._fwd_s = self._bwd_s = self._dng_s = 0.0  # ... and a walk: it starts afresh on landing
         if directed:
             # away from the more active escape side: a threat on the right drives
             # the right escape DNs more (laterality > 0; checked with looming at

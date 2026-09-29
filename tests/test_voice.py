@@ -199,5 +199,5 @@ def test_body_walks_at_a_flys_pace_on_its_own_brains_resting_rate():
         if config.MALE_CNS:
             assert 2.0 < fb.DNG100_REST_HZ < 8.0
     else:
-        assert fb.DNG100_REST_HZ == 14.6                     # FAFB's constant (FAFB unchanged)
+        assert fb.DNG100_REST_HZ == fb.FAFB_DNG100_REST_HZ   # no calibration: FAFB's rate
     assert abs(fb.DNG100_MM_PER_HZ * fb.DNG100_REST_HZ - fb.WALK_SPEED_MM_S) < 1e-9

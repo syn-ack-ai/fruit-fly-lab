@@ -1,0 +1,11 @@
+fraction of logged steps per body behaviour, tuning seeds 11-13, 3 days
+tune_feed/D_feed petlidar {'walking': 0.735, 'walking backward': 0.076, 'walking forward': 0.04, 'resting': 0.039, 'turning left': 0.031, 'turning right': 0.03, 'feeding': 0.029}
+tune_feed/D_feed petsteer {'walking': 0.736, 'walking backward': 0.078, 'walking forward': 0.042, 'feeding': 0.033, 'resting': 0.028, 'turning left': 0.027, 'turning right': 0.026}
+tune_walk/E_merged petlidar {'walking': 0.648, 'resting': 0.145, 'turning right': 0.093, 'turning left': 0.085, 'feeding': 0.022, 'flying': 0.003, 'landing': 0.002}
+tune_walk/E_merged petsteer {'walking': 0.636, 'resting': 0.128, 'turning left': 0.094, 'turning right': 0.091, 'feeding': 0.029, 'flying': 0.012, 'landing': 0.005}
+tune_walk/F_merged petlidar {'walking': 0.594, 'walking forward': 0.287, 'resting': 0.027, 'feeding': 0.026, 'flying': 0.02, 'turning left': 0.016, 'turning right': 0.015}
+tune_walk/F_merged petsteer {'walking': 0.522, 'walking forward': 0.313, 'feeding': 0.067, 'flying': 0.03, 'resting': 0.019, 'turning right': 0.017, 'turning left': 0.013}
+tune_walk/D_fafb petlidar {'walking': 0.563, 'walking forward': 0.33, 'feeding': 0.075, 'flying': 0.013, 'turning left': 0.006, 'turning right': 0.005, 'resting': 0.005}
+tune_walk/D_fafb petsteer {'walking': 0.53, 'walking forward': 0.344, 'feeding': 0.076, 'flying': 0.031, 'turning left': 0.004, 'turning right': 0.004, 'landing': 0.004}
+tune_walk/F_fafb petlidar {'walking': 0.501, 'walking forward': 0.382, 'feeding': 0.062, 'turning right': 0.014, 'flying': 0.013, 'turning left': 0.012, 'resting': 0.011}
+tune_walk/F_fafb petsteer {'walking': 0.428, 'walking forward': 0.423, 'feeding': 0.071, 'flying': 0.041, 'turning right': 0.009, 'turning left': 0.008, 'landing': 0.007}

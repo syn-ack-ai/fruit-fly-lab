@@ -1,0 +1,8 @@
+merged: 2 proboscis motor neurons, gain 1.76
+sugar 120 Hz             9.4 Hz   extended: now 98.0%   before 15.6%
+resting input            1.0 Hz   extended: now  0.0%   before  1.5%
+P1 excitement 0.3        2.5 Hz   extended: now  0.0%   before  5.6%
+P1 excitement 1.0        3.5 Hz   extended: now  6.8%   before  8.7%
+sugar then resting input          retracted after  1207 ms (median; max 1520)
+sugar then P1 excitement 0.3      retracted after  1385 ms (median; max 2561)
+sugar then P1 excitement 1.0      retracted after  2882 ms (median; max 3205)

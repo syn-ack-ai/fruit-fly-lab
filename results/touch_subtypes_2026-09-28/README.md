@@ -133,6 +133,9 @@ FAFB was re-run with today's code. Pairs are lidar / lidar steering:
   vs 3.1 Hz); FAFB's at about 1.6x (22-24 vs 14.6 Hz). The male brain's sensory
   and goal inputs drive walking less above rest. That is the next question
   (ROADMAP).
+  *(2026-09-29: FAFB's 14.6 Hz was stale; measured the same way it rests at
+  18.5 Hz, so its closed-loop DNg100 is also ~1.2-1.3x rest. The gap was in
+  the body's readouts: `results/body_readout_2026-09-29/`.)*
 - The first held-out run of the final configuration had a bug the review
   found: the unstick pull let the orienting reflex's LC10a attention through.
   It was re-run with the fix; lidar-alone results are identical, as they must

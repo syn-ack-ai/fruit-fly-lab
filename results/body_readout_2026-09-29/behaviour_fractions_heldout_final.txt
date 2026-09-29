@@ -1,0 +1,7 @@
+fraction of logged steps per body behaviour; mean speed while walking (m/s); held-out seeds 41-43, 10 days
+heldout_touch/merged petlidar {'walking': 0.738, 'walking backward': 0.075, 'resting': 0.051, 'walking forward': 0.036, 'feeding': 0.035, 'turning left': 0.027} v walking 0.098
+heldout_touch/merged petsteer {'walking': 0.72, 'walking backward': 0.076, 'resting': 0.042, 'walking forward': 0.04, 'feeding': 0.04, 'turning left': 0.027} v walking 0.15
+heldout_body/merged petlidar {'walking': 0.576, 'walking forward': 0.22, 'resting': 0.065, 'feeding': 0.044, 'turning left': 0.04, 'turning right': 0.04} v walking 0.128
+heldout_body/merged petsteer {'walking': 0.476, 'walking forward': 0.319, 'feeding': 0.054, 'resting': 0.041, 'turning right': 0.039, 'turning left': 0.039} v walking 0.219
+heldout_body/fafb petlidar {'walking': 0.515, 'walking forward': 0.365, 'feeding': 0.049, 'flying': 0.024, 'turning right': 0.015, 'turning left': 0.015} v walking 0.167
+heldout_body/fafb petsteer {'walking forward': 0.433, 'walking': 0.431, 'feeding': 0.057, 'flying': 0.042, 'turning right': 0.011, 'turning left': 0.011} v walking 0.269

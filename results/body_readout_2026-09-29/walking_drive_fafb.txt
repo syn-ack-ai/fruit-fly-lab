@@ -1,0 +1,10 @@
+fafb: DNg100 2, MDN 4, DNa01 2, DNa02 2
+rest                         DNg100  19.6 (1.00x)  MDN   0.0  DNa01   4.4  DNa02   6.6
+compass                      DNg100  20.9 (1.06x)  MDN   0.4  DNa01   8.3  DNa02   7.5
+compass + goal +0            DNg100  29.3 (1.49x)  MDN   0.2  DNa01   8.2  DNa02   8.1
+compass + goal +60           DNg100  25.6 (1.31x)  MDN   0.4  DNa01   7.8  DNa02  10.4
+compass + goal +180          DNg100  24.1 (1.23x)  MDN   0.8  DNa01   8.5  DNa02  10.0
+attend +0 (LC10a)            DNg100  18.3 (0.93x)  MDN   0.0  DNa01   4.1  DNa02   5.8
+attend +30 (LC10a)           DNg100  26.6 (1.36x)  MDN   0.1  DNa01   5.6  DNa02  21.1
+compass + goal 0 + attend 0  DNg100  32.9 (1.68x)  MDN   0.5  DNa01   8.4  DNa02   8.8
+rest 1 (ER5)                 DNg100  16.8 (0.86x)  MDN   0.0  DNa01   4.0  DNa02   5.5

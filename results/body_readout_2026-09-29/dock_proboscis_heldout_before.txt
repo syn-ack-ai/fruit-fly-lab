@@ -1,0 +1,15 @@
+merged petlidar at-dock steps 4913 prob>0.5 frac 0.157 mean prob 0.178 hunger 1.0 v 0.006 rest 0.6 taste {'None': 0, 'sweet': 4906}
+   hunger 0.2 0.5 5 prob>0.5 0.2
+   hunger 0.5 1.01 4908 prob>0.5 0.157
+merged petsteer at-dock steps 5849 prob>0.5 frac 0.161 mean prob 0.178 hunger 1.0 v 0.006 rest 0.6 taste {'None': 0, 'sweet': 5838}
+   hunger 0 0.2 6 prob>0.5 0.0
+   hunger 0.2 0.5 4 prob>0.5 0.25
+   hunger 0.5 1.01 5839 prob>0.5 0.161
+fafb petlidar at-dock steps 3380 prob>0.5 frac 0.47 mean prob 0.465 hunger 0.87 v 0.033 rest 0.52 taste {'None': 0, 'sweet': 3362}
+   hunger 0 0.2 419 prob>0.5 0.064
+   hunger 0.2 0.5 8 prob>0.5 0.375
+   hunger 0.5 1.01 2953 prob>0.5 0.528
+fafb petsteer at-dock steps 4366 prob>0.5 frac 0.5 mean prob 0.493 hunger 0.92 v 0.027 rest 0.55 taste {'None': 0, 'sweet': 4348}
+   hunger 0 0.2 338 prob>0.5 0.065
+   hunger 0.2 0.5 12 prob>0.5 0.417
+   hunger 0.5 1.01 4016 prob>0.5 0.537

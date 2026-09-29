@@ -23,6 +23,8 @@ Mean speed was 0.07 vs 0.21 m/s.
    dynamics, 12 seeds x 2 s after a 1 s warm-up). Merged: **3.10 +- 0.32 Hz**,
    written to `data/metadata/body_readout_merged.json` with the dynamics'
    fingerprint; the body warns if they have changed since. FAFB keeps 14.6.
+   *(2026-09-29: measured the same way FAFB rests at 18.5 Hz, not 14.6; it is
+   now in `body_readout_fafb.json`: `results/body_readout_2026-09-29/`.)*
 
 2. **Goals also drove the pursuit neurons, and in the male brain those walk
    backward.** The neocortex steered with two top-down channels: a goal

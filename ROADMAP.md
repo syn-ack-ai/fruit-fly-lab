@@ -43,13 +43,20 @@ Status tags: **now** = in progress, **next** = queued, **later** = planned,
 - **done** Does the unstick reflex belong to the lidar layer? No: with lidar
   alone it made stuck time worse (34 -> 43 s/day). It needs lidar steering,
   which the rover will run.
-- **next** Walking: the complete brain still walks about half as far as FAFB
-  (10-16 vs 19-29 m/day). It is no longer backing: MDN is at rest. In the
-  closed loop the male brain's DNg100 sits at ~1.2x its resting rate, FAFB's
-  at ~1.6x. Find which inputs (vision, the goal, P1 excitement) drive FAFB's
-  walking above rest and not the male's. Make the lidar layer speed-aware.
-- **next** With lidar alone Milo is still stuck ~35 s/day (FAFB 28). Lidar
-  steering fixes it (~1 s/day).
+- **done** The walking and feeding gaps (`results/body_readout_2026-09-29/`).
+  Mostly the body's readouts, tuned on FAFB's faster command neurons: the male
+  robot's proboscis flickered at its dock (no meals in 30 days), chance bursts
+  of two MDN cells walked it backward 7.5% of the time, and speed limits
+  clipped its noisy DNg100. Each brain is now read relative to its own rates;
+  FAFB's own resting rate was stale too. Held-out: meals 0 -> 9, walking 15.8
+  -> 21.7 m/day with lidar steering, and the complete brain ties FAFB
+  (79.8% vs 79.8%).
+- **next** Walking: still ~3/4 of FAFB's distance (12 / 22 vs 18 / 29 m/day):
+  slower while walking (0.22 vs 0.27 m/s). The open-loop drive tests
+  (`experiments/walking_drive_test.py`) show P1 excitement slowing the male
+  brain (0.78x DNg100 at 0.3). Make the lidar layer speed-aware.
+- **later** With lidar alone Milo is still stuck ~45 s/day (FAFB 35). Lidar
+  steering, which the rover will run, fixes it (~1 s/day).
 - **done** Speed smoothness: 0.56-0.58 in the latest held-out runs (ideal
   0.3-0.7).
 - **done** Why the complete brain walked so little
@@ -88,9 +95,14 @@ decides the *words*.
   (`FLY_URGE_GATE`); the urge is judged when the call is made.
 - **done** Neural-activity readout for the LLM: escape, song, steering,
   walking and the critic's surprise. Grounding checks in `llm_bench` pass.
-- **next** Mushroom-body valence in the readout ("this spot is good / bad"
+- **later** Mushroom-body valence in the readout ("this spot is good / bad"
   from the MBON outputs) and a separate reward / punishment dopamine line from
-  the fly's own DANs.
+  the fly's own DANs. Checked 2026-09-29: not meaningful yet. In the robot's
+  setup nothing place-specific reaches the Kenyon cells (no smell; the camera
+  drives only the pursuit and looming neurons), so their learned valence
+  would not change from place to place, and the reward and punishment DANs
+  are driven directly by taste and the neocortex, which the readout already
+  reports. It needs a visual input to the mushroom body first.
 - **later** Hearing in the loop: a whistle or clap pattern at the fly's pulse
   rhythm (about 35 ms spacing) reaches the song-tuned hearing pathway through
   `robot/hearing.py`. It becomes an event for the LLM, like a secret handshake.

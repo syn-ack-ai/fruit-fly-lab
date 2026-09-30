@@ -26,16 +26,44 @@ the conda `gxx_linux-64=14` is used when the system gcc is newer).
 `-arch=native` targets the local GPU (sm_86 on the RTX 3080 Ti; sm_87 on a
 Jetson Orin, where JetPack's CUDA in /usr/local/cuda is used).
 
-## How it differs inside
+On a Jetson (JetPack 6/7), CUDA comes with `sudo apt install nvidia-jetpack`;
+`make -C native cuda` then uses /usr/local/cuda (libraries in lib64). For
+benchmarks, `sudo jetson_clocks` pins the CPU, GPU and memory (EMC) clocks at
+their maximum for the power mode (it is not kept across a reboot).
 
+## How it works (rewritten 2026-09-29 for the Jetson Orin Nano)
+
+A run of up to 1000 steps is one cooperative kernel launch, `k_run`, with one
+grid barrier per 0.1 ms step (the old engine launched five small kernels per
+step, which on the Orin's 8-SM GPU cost more than the work). Launches are
+captured in CUDA graphs, cached by their exact arguments.
+
+- **Update (U).** Each warp owns 32-neuron words, dealt round-robin over the
+  warps (balanced load); a neuron's state is only touched by its warp. A
+  spiking neuron is reset at once (v, g, adaptation, refractory period and
+  short-term depression: what the CPU does after its update) and appended to
+  the step's spike list. Per-neuron flags (refractory steps, Poisson-driven,
+  has adaptation state) are one byte; arrays are padded to whole words.
+- **Delay ring.** Synaptic input is summed in float64 with atomics into a
+  dense (D+1) x n ring and cast to float32 at delivery, like the CPU's float64
+  hash: exact in any order for the model's weights. A bitmap per ring slot
+  marks the neurons with input pending, so a step reads the ring only there.
+- **Scatter (S).** After the barrier the step's spikes are scattered, each
+  spike's synapses split over up to 16 warps. S(k) needs no barrier before
+  U(k+1): it writes the ring slot read D steps later.
+- **Order.** The GPU lists a step's spikes in any order; the host sorts each
+  step's spikes (insertion sort, or a bitmap for large steps), which is the
+  CPU's ascending order.
+- **Poisson.** Draws reproduce the CPU's mulberry32 stream by index; the CPU's
+  `u / 2^32 < p` is the exact integer test `u <= ceil(p 2^32) - 1`.
+- **Memory.** When they fit (5 bytes a neuron), each block keeps its neurons'
+  v and flags in shared memory for the whole launch; v, g, adaptation and slow
+  inhibition are kept in L2 with a persisting access-policy window where the
+  GPU has one. The spike buffer (integrated GPU), per-step starts and counts
+  are mapped host memory, so nothing is copied back after a run.
 - Every neuron is integrated every step (the CPU's quiescent-block skipping is
-  an optimisation that never changes results).
-- Synaptic input per step is summed in float64 with atomics into a dense
-  (D+1) x n delay ring and cast to float32 at delivery, like the CPU's float64
-  hash: exact in any order for the model's weights.
-- Poisson draws reproduce the CPU's mulberry32 stream by index.
-- Per-step counters live on the GPU; each run of N steps (N <= 100) is captured
-  once as a CUDA graph and replayed.
+  an optimisation that never changes results); the approximate quiescence
+  tolerance is reproduced per 16-neuron block (a separate kernel variant).
 - v, g, adapt, gs are mirrored to the host when Python reads them
   (`NativeLIFEngine.v` etc. call `lif_sync_host`) and uploaded by `wake_all()`;
   spike counts are kept on the host from the collected spikes.
@@ -44,15 +72,24 @@ Jetson Orin, where JetPack's CUDA in /usr/local/cuda is used).
   uploads a changed subset (MushroomBody does this after each update).
   With multipliers that push weights far below 2^-25 mV, float64 sums could
   differ from the CPU's order in the last bit.
+- FLY_DT must be >= 0.035 ms (the refractory counter has 6 bits).
 
-## Speed (RTX 3080 Ti vs i9-9900K, 8 threads)
+## Speed
 
-| Workload | CPU | CUDA |
-| --- | --- | --- |
-| whole brain, resting ORN input | 0.4-1.0x real time | 4.5-5.4x |
-| whole brain, looming | 0.8-1.5x | 4.3-5.0x |
-| closed-loop world (fly.world.run) | 0.24x | 0.61x (Python-bound) |
-| Habitat follow-a-person brain client | 4.6 ms / sim ms | 1.5 ms / sim ms |
+The complete (merged) brain, 165,122 neurons, calibrated dynamics, resting
+olfactory input, run in 1 ms blocks as the robot does (in brackets: one 2 s
+run). Multiples of real time:
 
-The GPU cost is ~20 us per 0.1 ms step, set by five small kernels per step, not
-by the number of neurons or spikes.
+| Machine | step | CPU engine | old CUDA engine | CUDA engine |
+| --- | --- | --- | --- | --- |
+| Jetson Orin Nano Super (MAXN_SUPER, jetson_clocks) | 0.1 ms | 1.02x (6 threads) | 0.42x (0.44x) | **2.1x** (2.6x) |
+| | 0.2 ms | 1.76x | 0.79x | **3.5x** (4.8x) |
+| RTX 3080 Ti / i9-9900K | 0.1 ms | | 3.7x (3.6x) | **11.9x** (17.8x) |
+| | 0.2 ms | | | **17.9x** (31x) |
+
+On the Orin the step now costs ~39 us: ~30 us of update (bound by instruction
+issue: the per-neuron branches for adaptation, Poisson input and refractory
+periods), ~4 us of scatter and a ~3 us barrier. A 1 ms block adds ~80 us
+(launch ~13 us, GPU start ~40 us, Python ~30 us). A whole-brain storm (every
+neuron driven at 150-600 Hz, 59 M spikes) takes 3.2 s on the Orin's GPU and
+31 s on its CPU.

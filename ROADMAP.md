@@ -132,7 +132,14 @@ decides the *words*.
 
 ## 4. The real rover (when the Jetson arrives)
 
-- **later** Jetson setup; move the brain engine to the Jetson, which runs CUDA.
+- **done 2026-09-29** Jetson set up (JetPack 7.2.1, the repo, tests pass). The
+  CUDA engine was rewritten for the Orin's small GPU: the complete brain runs
+  at 2.1x real time in 1 ms blocks (0.1 ms step; 3.5x at 0.2 ms), bit-identical
+  with the CPU engine, leaving all six CPU cores free (`native/README_CUDA.md`).
+- **next** Milo's launcher on the Jetson: `FLY_NATIVE_LIB=native/liblif_cuda.so`
+  and `jetson_clocks` at boot; camera, lidar and Waveshare drivers.
+- **idea** Profile the engine's update with Nsight Compute (root on the
+  Jetson) for the remaining per-neuron branch cost (~30 of ~39 us a step).
 - **later** Hands-on lidar lessons: raw D500 scans, then occupancy grids, then
   SLAM. This is a learning project for the user, done together step by step.
 - **later** Carry the motor dynamics, lidar safety layer, hearing and face
@@ -181,6 +188,13 @@ decides the *words*.
   robustness 0.85 -> 0.89, with no recalibration. Lazy decay keeps the CPU
   engine fast.
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
+
+## Done recently (2026-09-29)
+
+- The CUDA engine rewritten for small GPUs: one cooperative launch per run,
+  one grid barrier per step. Jetson Orin Nano 0.42x -> 2.1x real time, RTX
+  3080 Ti 3.7x -> 11.9x (1 ms blocks); still bit-identical (a host-side fused
+  multiply-add on aarch64 had made the quiescence-tolerance mode differ).
 
 ## Done recently (2026-09-28)
 

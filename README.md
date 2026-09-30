@@ -211,7 +211,8 @@ implementation. Not needed to run the laboratory.
 the equivalence test any backend must pass. This fork adds a multi-threaded C
 engine (`make -C native`; it is the default when built, and the male brains
 need it because they run with calibrated gain and dynamics) and a CUDA engine
-(`make -C native cuda`, then `FLY_NATIVE_LIB=native/liblif_cuda.so`). Both are
+(`make -C native cuda`, then `FLY_NATIVE_LIB=native/liblif_cuda.so`; on the
+rover's Jetson Orin Nano it runs the complete brain at ~2x real time). Both are
 verified against the Python engine (`native/verify_native.py`,
 `native/verify_cuda.py`; `native/README_CUDA.md`).
 

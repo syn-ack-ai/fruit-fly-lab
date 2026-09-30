@@ -76,6 +76,32 @@ def scenario(c, name, e):
         # chunk would hold ~17M spikes, over the buffer; chunks must shorten
         e.set_poisson(np.arange(len(n)), 600.0)
         for _ in range(2): out.append(e.run_collect(1000))
+    elif name == "host_edits":
+        # state changed between runs: single steps, add_g (a neuron twice),
+        # writes to v, reseeding, plasticity commits, depression switched off
+        apply_dynamics(e, c, "calibrated_v3")
+        e.reset(seed=7); e.set_poisson(orn, 15.0)
+        rng = np.random.default_rng(3)
+        pm = None
+        for k in range(600):
+            if k % 50 == 10:
+                idx = rng.integers(0, len(n), 40)
+                idx[1] = idx[0]
+                e.add_g(idx, rng.uniform(-3, 3, 40).astype(np.float32))
+            if k % 97 == 20:
+                v = e.v
+                sel = rng.integers(0, len(n), 200)
+                v[sel] = v[sel] + np.float32(1.5)
+                e.wake_all()
+            if k == 150: e._lib.lif_set_seed(e._h, 11)
+            if k == 200:
+                pm = e.plastic_multipliers(); pm[::7] = 0.8; e.commit_plastic()
+            if k in (250, 350):
+                pos = rng.integers(0, len(pm), 1000); pm[pos] = rng.uniform(0.5, 1.5, 1000).astype(np.float32)
+                e.commit_plastic(pos)
+            if k == 400:
+                e.set_std(0.0); out.append(np.array([e.std_depletion() is None]))
+            out.append(e.step() if k % 3 == 0 else e.run_collect(10))
     elif name == "quiesce_tol":
         apply_dynamics(e, c, "calibrated"); e.set_quiesce_tolerance(1e-3)
         e.reset(seed=7); e.set_poisson(orn, 15.0)
@@ -86,7 +112,7 @@ def scenario(c, name, e):
 
 def main():
     names = sys.argv[1:] or ["published_looming", "calibrated_odour", "silence_and_switch", "gain",
-                             "pipelined", "quiesce_tol", "orn_std", "dt02", "storm"]
+                             "pipelined", "quiesce_tol", "orn_std", "host_edits", "dt02", "storm"]
     ok_all = True
     for name in names:
         if name in ("dt02", "storm"):

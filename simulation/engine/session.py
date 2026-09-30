@@ -670,17 +670,27 @@ class Session:
                 enc._ascending = order
             if order is not False:
                 return enc.indices[order], enc.rates_hz(t_ms, stim)[order]
-        idx_all, rate_all = [], []
-        for enc, stim in self.encoders:
-            idx_all.append(enc.indices)
-            rate_all.append(enc.rates_hz(t_ms, stim))
-        idx = np.concatenate(idx_all)
-        rates = np.concatenate(rate_all)
-        # A neuron driven by several stimuli takes the strongest drive.
-        order = np.argsort(-rates)
-        idx, rates = idx[order], rates[order]
-        uniq, first = np.unique(idx, return_index=True)
-        return uniq, rates[first]
+        # A neuron driven by several stimuli takes the strongest drive. The
+        # merge (unique targets in ascending order, which fixes how Poisson
+        # draws map to neurons, and which inputs overlap) is computed once per
+        # set of encoders: at 1 ms blocks sorting every block's rates cost
+        # more than the rest of the closed loop (Jetson, 2026-09-30).
+        m = getattr(self, "_merge", None)
+        arrs = [enc.indices for enc, _ in self.encoders]
+        if m is None or len(m[0]) != len(arrs) or any(a is not b for a, b in zip(m[0], arrs)):
+            idx = np.concatenate(arrs)
+            uniq, inv, cnt = np.unique(idx, return_inverse=True, return_counts=True)
+            multi = cnt[inv] > 1
+            m = self._merge = (arrs, uniq, inv[~multi], np.flatnonzero(~multi),
+                               inv[multi], np.flatnonzero(multi))
+        _, uniq, inv_s, pos_s, inv_m, pos_m = m
+        rates = np.concatenate([enc.rates_hz(t_ms, stim) for enc, stim in self.encoders])
+        out = np.empty(uniq.size, dtype=np.float64)
+        out[inv_s] = rates[pos_s]
+        if pos_m.size:
+            out[inv_m] = np.nan
+            np.fmax.at(out, inv_m, rates[pos_m])      # the largest; NaN only if all are NaN
+        return uniq, out
 
     def _apply_rates(self, r) -> None:
         if r is not None:
@@ -707,8 +717,18 @@ class Session:
         t_start = time.perf_counter()
         # The mushroom body writes synaptic multipliers and APL drive after each
         # block; in pipelined mode that would land while the next block runs
-        # (non-reproducible). With it, run blocks serially.
-        if self._native and self.pipelined and getattr(self, "mb", None) is None:
+        # (non-reproducible). With it, run blocks serially -- unless
+        # pipeline_plasticity: its writes are then queued and applied between
+        # blocks, one block (1 ms) later than in serial order: those from
+        # block k's spikes before block k+2 instead of k+1 (the real rover:
+        # robot/rover_world.py, where the serial order does not keep up with
+        # real time on the Jetson).
+        mb = getattr(self, "mb", None)
+        pipe_mb = mb is not None and getattr(self, "pipeline_plasticity", False)
+        if mb is not None:
+            self._flush_engine_writes()              # anything still queued (no block runs now)
+            mb.defer = [] if (pipe_mb and self._native and self.pipelined) else None
+        if self._native and self.pipelined and (mb is None or pipe_mb):
             # Pipelined. While C computes block k, Python prepares block k+1's
             # rates and then processes block k's spikes (readout, body) during
             # block k+1. Open loop (stimuli depend only on the clock) this is
@@ -718,13 +738,19 @@ class Session:
             t_block = lambda k: (step0 + k * steps) * self.p.dt   # == engine.t_ms
             self._refresh_rates()
             self.engine.start(steps)
-            for k in range(n_blocks):
-                nxt = self._rates_at(t_block(k + 1)) if k + 1 < n_blocks else None
-                spk = self.engine.wait()
-                if k + 1 < n_blocks:
-                    self._apply_rates(nxt)
-                    self.engine.start(steps)
-                self._post_block(spk, t_block(k + 1))
+            try:
+                for k in range(n_blocks):
+                    nxt = self._rates_at(t_block(k + 1)) if k + 1 < n_blocks else None
+                    spk = self.engine.wait()
+                    self._flush_engine_writes()
+                    if k + 1 < n_blocks:
+                        self._apply_rates(nxt)
+                        self.engine.start(steps)
+                    self._post_block(spk, t_block(k + 1))
+            finally:
+                if getattr(self.engine, "_busy", False):
+                    self.engine.wait()               # an exception mid-block: let it finish first
+                self._flush_engine_writes()
         else:
             for _ in range(n_blocks):
                 self._refresh_rates()
@@ -746,6 +772,15 @@ class Session:
         if len(self.history) > self.HISTORY_MAX:
             del self.history[:len(self.history) - self.HISTORY_MAX]
         return [frame]
+
+    def _flush_engine_writes(self) -> None:
+        """The mushroom body's queued engine writes (pipeline_plasticity),
+        while no block runs."""
+        mb = getattr(self, "mb", None)
+        if mb is not None and mb.defer:
+            q, mb.defer = mb.defer, []
+            for fn in q:
+                fn()
 
     def _post_block(self, spk: np.ndarray, t_ms: float) -> None:
         """Per-millisecond work: statistics, raster, descending readout, body.

@@ -748,8 +748,10 @@ int lif_set_poisson_rates(lif *e, const double *rates_hz, int m) {
     if (m) {
         ensure_tmp(e, m);
         CK(cudaMemcpyAsync(e->d_tmp_f, e->h_poi_n, (size_t)m * 8, cudaMemcpyHostToDevice, e->st));
+        /* no wait: a pageable copy returns once h_poi_n is staged, and the
+         * next run is queued behind this kernel on the same stream */
         k_poi_n<<<nblocks_for(m, 256), 256, 0, e->st>>>(e->d_poi_idx, (const int2 *)e->d_tmp_f, m, e->d_poi_n);
-        CK(cudaStreamSynchronize(e->st));
+        CK(cudaGetLastError());
     }
     return 0;
 }

@@ -1,0 +1,17 @@
+# Pin the Jetson's CPU, GPU and memory (EMC) clocks at the power mode's
+# maximum at every boot (jetson_clocks does not persist across reboots).
+# A SYSTEM unit, installed once with sudo (deploy/jetson/README.md):
+#   sudo cp deploy/jetson/jetson-clocks.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jetson-clocks
+# The brain engine is ~10% faster with the memory clock pinned (2026-09-29).
+[Unit]
+Description=Maximum clocks (jetson_clocks)
+After=nvpmodel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/jetson_clocks
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

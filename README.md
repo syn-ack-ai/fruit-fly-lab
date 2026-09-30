@@ -116,6 +116,15 @@ HAB_HOST=user@box REAL=1 BODY=rover CONDS="petlidar petsteer" SEEDS="1 2 3" \
 python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 ```
 
+**Milo on the rover (Jetson).** The same brain client drives the Waveshare UGV
+Rover in real time (`deploy/jetson/README.md`); `--rover fake` runs it in a
+simulated room without hardware:
+
+```bash
+FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_client \
+    --rover fake --lidar --avoid --cortex pet --learning on --hfov 150 --seconds 60
+```
+
 **Face (iPad / browser):** `python -m robot.face_server --port 8010`.
 
 **Environment variables:**
@@ -126,6 +135,8 @@ python -m sim.habitat_bridge.score_pets milo=simulation/outputs/habitat/run
 | `FLY_DYNAMICS` | `published` (Session default) or `calibrated` (the robot, exam and lab use calibrated) |
 | `FLY_ENGINE`, `FLY_NATIVE_LIB`, `FLY_THREADS` | engine choice, the CUDA library (`native/liblif_cuda.so`), threads |
 | `FLY_GAIN` | override the dataset's calibrated synaptic gain (`calibration_<dataset>.json`) |
+| `FLY_TORCH_DEVICE` | the neocortex's small networks (`cuda` if available; `cpu` on the rover) |
+| `FLY_CUDA_NO_GRAPH` | CUDA engine: launch directly, not through CUDA graphs (for Nsight Compute) |
 | `FLY_MOTOR_TAU` | robot motor lag `tau_v,tau_w[,stages[,tau_w_fast]]` in s (`0.3,1.5`; `0` = off) |
 | `FLY_ORIENT` | the neocortex's orienting reflex for the pet (`1`) |
 | `FLY_VOICE` | excitement -> P1 -> the fly's song command pIP10 -> Milo's "song" (`1`; male brains) |

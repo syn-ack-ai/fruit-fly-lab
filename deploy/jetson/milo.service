@@ -1,0 +1,27 @@
+# Milo on the Jetson: the fly brain drives the Waveshare UGV Rover.
+# A systemd USER unit (deploy/jetson/README.md):
+#   cp deploy/jetson/milo.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user start milo          # stop: systemctl --user stop milo
+#   journalctl --user -u milo -f
+# To start at boot without logging in: sudo loginctl enable-linger $USER, then
+#   systemctl --user enable milo
+[Unit]
+Description=Milo (fly brain on the rover)
+
+[Service]
+WorkingDirectory=%h/fly-lab/fruit-fly-lab
+Environment=PYTHONPATH=. PYTHONUNBUFFERED=1
+Environment=FLY_DATASET=merged FLY_DYNAMICS=calibrated FLY_DT=0.1
+Environment=FLY_NATIVE_LIB=%h/fly-lab/fruit-fly-lab/native/liblif_cuda.so
+# --rover fake: the same run in a simulated room (no hardware needed)
+ExecStart=%h/fly-lab/fruit-fly-lab/.venv/bin/python -m sim.habitat_bridge.brain_client \
+    --rover hw --ugv-port /dev/ttyTHS1 --lidar-port /dev/ttyUSB0 \
+    --lidar --avoid --cortex pet --learning on \
+    --cortex-state %h/milo/state --weights %h/milo/mb_weights.npy \
+    --seconds 86400 --out %h/milo/runs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

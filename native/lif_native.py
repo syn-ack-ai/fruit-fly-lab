@@ -297,16 +297,22 @@ class NativeLIFEngine:
             rates = np.repeat(rates, idx.size)
         if idx.size != rates.size:
             raise ValueError("indices and rates_hz must have the same length")
-        # The session refreshes rates every millisecond on unchanged targets.
+        # The session refreshes rates every millisecond on unchanged targets,
+        # mostly with unchanged rates too (sensors update every control step).
         if (idx.size == self._poi_idx.size and idx.size
-                and np.array_equal(idx, self._poi_idx)
-                and self._lib.lif_set_poisson_rates(self._h, rates, idx.size) == 0):
-            return
+                and np.array_equal(idx, self._poi_idx)):
+            last = getattr(self, "_poi_rates", None)
+            if last is not None and np.array_equal(rates, last):
+                return
+            if self._lib.lif_set_poisson_rates(self._h, rates, idx.size) == 0:
+                self._poi_rates = rates.copy()
+                return
         if np.unique(idx).size != idx.size:
             # the CPU engine would drive a repeated neuron twice, the CUDA engine once
             raise ValueError("set_poisson: repeated neuron indices")
         self._lib.lif_set_poisson(self._h, idx, rates, idx.size)
         self._poi_idx = idx
+        self._poi_rates = rates.copy()
 
     def clear_poisson(self):
         self._lib.lif_set_poisson(self._h, np.zeros(1, np.int32), np.zeros(1), 0)

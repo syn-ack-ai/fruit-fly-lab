@@ -195,7 +195,8 @@ class Critic:
         import torch
         torch.manual_seed(seed)
         self.torch = torch
-        self.dev = "cuda" if torch.cuda.is_available() else "cpu"
+        # FLY_TORCH_DEVICE: e.g. cpu on the Jetson, where the brain has the GPU
+        self.dev = os.environ.get("FLY_TORCH_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
         self.net = torch.nn.Sequential(torch.nn.Linear(n_in, 64), torch.nn.Tanh(),
                                        torch.nn.Linear(64, 64), torch.nn.Tanh(),
                                        torch.nn.Linear(64, 1)).to(self.dev)
@@ -734,20 +735,39 @@ class CortexV0:
                     "obstacle_cells": int(self.obstacles.occupied().sum())} if self.obstacles is not None else {})}
 
     def save(self) -> None:
+        """End of a day: the memory, and the day's replay."""
         self.days += 1
         if not self.state_path:
             return
+        self._write_state()
+        self._dump_replay("replay_day%03d.npz" % (self.days - 1))
+
+    def checkpoint(self) -> None:
+        """Mid-day (the real rover, every few minutes): the memory as it is,
+        without counting a day; the replay so far goes to a part file and is
+        let go (it would otherwise grow by one entry a step all day)."""
+        if not self.state_path:
+            return
+        self._write_state()
+        self._part = getattr(self, "_part", 0) + 1
+        self._dump_replay("replay_day%03d_part%03d.npz" % (self.days, self._part))
+        self.replay = []
+
+    def _write_state(self) -> None:
         os.makedirs(self.state_path, exist_ok=True)
-        with open(os.path.join(self.state_path, "cortex.pkl"), "wb") as fh:
+        path = os.path.join(self.state_path, "cortex.pkl")
+        with open(path + ".tmp", "wb") as fh:            # atomic: a crash mid-write keeps the old file
             pickle.dump({"map": self.map, "owner_prior": self.owner_prior, "days": self.days,
                          "critic": self.critic.net.state_dict(), "lifetime": self.lifetime,
                          "freq": self.freq, "phase": self.phase, "obstacles": self.obstacles}, fh)
+        os.replace(path + ".tmp", path)
+
+    def _dump_replay(self, name: str) -> None:
         if self.replay:
             P = np.array([p for p, _, _ in self.replay], np.float32)
             A = np.array([a for _, a, _ in self.replay], np.float32)
             R = np.array([r for _, _, r in self.replay], np.float32)
-            np.savez_compressed(os.path.join(self.state_path, "replay_day%03d.npz" % (self.days - 1)),
-                                phi=P, action=A, reward=R)
+            np.savez_compressed(os.path.join(self.state_path, name), phi=P, action=A, reward=R)
 
     def _load(self):
         with open(os.path.join(self.state_path, "cortex.pkl"), "rb") as fh:

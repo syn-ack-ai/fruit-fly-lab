@@ -136,8 +136,22 @@ decides the *words*.
   CUDA engine was rewritten for the Orin's small GPU: the complete brain runs
   at 2.1x real time in 1 ms blocks (0.1 ms step; 3.5x at 0.2 ms), bit-identical
   with the CPU engine, leaving all six CPU cores free (`native/README_CUDA.md`).
-- **next** Milo's launcher on the Jetson: `FLY_NATIVE_LIB=native/liblif_cuda.so`
-  and `jetson_clocks` at boot; camera, lidar and Waveshare drivers.
+- **done 2026-09-30** Milo's runtime on the Jetson (`deploy/jetson/`): the
+  brain client drives the real rover through `robot/rover_world.py`, which
+  answers the Habitat server's commands in real time from the Waveshare base
+  (`robot/ugv.py`: JSON over serial, odometry, battery voltage, heartbeat
+  stop) and the D500 lidar (`robot/d500.py`). `--rover fake` runs the same
+  loop in a simulated room: with the neocortex, learning, lidar senses and
+  steering the Jetson keeps real time (~80 ms of work per 100 ms step). A
+  systemd service and a `jetson_clocks` boot unit are ready to install.
+  Written from the protocols; untested on the hardware (not arrived).
+- **next** When the rover arrives: `sudo usermod -aG dialout`, the
+  jetson-clocks unit, then check the base and lidar one by one
+  (`deploy/jetson/README.md`) and calibrate the lidar's zero angle and the
+  wheel track.
+- **next** The camera on the rover: the kit's 160-degree camera and a person
+  detector on the GPU (TensorRT), feeding the person's azimuth, elevation and
+  size as the Habitat server does. Until then Milo sees no one.
 - **done 2026-09-30** Nsight Compute profile of the engine on the Orin: the
   update is instruction-issue bound (per-neuron branch bookkeeping; only ~11%
   of instructions are floating point). Six further layouts and schedules did
@@ -190,6 +204,16 @@ decides the *words*.
   robustness 0.85 -> 0.89, with no recalibration. Lazy decay keeps the CPU
   engine fast.
 - Heat-sense left/right imbalance (13%); the robot has no heat sense.
+
+## Done recently (2026-09-30)
+
+- Milo's rover runtime for the Jetson (`robot/rover_world.py`, `robot/ugv.py`,
+  `robot/d500.py`, `deploy/jetson/`), tested in real time with a simulated
+  room. The closed loop's per-millisecond Python work was halved without
+  changing results (the input merge is cached, unchanged rates are not
+  re-sent, the motor readout is reused while its spike counts are unchanged,
+  the mushroom body's summary is precomputed); verified identical frame by
+  frame against the previous code.
 
 ## Done recently (2026-09-29)
 

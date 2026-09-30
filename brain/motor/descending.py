@@ -460,6 +460,17 @@ class DescendingReadout:
             window_ms = 1.0
         if sums is None:
             sums = self.group_sums(spike_counts)
+        # the session calls this every millisecond; the DN window counts
+        # change only when a DN spike enters or leaves the window
+        memo = getattr(self, "_memo", None)
+        key = (window_ms, bool(self.population))
+        if memo is not None and memo[0] == key and np.array_equal(memo[1], sums):
+            return dict(memo[2])
+        res = self._channels(sums, window_ms)
+        self._memo = (key, np.array(sums, copy=True), res)
+        return dict(res)
+
+    def _channels(self, sums, window_ms: float) -> dict:
         hzv = np.asarray(sums, float) * self._gscale / window_ms
         act = (hzv / (hzv + CHANNEL_HALF_MAX_HZ)).tolist()
         hz = hzv.tolist()

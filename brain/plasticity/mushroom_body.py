@@ -108,6 +108,7 @@ class MushroomBody:
         self.baseline_tau_ms = float(baseline_tau_ms)
         self.dan_base = np.zeros(len(self.dan))                     # Hz, slow baseline
         self._since_update = 0.0
+        self.defer = None                    # a list: engine writes wait for Session to apply them
         if plastic:
             w = c.w.tocsr()
             # positions (CSR order, as the engine holds them) of KC->MBON edges
@@ -152,7 +153,7 @@ class MushroomBody:
             drive = self.kc_to_apl[kc_spk].sum(0) if kc_spk.size else 0.0
             self.apl_act = self.apl_act * decay + drive
             inh = -self.apl_gain * (self.apl_to_kc @ self.apl_act)       # per KC
-            self.e.add_g(self.kc, inh.astype(np.float32))
+            self._engine_write(lambda g=inh.astype(np.float32): self.e.add_g(self.kc, g))
         if self.plastic and self.learning:
             self.elig *= np.exp(-dt_ms / self.elig_tau_ms)
             np.add.at(self.elig, kc_spk, 1.0)
@@ -179,10 +180,22 @@ class MushroomBody:
         w = self.weights
         w += da * (self.lr_recover * (1.0 - w) * (1.0 - el) - self.lr_depress * el * w)
         np.clip(w, 0.0, 1.0, out=w)
-        self.mult[self.edge_pos] = (self.kc_mbon_gain * w).astype(np.float32)
-        commit = getattr(self.e, "commit_plastic", None)     # CUDA engine keeps a device copy
-        if commit is not None:
-            commit(self.edge_pos)
+        m = (self.kc_mbon_gain * w).astype(np.float32)
+
+        def write():
+            self.mult[self.edge_pos] = m
+            commit = getattr(self.e, "commit_plastic", None)     # CUDA engine keeps a device copy
+            if commit is not None:
+                commit(self.edge_pos)
+        self._engine_write(write)
+
+    def _engine_write(self, fn) -> None:
+        """Change the engine now, or, while the session pipelines blocks
+        (Session.pipeline_plasticity), queue it for between blocks."""
+        if self.defer is not None:
+            self.defer.append(fn)
+        else:
+            fn()
 
     def summary(self) -> dict:
         """What has been learned: per MBON type, the mean relative KC->MBON weight."""
@@ -191,9 +204,11 @@ class MushroomBody:
         if not hasattr(self, "_mbon_type_of_edge"):
             self._mbon_type_of_edge = self.types[self.mbon][self.edge_mbon]
             self._mbon_types = sorted(set(self._mbon_type_of_edge))
+            # each type's edges, once (the session reports this every step)
+            self._type_edges = [np.flatnonzero(self._mbon_type_of_edge == mt) for mt in self._mbon_types]
         out = {}
-        for mt in self._mbon_types:
-            w = self.weights[self._mbon_type_of_edge == mt].mean()
+        for mt, e in zip(self._mbon_types, self._type_edges):
+            w = self.weights[e].mean()
             if w < 0.995:
                 out[mt] = round(float(w), 3)
         return {"changed_mbons": out, "depressed_synapses": int((self.weights < 0.9).sum()),

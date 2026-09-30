@@ -47,6 +47,7 @@ plasticity, brain/plasticity/mushroom_body.py) with plasticity on or frozen;
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import math
 import os
@@ -195,13 +196,15 @@ def robot_command(body_state) -> tuple:
 
 def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 seed: int, video_dir: str | None, brain=None, home=None, cortex=None,
-                safe_speed: bool = True, person=None, personality=None, face=None) -> dict:
+                safe_speed: bool = True, person=None, personality=None, face=None,
+                checkpoint=None, checkpoint_s: float = 600.0) -> dict:
     from fly.body.foraging_body import ForagingBody
     from robot.safety import ProximityGovernor
     governor = ProximityGovernor() if safe_speed else None
     obs = _call(conn, {"cmd": "reset", "episode": episode})
     n_env = int(round(period_ms / 1000.0 * 120.0))
-    log = []
+    # the real rover runs for hours: keep its last hour of steps
+    log = collections.deque(maxlen=int(3600e3 / period_ms)) if obs.get("rover") else []
     if mode == "brain":
         ses, feed, obj, clock, parts = brain
         ses.reset(seed=seed)                      # clears stimuli: attach the head's encoders again
@@ -279,7 +282,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             clock.t = t_sim
             feed.update(obs, period_ms / 1000.0)
             if getattr(ses, "lidar", None) is not None and obs.get("lidar"):
-                ses.lidar[0].update(obs["lidar"], t_sim, pose=tuple(obs["robot"]))   # odometry on the robot
+                # the pose when the scan was taken (the real rover's odometry at
+                # the end of the lidar's revolution; Habitat's scan is instantaneous)
+                ses.lidar[0].update(obs["lidar"], t_sim, pose=tuple(obs.get("lidar_pose") or obs["robot"]))
                 ses.lidar[1].update()
             if getattr(ses, "nav", None) is not None:
                 ses.body.state.heading_deg = float(obs["robot"][2]) % 360.0   # odometry yaw
@@ -431,6 +436,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             bumps.append((round(t_sim, 1), round(hs, 2), round(v, 3), wanted))
         t_sim += period_ms / 1000.0
         k += 1
+        if checkpoint is not None and k % max(1, int(round(checkpoint_s * 1000.0 / period_ms))) == 0:
+            checkpoint()                          # the real rover: learning survives a crash or a stop
         if found_t is None and obs["visible"] and obs["dist"] < 2.0:
             found_t = t_sim
         log.append({"t": round(t_sim, 2), "dist": round(obs["dist"], 3), "visible": obs["visible"],
@@ -470,7 +477,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
            "found_s": found_t, "collisions": obs.get("collisions", 0),
            "scene_contacts": obs.get("scene_contacts"), "scene_bumps": obs.get("scene_bumps"),
            "blocked_s": obs.get("blocked_s"), "motor_tau": mtau if motor is not None else None, "habitat_stats": obs["stats"],
-           "video": video, "log": log,
+           "video": video, "log": list(log),
            "song": {"bouts": song["bouts"], "s": round(song["s"], 1)},
            "unstick": ({"events": ses.unstick.events, "s": round(ses.unstick.active_s, 1)}
                        if mode == "brain" and getattr(ses, "unstick", None) is not None else None)}
@@ -743,11 +750,26 @@ def main():
                          "(cortex/obstacle_map.py)")
     ap.add_argument("--body", choices=("spot", "rover"), default="spot",
                     help="the robot's footprint; must match the server's --body (sim/habitat_bridge/bodies.py)")
+    ap.add_argument("--rover", choices=("fake", "hw"), default=None,
+                    help="drive the real rover in real time instead of Habitat (robot/rover_world.py): "
+                         "hw = the Waveshare base and D500 lidar, fake = a simulated room, base and person "
+                         "with the real brain and timing")
+    ap.add_argument("--ugv-port", default="/dev/ttyTHS1", help="--rover hw: the base's serial port")
+    ap.add_argument("--lidar-port", default=None, help="--rover hw: the D500's serial port (none: no lidar)")
+    ap.add_argument("--hfov", type=float, default=53.0, help="--rover: the head camera's horizontal field of view")
     ap.add_argument("--safe-speed", action=argparse.BooleanOptionalAction, default=True,
                     help="robot safety layer: slow down near the person (robot/safety.py); on by "
                          "default (review 2026-09-28), --no-safe-speed for brain-only studies")
     a = ap.parse_args()
     os.environ.setdefault("FLY_DYNAMICS", "calibrated")
+    if a.rover:
+        if a.home or a.video_dir or a.topdown or a.speech:
+            raise SystemExit("--rover: no --home, --video-dir, --topdown or --speech (Habitat only)")
+        if a.rover == "hw" and not (a.lidar and a.lidar_port):
+            # the lidar safety layer (brake, steering) must never be silently off on the robot
+            raise SystemExit("--rover hw needs --lidar and --lidar-port")
+        a.body = "rover"
+        os.environ.setdefault("FLY_TORCH_DEVICE", "cpu")   # the neocortex's small nets; the brain has the GPU
     home = None
     if a.home:
         from sim.habitat_bridge.home import HomeWorld
@@ -773,6 +795,11 @@ def main():
     brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar,
                          lidar_senses=a.lidar_use in ("both", "senses", "ttc"), body=a.body)
              if a.mode == "brain" else None)
+    if brain is not None and a.rover:
+        # real time on the Jetson: the mushroom body's engine writes wait for
+        # the gap between 1 ms blocks, so blocks pipeline (Session.advance)
+        brain[0].pipeline_plasticity = True
+        brain[0].HISTORY_MAX = 600                # telemetry frames kept: hours of running
     if (a.avoid or a.route) and not a.lidar:
         raise SystemExit("--avoid / --route need --lidar")
     if brain is not None and a.lidar:
@@ -821,25 +848,55 @@ def main():
     if a.face:
         from robot.face import FaceModel, FacePublisher
         face = (FaceModel(), FacePublisher(a.face))
-    from sim.habitat_bridge.authkey import authkey
-    with Client(("127.0.0.1", a.port), authkey=authkey()) as conn:
+    if a.rover:
+        import signal
+        import sys
+        # systemctl stop: leave through the with-block, which stops the wheels
+        # (if the process dies instead, the base's heartbeat stops them)
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        from robot.rover_world import LocalConn, make_world
+        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov)
+        connection = LocalConn(world)
+    else:
+        from sim.habitat_bridge.authkey import authkey
+        connection = Client(("127.0.0.1", a.port), authkey=authkey())
+    with connection as conn:
         srv_body = _call(conn, {"cmd": "body"}).get("name", "spot")
         if srv_body != a.body:
             raise SystemExit(f"server body is {srv_body}, client --body {a.body}")
         if a.topdown:
             print("top-down map:", _call(conn, {"cmd": "topdown", "path": a.topdown}), flush=True)
         if a.lidar:
-            _call(conn, {"cmd": "lidar", "beams": LIDAR_BEAMS})
+            rl = _call(conn, {"cmd": "lidar", "beams": LIDAR_BEAMS})
+            if "error" in rl:
+                raise SystemExit(f"lidar: {rl['error']}")
+
+        def save_learning(final: bool = False):
+            """The mushroom body's weights and the neocortex's memory, written
+            atomically (a crash mid-write must not leave a broken file)."""
+            if mb is not None and a.weights:
+                tmp = a.weights + ".tmp"
+                with open(tmp, "wb") as fh:
+                    np.save(fh, mb.weights)
+                os.replace(tmp, a.weights)
+            if cortex is not None:
+                if final:
+                    cortex.save()
+                elif hasattr(cortex, "checkpoint"):
+                    cortex.checkpoint()
         for day, ep in enumerate(a.episodes):
-            r = run_episode(conn, a.mode, ep, a.seconds, a.period_ms, a.seed + ep,
-                            a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,
-                            person=person, personality=personality, face=face)
+            try:
+                r = run_episode(conn, a.mode, ep, a.seconds, a.period_ms, a.seed + ep,
+                                a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,
+                                person=person, personality=personality, face=face,
+                                checkpoint=save_learning if a.rover else None)
+            except BaseException:
+                if a.rover:
+                    save_learning()               # stopped or crashed: keep what was learned
+                raise
             r["day"] = day
             (out / f"{a.mode}_day{day}_ep{ep}.json" if a.home else out / f"{a.mode}_ep{ep}.json").write_text(json.dumps(r))
-            if mb is not None and a.weights:
-                np.save(a.weights, mb.weights)
-            if cortex is not None:
-                cortex.save()
+            save_learning(final=True)
             if a.home:
                 h, L = r["home"], r.get("learning") or {}
                 print(f"day {day} (ep {ep}): " + (f"battery {h['battery']} | " if "battery" in h else "")
@@ -855,6 +912,15 @@ def main():
                       flush=True)
                 continue
             st = r["habitat_stats"] or {}
+            if a.rover:
+                lg = r["log"]
+                print(f"rover ({a.rover}) {a.mode} ep{ep}: {r['sim_s']}s in {r['wall_s']}s wall "
+                      f"| steps over the {a.period_ms:.0f} ms period: {st.get('overruns', 0):.0f} "
+                      f"(late {st.get('late_s', 0)} s) | brain+layers per step: mean {st.get('compute_ms_mean')} "
+                      f"p95 {st.get('compute_ms_p95')} max {st.get('compute_ms_max')} ms | visible {r['visible_frac']:.2f} "
+                      f"| moving {np.mean([abs(x['v']) > 0.02 for x in lg]) if lg else 0:.2f} "
+                      f"| pressed against something {r['blocked_s']} s", flush=True)
+                continue
             print(f"{a.mode} ep{ep}: {r['sim_s']}s sim in {r['wall_s']}s | visible {r['visible_frac']:.2f} "
                   f"| mean dist {r['mean_dist']:.2f} m | follow-band {r['in_follow_band_frac']:.2f} "
                   f"| found at {r['found_s']} | bumps {r['collisions']} | habitat found_human "

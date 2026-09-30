@@ -87,9 +87,17 @@ run). Multiples of real time:
 | RTX 3080 Ti / i9-9900K | 0.1 ms | | 3.7x (3.6x) | **11.9x** (17.8x) |
 | | 0.2 ms | | | **17.9x** (31x) |
 
-On the Orin the step now costs ~39 us: ~30 us of update (bound by instruction
-issue: the per-neuron branches for adaptation, Poisson input and refractory
-periods), ~4 us of scatter and a ~3 us barrier. A 1 ms block adds ~80 us
+On the Orin the step now costs ~39 us: ~30 us of update, ~4 us of scatter and
+a ~3 us barrier. Nsight Compute (2026-09-30; `FLY_CUDA_NO_GRAPH=1` launches
+directly so the profiler sees the kernel) shows the update issue-bound: ~170
+warp instructions per 32 neurons, only ~11% of them floating-point (the rest
+branch bookkeeping, moves and integer work for the per-neuron cases:
+adaptation, Poisson input, refractory periods, pending input), issue slots 66%
+busy with ~2 eligible warps per scheduler. What did not shorten the step:
+balancing the blocks (1024-thread blocks, or warps taking words from a
+counter), prefetching the flag-dependent loads a word ahead, branch-free
+adaptation, integer instead of boolean flags, and v, g, adapt, gs as one
+16-byte record (the last made published dynamics 20% slower: more L2 misses). A 1 ms block adds ~80 us
 (launch ~13 us, GPU start ~40 us, Python ~30 us). A whole-brain storm (every
 neuron driven at 150-600 Hz, 59 M spikes) takes 3.2 s on the Orin's GPU and
 31 s on its CPU.

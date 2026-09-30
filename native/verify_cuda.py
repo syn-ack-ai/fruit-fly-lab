@@ -99,8 +99,21 @@ def scenario(c, name, e):
             if k in (250, 350):
                 pos = rng.integers(0, len(pm), 1000); pm[pos] = rng.uniform(0.5, 1.5, 1000).astype(np.float32)
                 e.commit_plastic(pos)
+            if k == 300:                  # add_g after a read, then read g and write adaptation
+                g = e.g.copy()
+                e.add_g(np.array([5, 9, 5]), np.float32([0.5, -1.0, 0.25]))
+                out.append(e.g[[5, 9]].copy())
+                ad = e.adapt
+                sel = rng.integers(0, len(n), 100)
+                ad[sel] = ad[sel] + np.float32(0.7)
+                e.wake_all()
             if k == 400:
                 e.set_std(0.0); out.append(np.array([e.std_depletion() is None]))
+            if k == 450:                  # dynamics off and on again
+                dyn = dict(e.dynamics)
+                e.set_dynamics()
+            if k == 480:
+                e.set_dynamics(**dyn)
             out.append(e.step() if k % 3 == 0 else e.run_collect(10))
     elif name == "quiesce_tol":
         apply_dynamics(e, c, "calibrated"); e.set_quiesce_tolerance(1e-3)

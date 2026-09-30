@@ -636,6 +636,8 @@ lif *lif_create(int n, int nnz, const int32_t *indptr, const int32_t *indices,
     pthread_mutex_init(&e->mu, NULL); pthread_cond_init(&e->cv_go, NULL); pthread_cond_init(&e->cv_done, NULL);
     e->done = 1;                       /* no job pending: lif_wait() returns at once */
     e->graph_args = (RunArgs *)calloc(NGRAPH, sizeof(RunArgs));
+    /* direct launches, e.g. for Nsight Compute, which does not see a kernel inside a graph */
+    e->nograph = getenv("FLY_CUDA_NO_GRAPH") && strcmp(getenv("FLY_CUDA_NO_GRAPH"), "0") != 0;
     lif_reset(e);
     return e;
 fail:

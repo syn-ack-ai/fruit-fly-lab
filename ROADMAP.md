@@ -138,8 +138,10 @@ decides the *words*.
   with the CPU engine, leaving all six CPU cores free (`native/README_CUDA.md`).
 - **next** Milo's launcher on the Jetson: `FLY_NATIVE_LIB=native/liblif_cuda.so`
   and `jetson_clocks` at boot; camera, lidar and Waveshare drivers.
-- **idea** Profile the engine's update with Nsight Compute (root on the
-  Jetson) for the remaining per-neuron branch cost (~30 of ~39 us a step).
+- **done 2026-09-30** Nsight Compute profile of the engine on the Orin: the
+  update is instruction-issue bound (per-neuron branch bookkeeping; only ~11%
+  of instructions are floating point). Six further layouts and schedules did
+  not shorten the ~39 us step (`native/README_CUDA.md`).
 - **later** Hands-on lidar lessons: raw D500 scans, then occupancy grids, then
   SLAM. This is a learning project for the user, done together step by step.
 - **later** Carry the motor dynamics, lidar safety layer, hearing and face

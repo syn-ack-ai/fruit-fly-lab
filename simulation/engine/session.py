@@ -529,6 +529,7 @@ class Session:
         self.paused = False
         self.history = []           # telemetry frames, for replay
         self._raster = deque(maxlen=20000)
+        self.raster_on = True       # watched neurons' spikes for displays (raster()); off: none kept
         # body pose every 1 ms block, for smooth 3D playback (see BODY_TRACK_FIELDS)
         self.body_track = deque(maxlen=5000)
 
@@ -791,7 +792,7 @@ class Session:
         rec = self.recorder
 
         # raster entries for watched neurons only (keeps payload small)
-        if spk.size:
+        if spk.size and self.raster_on:
             hit = spk[self._is_watch[spk]]
             if hit.size:
                 rt = round(t_ms, 2)

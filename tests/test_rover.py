@@ -300,3 +300,110 @@ def test_world_hands_each_scan_once_with_its_pose():
     assert o1["lidar"] is not None and o1["lidar_pose"] == [0.0, 0.0, 0.0]
     o2 = world.summary()                           # no new revolution since: nothing new
     assert o2["lidar"] is None
+
+
+# ------------------------------------------------------------------ camera
+class _Cam:
+    """robot.head.HeadFeed's state() and command(), scripted."""
+
+    def __init__(self, **s):
+        self.s = {"ready": True, "stale": False, "moving": 0.0, "fps": 30.0, "pan_deg": 0.0,
+                  "tilt_deg": 0.0, "person_active": 1.0, "person_stale": False,
+                  "person_az": 10.0, "person_el": 4.0, "person_half_deg": 7.0, **s}
+        self.cmds = []
+        self.closed = False
+
+    def state(self):
+        return dict(self.s)
+
+    def command(self, dpan, dtilt=0.0, reset=False):
+        self.cmds.append((dpan, dtilt))
+        self.s["pan_deg"] += dpan
+        self.s["tilt_deg"] += dtilt
+
+    def close(self):
+        self.closed = True
+
+
+def test_camera_person_in_habitats_frame():
+    from robot.rover_world import CAM_PITCH_DEG
+    from robot.safety import person_distance
+    cam = _Cam(pan_deg=5.0, tilt_deg=0.0)
+    w = RoverWorld(FakeBase(), None, None, clock=lambda: 0.0, sleep=lambda s: None, camera=cam)
+    o = w.handle({"cmd": "reset"})
+    # the first sight aims the camera straight ahead and CAM_PITCH_DEG up, as Habitat's
+    assert cam.cmds == [(-5.0, CAM_PITCH_DEG)]
+    o = w.handle({"cmd": "step", "v": 0.0, "w": 0.0, "n": 12})
+    assert o["visible"] and o["az"] == pytest.approx(10.0) and o["el"] == pytest.approx(4.0)
+    assert o["half"] == 7.0 and o["dist"] == pytest.approx(person_distance(7.0))
+    assert o["stats"]["person_seen_s"] == pytest.approx(0.1)
+    cam.s["pan_deg"] = 15.0                      # the head turned right: body azimuth adds it
+    assert w.summary()["az"] == pytest.approx(25.0)
+    for k, v in (("moving", 1.0), ("person_stale", True), ("person_active", 0.0), ("stale", True)):
+        c2 = dict(cam.s)
+        cam.s[k] = v
+        assert not w.summary()["visible"], k   # moving head, old detection, nobody, dead camera
+        cam.s = c2
+    cam.s["stale"] = True
+    o = w.handle({"cmd": "step", "v": 0.3, "w": 0.0, "n": 12})
+    assert o["stats"]["camera_stale_s"] == pytest.approx(0.1)
+    assert w.base.cmd == (0.3, 0.0)              # a dead camera is not a stop (the lidar is the safety layer)
+    w.close()
+    assert cam.closed
+
+
+def test_fake_world_with_camera_has_no_fake_person(monkeypatch):
+    import robot.rover_world as rw
+    cam = _Cam(person_active=0.0)
+    monkeypatch.setattr(rw, "open_camera", lambda c: cam if c else None)
+    w = rw.make_world("fake", camera="auto")
+    assert w.person is None and w.camera is cam
+    assert not w.handle({"cmd": "reset"})["visible"]
+    w.close()
+    assert rw.make_world("fake").person is not None
+
+
+# ------------------------------------------------------------------ detector
+def test_nms_merges_overlaps():
+    from robot.detector import nms
+    b = np.array([[0, 0, 10, 10], [1, 1, 11, 11], [20, 20, 30, 30]], float)
+    assert nms(b, np.array([0.9, 0.8, 0.7])) == [0, 2]
+    assert nms(b, np.array([0.5, 0.8, 0.7])) == [1, 2]
+
+
+def test_yolox_decode_largest_person():
+    from robot.detector import YoloxPersons
+
+    class Eng:
+        in_shape = (1, 3, 64, 64)
+        out_shape = (1, 8 * 8 + 4 * 4 + 2 * 2, 85)
+        input = np.zeros(in_shape, np.float32)
+        output = np.zeros(out_shape, np.float32)
+
+        def run(self):
+            return self.output
+
+        def close(self):
+            pass
+
+    eng = Eng()
+    det = YoloxPersons(engine=eng)
+    out = eng.output[0]
+    # stride 8, cell (x=2, y=3): centre ((0.5 + 2) * 8, (0.5 + 3) * 8) = (20, 28), size exp(ln 16) * 8 = 128 x 8
+    out[3 * 8 + 2, :4] = [0.5, 0.5, math.log(16.0), 0.0]
+    out[3 * 8 + 2, 4], out[3 * 8 + 2, 5] = 0.9, 0.9          # objectness x person
+    # a smaller confident person at stride 16, and a confident cat (not a person)
+    out[64 + 5, :4] = [0.0, 0.0, 0.0, 0.0]
+    out[64 + 5, 4], out[64 + 5, 5] = 0.8, 0.9
+    out[64 + 6, 4], out[64 + 6, 5 + 15] = 0.9, 0.9
+    ps = det.decode(eng.output, 1.0, (32, 64))
+    assert len(ps) == 2 and all(p["score"] >= 0.45 for p in ps)
+    pytest.importorskip("cv2")
+    frame = np.zeros((32, 64, 3), np.uint8)                   # scale r = 1 (64 / 64 wide)
+    r = det.preprocess(frame)
+    assert r == 1.0 and (eng.input[0, :, 32:] == 114).all()   # padded below the image
+    p = det.detect(frame)
+    # box (20 +- 64, 28 +- 4) clipped to the 64 x 32 frame: x 0..64, y 24..32
+    assert p["cx"] == pytest.approx(0.5) and p["w"] == pytest.approx(1.0)
+    assert p["cy"] == pytest.approx(28 / 32) and p["h"] == pytest.approx(8 / 32)
+    assert p["score"] == pytest.approx(0.81, abs=1e-6)

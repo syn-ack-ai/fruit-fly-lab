@@ -252,12 +252,18 @@ class LidarTouch:
 
     def levels(self) -> tuple:
         s = self.scan
+        # once per scan (~10 Hz; the session asks every 1 ms block): update()
+        # replaces the arrays, and holding them here keeps their ids unique
+        m = getattr(self, "_lv", None)
+        if m is not None and m[0] is s.ranges and m[1] is s.body and m[2] is s.angles:
+            return m[3]
         near = np.clip(1.0 - s.clearance() / TOUCH_M, 0.0, 1.0)
         near[~np.isfinite(s.ranges)] = 0.0
         a = s.angles
         rear = np.abs(a) >= 180.0 - 1e-6                             # straight behind: both sides
         left = float(np.max(near[(a < FRONT_DEG) | rear], initial=0.0))    # left side, front, rear
         right = float(np.max(near[(a > -FRONT_DEG) | rear], initial=0.0))  # right side, front, rear
+        self._lv = (s.ranges, s.body, s.angles, (left, right))
         return left, right
 
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:

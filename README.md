@@ -137,6 +137,8 @@ FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_cli
 | `FLY_GAIN` | override the dataset's calibrated synaptic gain (`calibration_<dataset>.json`) |
 | `FLY_TORCH_DEVICE` | the neocortex's small networks (`cuda` if available; `cpu` on the rover) |
 | `FLY_CUDA_NO_GRAPH` | CUDA engine: launch directly, not through CUDA graphs (for Nsight Compute) |
+| `FLY_TORCH_THREADS` | the neocortex's PyTorch threads (1 on the rover) |
+| `FLY_PERSON_ENGINE`, `FLY_TRT_LIB` | the camera's person detector on a Jetson: its TensorRT engine (`~/milo/models/yolox_tiny.engine`) and `native/libtrt_detect.so` (`robot/detector.py`) |
 | `FLY_MOTOR_TAU` | robot motor lag `tau_v,tau_w[,stages[,tau_w_fast]]` in s (`0.3,1.5`; `0` = off) |
 | `FLY_ORIENT` | the neocortex's orienting reflex for the pet (`1`) |
 | `FLY_VOICE` | excitement -> P1 -> the fly's song command pIP10 -> Milo's "song" (`1`; male brains) |
@@ -333,8 +335,8 @@ literal transcription of that Brian2 network. Full detail in
 Performance: the reference Python engine takes about 1.0 ms of wall-clock time
 per 0.1 ms simulated step on FAFB (10x slower than real time). The C engine runs
 the complete male brain at about 1.7x real time on 1 thread and 4.5x on 4
-threads (Apple M-series); CUDA runs at about 4-5x on an RTX 3080 Ti
-(`native/README_CUDA.md`). Spike propagation is event-driven, so cost scales with
+threads (Apple M-series); CUDA runs the merged brain at about 12x on an RTX
+3080 Ti and 2.6x on a Jetson Orin Nano (`native/README_CUDA.md`). Spike propagation is event-driven, so cost scales with
 spike count.
 
 ## 6. First experiment to run

@@ -27,6 +27,18 @@
  *    quiescence tolerance (lif_set_quiesce_tol) is reproduced per 16-neuron
  *    block at the same check steps.
  *
+ * Neuron order. A warp updates 32 neurons together, and pays for a branch
+ * (adaptation, Poisson input, pending input) when any of them takes it. At
+ * rest ~7% of neurons carry adaptation and ~2% are Poisson-driven, scattered
+ * over most words, so after the first FLY_CUDA_REORDER_MS (default 1000) ms
+ * the engine renumbers its neurons once (apply_order: Poisson-driven first,
+ * then by recent activity), which puts them in few words (17-20% faster on
+ * the Orin at rest). Everything outside is in the caller's numbering: indices
+ * passed in, spikes, spike counts, the v/g/adapt/gs mirrors, depletion and
+ * the plasticity multipliers (per synapse) are mapped at the boundary, so
+ * results are unchanged. With an approximate quiescence tolerance (per
+ * 16-neuron block, as the CPU) the identity order is used.
+ *
  * Host mirrors: v, g, adapt, gs live on the device; lif_sync_host copies them
  * to host arrays (the Python wrapper calls it when .v/.g/.adapt/.gs are read)
  * and lif_wake_all uploads them back after Python writes. spike_counts is kept
@@ -44,6 +56,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define BLK 16
 #define PE_SHIFT 14
@@ -123,6 +136,15 @@ typedef struct lif {
     pthread_t th; int has_th, job_steps;
     pthread_mutex_t mu; pthread_cond_t cv_go, cv_done; int go, done, quit;
     const int16_t *weights_h;
+    /* neuron order (apply_order): ord internal -> caller's index, pos the
+     * inverse (NULL: identity); qinv caller's synapse -> internal synapse */
+    int32_t *ord, *pos, *qinv, *d_ord, *d_pos;
+    int32_t *h_indptr_x; uint32_t *h_pe_x;       /* the caller's CSR, packed as d_pe */
+    float *h_adapt_b, *h_slow_r;                 /* lif_set_dynamics, caller's order */
+    uint32_t *act; long long act_steps, reorder_next;   /* spikes and steps since creation */
+    int reorder_mode, reorder_steps;             /* 0 off, 1 by activity, 2 random (tests) */
+    uint32_t reorder_rng;
+    void *d_xbuf;                                /* 16 bytes a neuron: permuting, mirrors */
 } lif;
 
 /* ------------------------------------------------------------------ kernels */
@@ -449,8 +471,54 @@ __global__ void k_poi_set(const int32_t *idx, int m, uint8_t *fl, uint8_t *rlen,
     else { fl[j] = (uint8_t)(fl[j] & ~FL_POI); rlen[j] = R; }
 }
 
+__global__ void k_pin(const int32_t *idx, int m, uint8_t *pinned) {
+    const int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k < m) pinned[idx[k] / BLK] = 1;
+}
+/* dst[k] = src[map[k]] (renumbering, and mirrors in the caller's order) */
+template <typename T>
+__global__ void k_gather(const T *src, T *dst, const int32_t *map, int m) {
+    const int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k < m) dst[k] = src[map[k]];
+}
+/* the same for one bit per neuron (a ring slot's touched words) */
+__global__ void k_gather_bits(const uint32_t *src, uint32_t *dst, const int32_t *map, int n, int nwords) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if ((i >> 5) >= nwords) return;                  /* whole warps */
+    uint32_t b = 0;
+    if (i < n) { const int o = map[i]; b = (src[o >> 5] >> (o & 31)) & 1u; }
+    const unsigned m = __ballot_sync(0xffffffffu, b);
+    if ((i & 31) == 0) dst[i >> 5] = m;
+}
+
 /* ------------------------------------------------------------------ helpers */
 static inline int nblocks_for(int m, int t) { return (m + t - 1) / t; }
+
+/* the caller's neuron index -> internal, and back */
+static inline int32_t to_int(const struct lif *e, int32_t x) { return e->pos ? e->pos[x] : x; }
+static inline int32_t to_ext(const struct lif *e, int32_t i) { return e->ord ? e->ord[i] : i; }
+
+/* caller's indices -> internal: a new array (free it), or idx itself */
+static int32_t *map_idx(const struct lif *e, const int32_t *idx, int m) {
+    if (!e->pos) return (int32_t *)idx;
+    int32_t *o = (int32_t *)malloc((size_t)(m ? m : 1) * 4);
+    for (int k = 0; k < m; k++) o[k] = e->pos[idx[k]];
+    return o;
+}
+
+/* a per-neuron array in the caller's order -> internal order: a new array
+ * (free it), or x itself */
+static float *map_neurons_f(const struct lif *e, const float *x) {
+    if (!e->ord) return (float *)x;
+    float *o = (float *)malloc((size_t)e->n * 4);
+    for (int i = 0; i < e->n; i++) o[i] = x[e->ord[i]];
+    return o;
+}
+
+static void *xbuf(struct lif *e) {
+    if (!e->d_xbuf) CK(cudaMalloc(&e->d_xbuf, (size_t)e->npad * 16));
+    return e->d_xbuf;
+}
 
 static const void *run_kernel(int ext, int qt, int sh) {
     if (sh) return ext ? (qt ? (const void *)k_run<true, true, true> : (const void *)k_run<true, false, true>)
@@ -548,7 +616,21 @@ lif *lif_create(int n, int nnz, const int32_t *indptr, const int32_t *indices,
     CKC(cudaMemcpy(e->d_indptr, indptr, (size_t)(n + 1) * 4, cudaMemcpyHostToDevice));
     CKC(cudaMalloc(&e->d_pe, (size_t)nnz * 4));
     CKC(cudaMemcpy(e->d_pe, pe, (size_t)nnz * 4, cudaMemcpyHostToDevice));
-    free(pe); pe = NULL;
+    e->h_pe_x = pe; pe = NULL;                     /* kept for renumbering (apply_order) */
+    e->h_indptr_x = (int32_t *)malloc((size_t)(n + 1) * 4);
+    memcpy(e->h_indptr_x, indptr, (size_t)(n + 1) * 4);
+    e->act = (uint32_t *)calloc(n, 4);
+    {
+        const char *ro = getenv("FLY_CUDA_REORDER"), *rm = getenv("FLY_CUDA_REORDER_MS");
+        const int off = ro && (!strcmp(ro, "0") || !strcasecmp(ro, "off") || !strcasecmp(ro, "false") ||
+                               !strcasecmp(ro, "no"));
+        e->reorder_mode = !ro ? 1 : off ? 0 : !strcmp(ro, "random") ? 2 : 1;
+        const double ms = rm ? atof(rm) : 1000.0;
+        e->reorder_steps = ms > 0 ? (int)fmin(1e9, fmax(1.0, ms / dt + 0.5)) : 0;
+        if (!e->reorder_steps) e->reorder_mode = 0;
+        e->reorder_next = e->reorder_steps;
+        e->reorder_rng = 0x2545F491u ^ seed;
+    }
     CKC(cudaMalloc(&e->d_wlut, (PE_MASK + 1) * sizeof(float)));
     CKC(cudaMemcpy(e->d_wlut, e->wlut, (PE_MASK + 1) * sizeof(float), cudaMemcpyHostToDevice));
     CKC(cudaMalloc(&e->d_state, (size_t)e->npad * 16));
@@ -659,7 +741,7 @@ void lif_destroy(lif *e) {
     void *dp[] = {e->d_st, e->d_indptr, e->d_pe, e->d_wlut, e->d_pmult, e->d_state, e->d_adapt_b,
                   e->d_slow_r, e->d_fl, e->d_rlen, e->d_sil, e->d_pinned, e->d_poi_n, e->d_poi_idx,
                   e->d_ring, e->d_ring_s, e->d_touched, e->d_cnt, e->d_reln, e->d_sl,
-                  e->d_tmp_i, e->d_tmp_f, e->d_std_f, e->d_std_d, e->d_std_t};
+                  e->d_tmp_i, e->d_tmp_f, e->d_std_f, e->d_std_d, e->d_std_t, e->d_ord, e->d_pos, e->d_xbuf};
     for (size_t k = 0; k < sizeof dp / sizeof dp[0]; k++) if (dp[k]) cudaFree(dp[k]);
     cudaFreeHost(e->h_v); cudaFreeHost(e->h_g);
     void *hp[] = {e->h_tot, e->h_coll, e->h_sstart, e->h_scount};
@@ -671,6 +753,8 @@ void lif_destroy(lif *e) {
     free(e->wlut); free(e->pmult); free(e->spike_counts); free(e->spikes); free(e->collected);
     free(e->poi_idx); free(e->poi_p); free(e->h_poi_n);
     free(e->hbuf); free(e->sortbits);
+    free(e->ord); free(e->pos); free(e->qinv); free(e->h_indptr_x); free(e->h_pe_x);
+    free(e->h_adapt_b); free(e->h_slow_r); free(e->act);
     if (e->st) cudaStreamDestroy(e->st);
     free(e);
 }
@@ -724,7 +808,7 @@ void lif_set_poisson(lif *e, const int32_t *idx, const double *rates_hz, int m) 
     for (int q = 0; q < m; q++) {
         double p = rates_hz[q] * e->dt * 1e-3;
         e->poi_p[q] = p < 0 ? 0 : p > 1 ? 1 : p;
-        e->poi_idx[q] = idx[q];
+        e->poi_idx[q] = to_int(e, idx[q]);
         e->h_poi_n[q] = poi_entry(q, e->poi_p[q]);
     }
     if (m) {
@@ -759,31 +843,51 @@ int lif_set_poisson_rates(lif *e, const double *rates_hz, int m) {
 void lif_silence(lif *e, const int32_t *idx, int m, int on) {
     if (!m) return;
     ensure_tmp(e, m);
-    CK(cudaMemcpy(e->d_tmp_i, idx, (size_t)m * 4, cudaMemcpyHostToDevice));
+    int32_t *mi = map_idx(e, idx, m);
+    CK(cudaMemcpy(e->d_tmp_i, mi, (size_t)m * 4, cudaMemcpyHostToDevice));
+    if (mi != idx) free(mi);
     k_set_u8<<<nblocks_for(m, 256), 256, 0, e->st>>>(e->d_tmp_i, m, e->d_sil, on ? 1 : 0);
     CK(cudaStreamSynchronize(e->st));
 }
 
+static void apply_order(lif *e, int32_t *nord);
+
 void lif_set_quiesce_tol(lif *e, float tol_mV) {
     e->qtol = tol_mV > 0.0f ? tol_mV : 0.0f;
+    if (e->qtol > 0.0f && e->ord) {                  /* the CPU's 16-neuron blocks */
+        apply_order(e, NULL);
+        e->reorder_next = e->act_steps + e->reorder_steps;   /* again if switched off later */
+    }
     e->x_eps = e->qtol > 0.0f ? fmaxf(X_EPS, 10.0f * e->qtol) : X_EPS;
 }
 void lif_debug_noquiet(int on) { (void)on; }
 
 double lif_dt(lif *e) { return e->dt; }
 
+/* all multipliers (the caller's synapse order) to the device (internal order) */
+static void upload_pmult_all(lif *e) {
+    if (!e->qinv) {
+        CK(cudaMemcpy(e->d_pmult, e->pmult, (size_t)e->nnz * 4, cudaMemcpyHostToDevice));
+    } else {
+        float *t = (float *)malloc((size_t)e->nnz * 4);
+        for (int q = 0; q < e->nnz; q++) t[e->qinv[q]] = e->pmult[q];
+        CK(cudaMemcpy(e->d_pmult, t, (size_t)e->nnz * 4, cudaMemcpyHostToDevice));
+        free(t);
+    }
+    e->pm_dirty = 0;
+}
+
 /* upload the plasticity multipliers (all, or the given positions) */
 void lif_plastic_commit(lif *e, const int64_t *idx, int m) {
     if (!e->plastic) return;
     if (m < 0 || !idx) {
-        CK(cudaMemcpy(e->d_pmult, e->pmult, (size_t)e->nnz * 4, cudaMemcpyHostToDevice));
-        e->pm_dirty = 0;
+        upload_pmult_all(e);
         return;
     }
     if (!m) return;
     ensure_tmp(e, m);
     int32_t *ti = (int32_t *)malloc((size_t)m * 4); float *tv = (float *)malloc((size_t)m * 4);
-    for (int k = 0; k < m; k++) { ti[k] = (int32_t)idx[k]; tv[k] = e->pmult[idx[k]]; }
+    for (int k = 0; k < m; k++) { ti[k] = e->qinv ? e->qinv[idx[k]] : (int32_t)idx[k]; tv[k] = e->pmult[idx[k]]; }
     CK(cudaMemcpy(e->d_tmp_i, ti, (size_t)m * 4, cudaMemcpyHostToDevice));
     CK(cudaMemcpy(e->d_tmp_f, tv, (size_t)m * 4, cudaMemcpyHostToDevice));
     k_scatter_f<<<nblocks_for(m, 256), 256, 0, e->st>>>(e->d_tmp_i, e->d_tmp_f, m, e->d_pmult);
@@ -819,8 +923,13 @@ void lif_set_dynamics(lif *e, double tau_adapt_ms, const float *adapt_mV, double
             CK(cudaMallocHost(&e->h_adapt, (size_t)n * 4)); CK(cudaMallocHost(&e->h_gs, (size_t)n * 4));
             memset(e->h_adapt, 0, (size_t)n * 4); memset(e->h_gs, 0, (size_t)n * 4);
         }
-        CK(cudaMemcpy(e->d_adapt_b, adapt_mV, (size_t)n * 4, cudaMemcpyHostToDevice));
-        CK(cudaMemcpy(e->d_slow_r, slow_ratio, (size_t)n * 4, cudaMemcpyHostToDevice));
+        if (!e->h_adapt_b) { e->h_adapt_b = (float *)malloc((size_t)n * 4); e->h_slow_r = (float *)malloc((size_t)n * 4); }
+        memcpy(e->h_adapt_b, adapt_mV, (size_t)n * 4); memcpy(e->h_slow_r, slow_ratio, (size_t)n * 4);
+        float *ab = map_neurons_f(e, adapt_mV), *sr = map_neurons_f(e, slow_ratio);
+        CK(cudaMemcpy(e->d_adapt_b, ab, (size_t)n * 4, cudaMemcpyHostToDevice));
+        CK(cudaMemcpy(e->d_slow_r, sr, (size_t)n * 4, cudaMemcpyHostToDevice));
+        if (ab != adapt_mV) free(ab);
+        if (sr != slow_ratio) free(sr);
         e->ea = (float)exp(-e->dt / tau_adapt_ms); e->ka = (float)drive_coef(tau_adapt_ms, e->dt);
         e->es = (float)exp(-e->dt / tau_slow_ms); e->ks = (float)drive_coef(tau_slow_ms, e->dt);
     } else if (e->d_adapt) {
@@ -828,6 +937,7 @@ void lif_set_dynamics(lif *e, double tau_adapt_ms, const float *adapt_mV, double
         for (int k = 0; k < 3; k++) cudaFree(dp[k]);
         e->d_adapt = e->d_gs = e->d_adapt_b = e->d_slow_r = NULL; e->d_ring_s = NULL;
         cudaFreeHost(e->h_adapt); cudaFreeHost(e->h_gs); e->h_adapt = e->h_gs = NULL;
+        free(e->h_adapt_b); free(e->h_slow_r); e->h_adapt_b = e->h_slow_r = NULL;
     }
     e->ext = on;
 }
@@ -846,7 +956,9 @@ void lif_set_std(lif *e, const float *f, double tau_ms) {
         /* re-enabled after being off: start fully recovered, as the CPU engine
          * (which frees its depletion buffer when depression is switched off) */
         if (!e->std_on) { CK(cudaMemset(e->d_std_d, 0, (size_t)n * 4)); CK(cudaMemset(e->d_std_t, 0, (size_t)n * 8)); }
-        CK(cudaMemcpy(e->d_std_f, f, (size_t)n * 4, cudaMemcpyHostToDevice));
+        float *fi = map_neurons_f(e, f);
+        CK(cudaMemcpy(e->d_std_f, fi, (size_t)n * 4, cudaMemcpyHostToDevice));
+        if (fi != f) free(fi);
         e->std_base = exp(-e->dt / tau_ms);
     }
     e->std_on = on;
@@ -855,9 +967,17 @@ float *lif_std_depletion(lif *e) {
     /* d as of the last completed step (lazy decay applied to a host copy) */
     if (!e->d_std_d || !e->std_on) return NULL;       /* as the CPU: none when switched off */
     CK(cudaStreamSynchronize(e->st));
-    CK(cudaMemcpy(e->h_std_d, e->d_std_d, (size_t)e->n * 4, cudaMemcpyDeviceToHost));
+    const float *sd = e->d_std_d; const long long *stt = e->d_std_t;
+    if (e->pos) {                                    /* into the caller's order */
+        char *xb = (char *)xbuf(e);
+        k_gather<float><<<nblocks_for(e->n, 256), 256, 0, e->st>>>(e->d_std_d, (float *)xb, e->d_pos, e->n);
+        k_gather<long long><<<nblocks_for(e->n, 256), 256, 0, e->st>>>(e->d_std_t, (long long *)(xb + (size_t)8 * e->npad), e->d_pos, e->n);
+        CK(cudaStreamSynchronize(e->st));
+        sd = (const float *)xb; stt = (const long long *)(xb + (size_t)8 * e->npad);
+    }
+    CK(cudaMemcpy(e->h_std_d, sd, (size_t)e->n * 4, cudaMemcpyDeviceToHost));
     if (e->std_on) {
-        CK(cudaMemcpy(e->h_std_t, e->d_std_t, (size_t)e->n * 8, cudaMemcpyDeviceToHost));
+        CK(cudaMemcpy(e->h_std_t, stt, (size_t)e->n * 8, cudaMemcpyDeviceToHost));
         const long long k = (long long)e->step_count - 1;
         for (int i = 0; i < e->n; i++) {
             const long long gap = k - e->h_std_t[i];
@@ -886,11 +1006,24 @@ void lif_thread_stats(lif *e, double *out) { (void)e; for (int k = 0; k < 4; k++
 void lif_sync_host(lif *e) {
     if (e->host_valid) return;
     const size_t b = (size_t)e->n * 4;
-    CK(cudaMemcpyAsync(e->h_v, e->d_v, b, cudaMemcpyDeviceToHost, e->st));
-    CK(cudaMemcpyAsync(e->h_g, e->d_g, b, cudaMemcpyDeviceToHost, e->st));
+    const float *v = e->d_v, *g = e->d_g, *a = e->d_adapt, *gs = e->d_gs;
+    if (e->pos) {                                    /* into the caller's order first */
+        float *xb = (float *)xbuf(e);
+        const int nb = nblocks_for(e->n, 256), np = e->npad;
+        k_gather<float><<<nb, 256, 0, e->st>>>(e->d_v, xb, e->d_pos, e->n);
+        k_gather<float><<<nb, 256, 0, e->st>>>(e->d_g, xb + np, e->d_pos, e->n);
+        v = xb; g = xb + np;
+        if (e->d_adapt) {
+            k_gather<float><<<nb, 256, 0, e->st>>>(e->d_adapt, xb + 2 * np, e->d_pos, e->n);
+            k_gather<float><<<nb, 256, 0, e->st>>>(e->d_gs, xb + 3 * np, e->d_pos, e->n);
+            a = xb + 2 * np; gs = xb + 3 * np;
+        }
+    }
+    CK(cudaMemcpyAsync(e->h_v, v, b, cudaMemcpyDeviceToHost, e->st));
+    CK(cudaMemcpyAsync(e->h_g, g, b, cudaMemcpyDeviceToHost, e->st));
     if (e->d_adapt) {
-        CK(cudaMemcpyAsync(e->h_adapt, e->d_adapt, b, cudaMemcpyDeviceToHost, e->st));
-        CK(cudaMemcpyAsync(e->h_gs, e->d_gs, b, cudaMemcpyDeviceToHost, e->st));
+        CK(cudaMemcpyAsync(e->h_adapt, a, b, cudaMemcpyDeviceToHost, e->st));
+        CK(cudaMemcpyAsync(e->h_gs, gs, b, cudaMemcpyDeviceToHost, e->st));
     }
     CK(cudaStreamSynchronize(e->st));
     e->host_valid = 1;
@@ -900,6 +1033,18 @@ void lif_sync_host(lif *e) {
 void lif_wake_all(lif *e) {
     if (!e->host_valid) return;       /* nothing was read, so nothing was written */
     const size_t b = (size_t)e->n * 4;
+    if (e->ord) {                                    /* through the buffer, into internal order */
+        float *xb = (float *)xbuf(e);
+        const int nb = nblocks_for(e->n, 256), np = e->npad;
+        float *dst[4] = {e->d_v, e->d_g, e->d_adapt, e->d_gs};
+        const float *src[4] = {e->h_v, e->h_g, e->h_adapt, e->h_gs};
+        for (int k = 0; k < (e->d_adapt ? 4 : 2); k++) {
+            CK(cudaMemcpy(xb + k * np, src[k], b, cudaMemcpyHostToDevice));
+            k_gather<float><<<nb, 256, 0, e->st>>>(xb + k * np, dst[k], e->d_ord, e->n);
+        }
+        CK(cudaStreamSynchronize(e->st));
+        return;
+    }
     CK(cudaMemcpy(e->d_v, e->h_v, b, cudaMemcpyHostToDevice));
     CK(cudaMemcpy(e->d_g, e->h_g, b, cudaMemcpyHostToDevice));
     if (e->d_adapt) {
@@ -911,7 +1056,9 @@ void lif_wake_all(lif *e) {
 void lif_add_g(lif *e, const int32_t *idx, const float *vals, int m) {
     if (!m) return;
     ensure_tmp(e, m);
-    CK(cudaMemcpy(e->d_tmp_i, idx, (size_t)m * 4, cudaMemcpyHostToDevice));
+    int32_t *mi = map_idx(e, idx, m);
+    CK(cudaMemcpy(e->d_tmp_i, mi, (size_t)m * 4, cudaMemcpyHostToDevice));
+    if (mi != idx) free(mi);
     CK(cudaMemcpy(e->d_tmp_f, vals, (size_t)m * 4, cudaMemcpyHostToDevice));
     /* float additions to one neuron must happen in the CPU's order: with
      * repeated indices, one thread adds them all in order */
@@ -1037,14 +1184,179 @@ static int chunk_steps(const lif *e) {
     return (int)c;
 }
 
+/* ------------------------------------------------------------ neuron order */
+struct OrdKey { double xf, tch, s; int32_t id; int poi; };
+static int cmp_ordkey(const void *pa, const void *pb) {
+    const OrdKey *a = (const OrdKey *)pa, *b = (const OrdKey *)pb;
+    if (a->poi != b->poi) return b->poi - a->poi;
+    if (a->xf != b->xf) return a->xf < b->xf ? 1 : -1;
+    if (a->tch != b->tch) return a->tch < b->tch ? 1 : -1;
+    if (a->s != b->s) return a->s < b->s ? 1 : -1;
+    return (a->id > b->id) - (a->id < b->id);
+}
+
+/* The order that puts neurons taking the same branches into the same words:
+ * Poisson-driven first, then by how much adaptation / slow inhibition they
+ * carry (their own spikes, inhibitory input from neurons with slow
+ * inhibition), then by how much input they get, from the spikes counted
+ * since creation. Returns internal -> caller's index. */
+static int32_t *activity_order(const lif *e) {
+    const int n = e->n;
+    OrdKey *k = (OrdKey *)calloc(n, sizeof(OrdKey));
+    for (int x = 0; x < n; x++) { k[x].id = x; k[x].s = e->act[x]; }
+    for (int q = 0; q < e->npoi; q++) k[to_ext(e, e->poi_idx[q])].poi = 1;
+    for (int x = 0; x < n; x++) {
+        const double s = e->act[x];
+        if (s == 0.0) continue;
+        if (e->ext && e->h_adapt_b && e->h_adapt_b[x] > 0.0f) k[x].xf += s;
+        const int slow = e->ext && e->h_slow_r && e->h_slow_r[x] > 0.0f;
+        for (int q = e->h_indptr_x[x]; q < e->h_indptr_x[x + 1]; q++) {
+            const uint32_t p = e->h_pe_x[q];
+            const int t = (int)(p >> PE_SHIFT);
+            k[t].tch += s;
+            if (slow && (int)(p & PE_MASK) - PE_BIAS < 0) k[t].xf += s;
+        }
+    }
+    qsort(k, (size_t)n, sizeof(OrdKey), cmp_ordkey);
+    int32_t *o = (int32_t *)malloc((size_t)n * 4);
+    for (int i = 0; i < n; i++) o[i] = k[i].id;
+    free(k);
+    return o;
+}
+
+/* a random order (FLY_CUDA_REORDER=random: tests the mapping) */
+static int32_t *random_order(lif *e) {
+    int32_t *o = (int32_t *)malloc((size_t)e->n * 4);
+    for (int i = 0; i < e->n; i++) o[i] = i;
+    for (int i = e->n - 1; i > 0; i--) {
+        uint32_t x = e->reorder_rng; x ^= x << 13; x ^= x >> 17; x ^= x << 5; e->reorder_rng = x;
+        const int j = (int)(x % (uint32_t)(i + 1));
+        const int32_t t = o[i]; o[i] = o[j]; o[j] = t;
+    }
+    return o;
+}
+
+/* Renumber the neurons (nord: internal -> caller's index, owned from here
+ * on; NULL: the identity), keeping every piece of state with its neuron:
+ * v, g, adaptation, flags, refractory lengths, silencing, Poisson entries,
+ * depression, the pending input in every ring slot (and its touched bits),
+ * and the connectivity (rows and targets; multipliers per synapse). Runs
+ * between runs, never during one. */
+static void apply_order(lif *e, int32_t *nord) {
+    const int n = e->n;
+    CK(cudaStreamSynchronize(e->st));
+    int32_t *npos = NULL;
+    if (nord) {
+        npos = (int32_t *)malloc((size_t)n * 4);
+        for (int i = 0; i < n; i++) npos[nord[i]] = i;
+    }
+    /* m[i]: the current internal index of new internal neuron i */
+    int32_t *m = (int32_t *)malloc((size_t)n * 4);
+    for (int i = 0; i < n; i++) m[i] = to_int(e, nord ? nord[i] : i);
+    ensure_tmp(e, n);
+    CK(cudaMemcpy(e->d_tmp_i, m, (size_t)n * 4, cudaMemcpyHostToDevice));
+    free(m);
+    void *xb = xbuf(e);
+    const int nb = nblocks_for(n, 256);
+#define PERMUTE(T, ptr) do { if (ptr) { \
+        k_gather<T><<<nb, 256, 0, e->st>>>((const T *)(ptr), (T *)xb, e->d_tmp_i, n); \
+        CK(cudaMemcpyAsync((ptr), xb, (size_t)n * sizeof(T), cudaMemcpyDeviceToDevice, e->st)); } } while (0)
+    PERMUTE(float, e->d_v); PERMUTE(float, e->d_g); PERMUTE(float, e->d_adapt); PERMUTE(float, e->d_gs);
+    PERMUTE(uint8_t, e->d_fl); PERMUTE(uint8_t, e->d_rlen); PERMUTE(uint8_t, e->d_sil);
+    PERMUTE(int2, e->d_poi_n);
+    PERMUTE(float, e->d_adapt_b); PERMUTE(float, e->d_slow_r);
+    PERMUTE(float, e->d_std_f); PERMUTE(float, e->d_std_d); PERMUTE(long long, e->d_std_t);
+    for (int s = 0; s <= e->D; s++) {
+        PERMUTE(double, e->d_ring + (size_t)s * n);
+        if (e->d_ring_s) PERMUTE(double, e->d_ring_s + (size_t)s * n);
+        uint32_t *tw = e->d_touched + (size_t)s * e->nwords;
+        k_gather_bits<<<nblocks_for(e->npad, 256), 256, 0, e->st>>>(tw, (uint32_t *)xb, e->d_tmp_i, n, e->nwords);
+        CK(cudaMemcpyAsync(tw, xb, (size_t)e->nwords * 4, cudaMemcpyDeviceToDevice, e->st));
+    }
+#undef PERMUTE
+    CK(cudaStreamSynchronize(e->st));
+    /* the Poisson set (and the quiescence pins of its 16-neuron blocks) */
+    for (int q = 0; q < e->npoi; q++) {
+        const int32_t x = to_ext(e, e->poi_idx[q]);
+        e->poi_idx[q] = npos ? npos[x] : x;
+    }
+    CK(cudaMemsetAsync(e->d_pinned, 0, e->nblk16, e->st));
+    if (e->npoi) {
+        CK(cudaMemcpyAsync(e->d_poi_idx, e->poi_idx, (size_t)e->npoi * 4, cudaMemcpyHostToDevice, e->st));
+        k_pin<<<nblocks_for(e->npoi, 256), 256, 0, e->st>>>(e->d_poi_idx, e->npoi, e->d_pinned);
+    }
+    /* the connectivity: row i is the caller's row nord[i], targets renumbered */
+    int32_t *ip = (int32_t *)malloc((size_t)(n + 1) * 4);
+    uint32_t *pe = (uint32_t *)malloc((size_t)e->nnz * 4);
+    int32_t *qinv = nord ? (int32_t *)malloc((size_t)e->nnz * 4) : NULL;
+    int q = 0;
+    ip[0] = 0;
+    for (int i = 0; i < n; i++) {
+        const int x = nord ? nord[i] : i;
+        for (int qx = e->h_indptr_x[x]; qx < e->h_indptr_x[x + 1]; qx++, q++) {
+            const uint32_t p = e->h_pe_x[qx], t = p >> PE_SHIFT;
+            pe[q] = ((uint32_t)(npos ? npos[t] : (int32_t)t) << PE_SHIFT) | (p & PE_MASK);
+            if (qinv) qinv[qx] = q;
+        }
+        ip[i + 1] = q;
+    }
+    CK(cudaStreamSynchronize(e->st));                /* before the pageable copies below */
+    CK(cudaMemcpy(e->d_indptr, ip, (size_t)(n + 1) * 4, cudaMemcpyHostToDevice));
+    CK(cudaMemcpy(e->d_pe, pe, (size_t)e->nnz * 4, cudaMemcpyHostToDevice));
+    free(ip); free(pe);
+    free(e->qinv); e->qinv = qinv;
+    free(e->ord); free(e->pos); e->ord = nord; e->pos = npos;
+    if (nord) {
+        if (!e->d_ord) { CK(cudaMalloc(&e->d_ord, (size_t)n * 4)); CK(cudaMalloc(&e->d_pos, (size_t)n * 4)); }
+        CK(cudaMemcpy(e->d_ord, nord, (size_t)n * 4, cudaMemcpyHostToDevice));
+        CK(cudaMemcpy(e->d_pos, npos, (size_t)n * 4, cudaMemcpyHostToDevice));
+    }
+    if (e->plastic) upload_pmult_all(e);             /* per synapse, in the new order */
+    CK(cudaStreamSynchronize(e->st));
+}
+
+/* The renumbering's GPU buffers, allocated before anything changes: 0, or -1
+ * (out of GPU memory, e.g. a GPU shared with other processes: the engine keeps
+ * the original order rather than aborting mid-run). */
+static int reserve_reorder(lif *e) {
+    const int n = e->n;
+    cudaError_t r = cudaSuccess;
+    if (!e->d_xbuf) r = cudaMalloc(&e->d_xbuf, (size_t)e->npad * 16);
+    if (r == cudaSuccess && n > e->tmp_cap) {
+        if (e->d_tmp_i) { cudaFree(e->d_tmp_i); cudaFree(e->d_tmp_f); }
+        e->d_tmp_i = NULL; e->d_tmp_f = NULL; e->tmp_cap = 0;
+        const int cap = n * 2 + 1024;
+        r = cudaMalloc(&e->d_tmp_i, (size_t)cap * 4);
+        if (r == cudaSuccess) r = cudaMalloc(&e->d_tmp_f, (size_t)cap * 8);
+        if (r == cudaSuccess) e->tmp_cap = cap;
+        else { cudaFree(e->d_tmp_i); e->d_tmp_i = NULL; }
+    }
+    if (r == cudaSuccess && !e->d_ord) {
+        r = cudaMalloc(&e->d_ord, (size_t)n * 4);
+        if (r == cudaSuccess) r = cudaMalloc(&e->d_pos, (size_t)n * 4);
+        if (r != cudaSuccess) { cudaFree(e->d_ord); e->d_ord = NULL; e->d_pos = NULL; }
+    }
+    if (r == cudaSuccess) return 0;
+    cudaGetLastError();                               /* clear the sticky error */
+    fprintf(stderr, "lif_cuda: no GPU memory to renumber the neurons (%s): keeping the original order\n",
+            cudaGetErrorString(r));
+    return -1;
+}
+
+/* renumber once enough activity has been counted (or, for tests, often) */
+static void maybe_reorder(lif *e) {
+    if (!e->reorder_mode || e->qtol > 0.0f || e->act_steps < e->reorder_next) return;
+    if (reserve_reorder(e)) { e->reorder_mode = 0; return; }
+    apply_order(e, e->reorder_mode == 2 ? random_order(e) : activity_order(e));
+    e->reorder_next = e->reorder_mode == 2 ? e->act_steps + e->reorder_steps : 0x7fffffffffffffffLL;
+}
+
 /* run `steps` steps; collect=1 keeps every spike in e->collected */
 static pthread_mutex_t g_run_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static long run_steps(lif *e, int steps, int collect) {
-    if (e->plastic && e->pm_dirty) {
-        CK(cudaMemcpy(e->d_pmult, e->pmult, (size_t)e->nnz * 4, cudaMemcpyHostToDevice));
-        e->pm_dirty = 0;
-    }
+    maybe_reorder(e);
+    if (e->plastic && e->pm_dirty) upload_pmult_all(e);
     if (e->state_dirty) { push_state(e); e->state_dirty = 0; }
     e->ncollected = 0;
     long total = 0;
@@ -1066,9 +1378,11 @@ static long run_steps(lif *e, int steps, int collect) {
             if (e->h_coll) memcpy(hbuf, e->h_coll, (size_t)tot * 4);
             else CK(cudaMemcpy(hbuf, e->d_coll, (size_t)tot * 4, cudaMemcpyDeviceToHost));
         }
+        if (e->ord) for (long q = 0; q < tot; q++) hbuf[q] = e->ord[hbuf[q]];   /* the caller's numbering */
         const long long *hstart = e->h_sstart; const int *hcount = e->h_scount;
         for (int k = 0; k < c; k++) sort_step(e, hbuf + hstart[k], hcount[k]);   /* each step ascending, as the CPU */
-        for (long q = 0; q < tot; q++) e->spike_counts[hbuf[q]]++;
+        for (long q = 0; q < tot; q++) { e->spike_counts[hbuf[q]]++; e->act[hbuf[q]]++; }
+        e->act_steps += c;
         if (collect) collect_host(e, hbuf, tot);
         /* lif_spikes(): the last step's spikes */
         const int nl = hcount[c - 1];

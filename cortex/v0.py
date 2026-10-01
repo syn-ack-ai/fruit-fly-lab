@@ -197,6 +197,10 @@ class Critic:
         self.torch = torch
         # FLY_TORCH_DEVICE: e.g. cpu on the Jetson, where the brain has the GPU
         self.dev = os.environ.get("FLY_TORCH_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
+        if os.environ.get("FLY_TORCH_THREADS"):
+            # these nets are tiny: on the robot one thread beats PyTorch's
+            # default of every core, which the brain loop and sensors need
+            torch.set_num_threads(int(os.environ["FLY_TORCH_THREADS"]))
         self.net = torch.nn.Sequential(torch.nn.Linear(n_in, 64), torch.nn.Tanh(),
                                        torch.nn.Linear(64, 64), torch.nn.Tanh(),
                                        torch.nn.Linear(64, 1)).to(self.dev)

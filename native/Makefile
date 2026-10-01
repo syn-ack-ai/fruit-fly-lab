@@ -34,6 +34,13 @@ cuda: lif_cuda.cu
 	$(NVCC) -ccbin $(CCBIN) -O3 -arch=native -fmad=false -Xcompiler -fPIC,-ffp-contract=off -shared -o liblif_cuda.so.tmp $< \
 	  -L$(CUDA_LIB) -Xlinker -rpath=$(CUDA_LIB) -lcudart -lpthread && mv -f liblif_cuda.so.tmp liblif_cuda.so
 
+# TensorRT runner for the camera's person detector (robot/detector.py; Jetson:
+# nvidia-jetpack ships TensorRT). Headers and libnvinfer from the system.
+TRT_INC ?= $(firstword $(wildcard /usr/include/$(ARCH)-linux-gnu /usr/include))
+trt: trt_detect.cpp
+	$(CXX) -O2 -Wall -fPIC -shared -o libtrt_detect.so.tmp $< -I$(TRT_INC) -I$(CUDA_HOME)/include \
+	  -L$(CUDA_LIB) -Wl,-rpath=$(CUDA_LIB) -lnvinfer -lcudart && mv -f libtrt_detect.so.tmp libtrt_detect.so
+
 clean:
-	rm -f liblif.so liblif_generic.so liblif_cuda.so
-.PHONY: clean generic cuda
+	rm -f liblif.so liblif_generic.so liblif_cuda.so libtrt_detect.so
+.PHONY: clean generic cuda trt

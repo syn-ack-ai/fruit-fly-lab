@@ -1,7 +1,10 @@
 """Check the CUDA engine (native/liblif_cuda.so) against the CPU engine
-(native/liblif.so): identical spike trains and final state.
+(native/liblif.so): identical spike trains and final state. Each scenario
+runs on the GPU three times: as configured (renumbering its neurons after
+1 s), renumbered early (20 ms), and renumbered at random every ~7 ms (every
+host call's mapping, many times over).
 
-    FLY_THREADS=8 python native/verify_cuda.py
+    FLY_THREADS=8 python native/verify_cuda.py [scenario ...]
 """
 from __future__ import annotations
 
@@ -18,7 +21,8 @@ from native import lif_native                                # noqa: E402
 from simulation.engine.session import apply_dynamics          # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-CPU, GPU = HERE / "liblif.so", HERE / "liblif_cuda.so"
+CPU = HERE / "liblif.so"
+GPU = Path(os.environ.get("FLY_VERIFY_CUDA_LIB") or HERE / "liblif_cuda.so")   # another build to check
 
 
 def make(c, lib, seed=7):
@@ -109,12 +113,24 @@ def scenario(c, name, e):
                 e.wake_all()
             if k == 400:
                 e.set_std(0.0); out.append(np.array([e.std_depletion() is None]))
+            if k == 420:                  # depression on again, other neurons
+                f = np.zeros(len(n), np.float32); f[orn[::2]] = 0.5; f[loom] = 0.3
+                e.set_std(f, 500.0)
             if k == 450:                  # dynamics off and on again
                 dyn = dict(e.dynamics)
                 e.set_dynamics()
             if k == 480:
                 e.set_dynamics(**dyn)
             out.append(e.step() if k % 3 == 0 else e.run_collect(10))
+        out.append(e.std_depletion())
+    elif name == "qtol_later":
+        # the approximate quiescence switched on mid-run (the GPU returns to
+        # the CPU's neuron order, its 16-neuron blocks)
+        apply_dynamics(e, c, "calibrated")
+        e.reset(seed=7); e.set_poisson(orn, 15.0)
+        for k in range(800):
+            if k == 300: e.set_quiesce_tolerance(1e-3)
+            out.append(e.run_collect(10))
     elif name == "quiesce_tol":
         apply_dynamics(e, c, "calibrated"); e.set_quiesce_tolerance(1e-3)
         e.reset(seed=7); e.set_poisson(orn, 15.0)
@@ -123,26 +139,44 @@ def scenario(c, name, e):
     return out, e.v.copy(), e.g.copy(), ad, e.spike_counts.copy()
 
 
+#: GPU runs per scenario: (label, environment for liblif_cuda's neuron order)
+VARIANTS = [("", {}),
+            ("reorder 20ms", {"FLY_CUDA_REORDER_MS": "20"}),
+            ("random order", {"FLY_CUDA_REORDER": "random", "FLY_CUDA_REORDER_MS": "7.3"})]
+
+
 def main():
     names = sys.argv[1:] or ["published_looming", "calibrated_odour", "silence_and_switch", "gain",
-                             "pipelined", "quiesce_tol", "orn_std", "host_edits", "dt02", "storm"]
+                             "pipelined", "quiesce_tol", "qtol_later", "orn_std", "host_edits", "dt02",
+                             "storm"]
     ok_all = True
     for name in names:
         if name in ("dt02", "storm"):
             os.environ["FLY_DT"] = "0.2"
         c = load_connectome()
-        res = {}
-        for tag, lib in (("cpu", CPU), ("gpu", GPU)):
-            e = make(c, lib)
-            t0 = time.time(); res[tag] = scenario(c, name, e); res[tag + "_s"] = time.time() - t0
-            e.close()
-        a, b = res["cpu"], res["gpu"]
-        first = next((k for k, (x, y) in enumerate(zip(a[0], b[0])) if not np.array_equal(x, y)), None)
-        same = first is None and all(np.array_equal(x, y) for x, y in zip(a[1:], b[1:]))
-        ok_all &= same
+        e = make(c, CPU)
+        t0 = time.time(); a = scenario(c, name, e); cpu_s = time.time() - t0
+        e.close()
         nspk = sum(len(x) for x in a[0])
-        print(f"{name:20s} {'IDENTICAL' if same else 'DIFFERENT (first block %s)' % first}  spikes {nspk}"
-              f"  cpu {res['cpu_s']:.1f}s gpu {res['gpu_s']:.1f}s", flush=True)
+        for label, env in VARIANTS:
+            old = {k: os.environ.get(k) for k in env}
+            os.environ.update(env)
+            try:
+                e = make(c, GPU)
+                t0 = time.time(); b = scenario(c, name, e); gpu_s = time.time() - t0
+                e.close()
+            finally:
+                for k, v in old.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            first = next((k for k, (x, y) in enumerate(zip(a[0], b[0])) if not np.array_equal(x, y)), None)
+            same = first is None and all(np.array_equal(x, y) for x, y in zip(a[1:], b[1:]))
+            ok_all &= same
+            tag = f"{name} ({label})" if label else name
+            print(f"{tag:34s} {'IDENTICAL' if same else 'DIFFERENT (first block %s)' % first}  spikes {nspk}"
+                  f"  cpu {cpu_s:.1f}s gpu {gpu_s:.1f}s", flush=True)
         os.environ.pop("FLY_DT", None)
     # lif_wait with no job started returns at once (it used to block forever)
     import threading

@@ -326,7 +326,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                     from robot.safety import person_distance, scan_points_robot
                     pts = scan_points_robot(ses.lidar[0].ranges, ses.lidar[0].angles)
                     h = float(obs["robot"][2]) % 360.0
-                    near_person = obs["visible"] and person_distance(obs["half"]) < 1.0
+                    d_person = person_distance(obs["half"]) if obs["visible"] else None
+                    near_person = d_person is not None and d_person < 1.0
                     still = bool((home is not None and home.taste == "sweet")
                                  or (home is not None and home.battery is not None and home.battery.meal)
                                  or getattr(cortex, "manner", None) == "yield"
@@ -757,6 +758,10 @@ def main():
     ap.add_argument("--ugv-port", default="/dev/ttyTHS1", help="--rover hw: the base's serial port")
     ap.add_argument("--lidar-port", default=None, help="--rover hw: the D500's serial port (none: no lidar)")
     ap.add_argument("--hfov", type=float, default=53.0, help="--rover: the head camera's horizontal field of view")
+    ap.add_argument("--camera", default=None,
+                    help="--rover: the head camera (robot/head.py) with the person detector: a V4L2 device, "
+                         "auto (the Orbit if plugged in; default with hw) or none (default with fake: the "
+                         "simulated person)")
     ap.add_argument("--safe-speed", action=argparse.BooleanOptionalAction, default=True,
                     help="robot safety layer: slow down near the person (robot/safety.py); on by "
                          "default (review 2026-09-28), --no-safe-speed for brain-only studies")
@@ -770,6 +775,7 @@ def main():
             raise SystemExit("--rover hw needs --lidar and --lidar-port")
         a.body = "rover"
         os.environ.setdefault("FLY_TORCH_DEVICE", "cpu")   # the neocortex's small nets; the brain has the GPU
+        os.environ.setdefault("FLY_TORCH_THREADS", "1")    # ...on one core (Jetson: same speed, the rest free)
     home = None
     if a.home:
         from sim.habitat_bridge.home import HomeWorld
@@ -800,6 +806,7 @@ def main():
         # the gap between 1 ms blocks, so blocks pipeline (Session.advance)
         brain[0].pipeline_plasticity = True
         brain[0].HISTORY_MAX = 600                # telemetry frames kept: hours of running
+        brain[0].raster_on = False                # no display reads the spike raster on the robot
     if (a.avoid or a.route) and not a.lidar:
         raise SystemExit("--avoid / --route need --lidar")
     if brain is not None and a.lidar:
@@ -855,7 +862,8 @@ def main():
         # (if the process dies instead, the base's heartbeat stops them)
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         from robot.rover_world import LocalConn, make_world
-        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov)
+        cam = a.camera or ("auto" if a.rover == "hw" else "none")
+        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov, camera=cam)
         connection = LocalConn(world)
     else:
         from sim.habitat_bridge.authkey import authkey
@@ -919,7 +927,9 @@ def main():
                       f"(late {st.get('late_s', 0)} s) | brain+layers per step: mean {st.get('compute_ms_mean')} "
                       f"p95 {st.get('compute_ms_p95')} max {st.get('compute_ms_max')} ms | visible {r['visible_frac']:.2f} "
                       f"| moving {np.mean([abs(x['v']) > 0.02 for x in lg]) if lg else 0:.2f} "
-                      f"| pressed against something {r['blocked_s']} s", flush=True)
+                      f"| pressed against something {r['blocked_s']} s"
+                      + (f" | camera {st['camera_fps']} fps, stale {st['camera_stale_s']} s, person seen "
+                         f"{st['person_seen_s']} s" if "camera_fps" in st else ""), flush=True)
                 continue
             print(f"{a.mode} ep{ep}: {r['sim_s']}s sim in {r['wall_s']}s | visible {r['visible_frac']:.2f} "
                   f"| mean dist {r['mean_dist']:.2f} m | follow-band {r['in_follow_band_frac']:.2f} "

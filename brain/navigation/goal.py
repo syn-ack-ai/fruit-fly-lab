@@ -144,8 +144,14 @@ class GoalDrive:
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
         if not self.enabled:
             return np.zeros(len(self.indices))
+        key = (self.goal, self.offset, self.gain, self.peak_hz, self.sigma)   # set per control step
+        m = getattr(self, "_memo", None)
+        if m is not None and m[0] == key:
+            return m[1].copy()
         d = (self.goal + self.offset - self._ang + 180.0) % 360.0 - 180.0
-        return self.gain * self.peak_hz * np.exp(-0.5 * (d / self.sigma) ** 2)
+        out = self.gain * self.peak_hz * np.exp(-0.5 * (d / self.sigma) ** 2)
+        self._memo = (key, out)
+        return out.copy()
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "goal", "active": self.enabled, "goal_deg": round(self.goal, 1)}

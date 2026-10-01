@@ -25,8 +25,9 @@ B. PUBLISHED :
      motor moves and briefly after.
 C. OUR APPROXIMATIONS :
    - One moving object at a time (the largest moving region, as in
-     brain/sensory/camera.py), or the largest person found by the AI HAT's
-     YOLOv8 detector (Hailo-10H), which takes priority. For a person the
+     brain/sensory/camera.py), or the largest person found by a detector,
+     which takes priority: YOLOv8 on the Pi's AI HAT (Hailo-10H), or YOLOX
+     on a Jetson's GPU through TensorRT (robot/detector.py). For a person the
      target is their head and shoulders (top third of the detection box):
      a robot-design choice of what the pet attends to, sized near LC10a's
      preferred ~15 deg at room distance.
@@ -52,11 +53,13 @@ Run standalone to test the sensor process:  python -m robot.head --test
 from __future__ import annotations
 
 import argparse
+import collections
 import glob
 import os
 import struct
 import subprocess
 import sys
+import threading
 import time
 from multiprocessing import shared_memory
 
@@ -81,7 +84,8 @@ CAP_W, CAP_H = 320, 240
 PROC_W, PROC_H = 160, 90
 VFOV_DEG = HFOV_DEG * 180.0 / 320.0          # ~30 deg for the band
 HAILO_HEF = "/usr/share/hailo-models/yolov8m_h10.hef"
-PERSON_EVERY = 3                             # run the detector every 3rd frame (~10 Hz)
+PERSON_PERIOD_S = 0.1                        # run the detector at most every 0.1 s (10 Hz: the
+                                             # control rate; frames come at 15-30 Hz with the light)
 SETTLE_S = 0.25                              # vision blanked after a move ends
 
 
@@ -92,13 +96,19 @@ def find_orbit() -> str | None:
 
 class PanTilt:
     """Relative pan/tilt through the UVC motor controls. The camera cannot
-    report its angle, so it is tracked here from a reset (centred) position."""
+    report its angle, so it is tracked here from a reset (centred) position.
+
+    The motor controls are Logitech extension controls that the kernel only
+    exposes when they are mapped (the uvcdynctrl package's udev rule does it;
+    the Pi had them, a fresh Jetson does not). Without them the head is a fixed
+    camera: moves do nothing and the angles stay 0."""
 
     def __init__(self, dev: str):
         self.fd = os.open(dev, os.O_RDWR)
         self.pan_deg = 0.0
         self.tilt_deg = 0.0
         self.busy_until = 0.0
+        self.motors = True
 
     def _ctrl(self, cid: int, val: int) -> None:
         fcntl.ioctl(self.fd, VIDIOC_S_CTRL, struct.pack("Ii", cid, int(val)))
@@ -110,7 +120,13 @@ class PanTilt:
             pass
 
     def reset(self) -> None:
-        self._ctrl(CTRL_PAN_RESET, 1)
+        try:
+            self._ctrl(CTRL_PAN_RESET, 1)
+        except OSError as ex:
+            self.motors = False
+            print(f"pan/tilt motor controls unavailable ({ex}): a fixed camera "
+                  "(sudo apt install uvcdynctrl, then replug, maps them)", file=sys.stderr, flush=True)
+            return
         time.sleep(2.5)
         self._ctrl(CTRL_TILT_RESET, 1)
         time.sleep(2.0)
@@ -120,6 +136,8 @@ class PanTilt:
     def move(self, dpan_deg: float, dtilt_deg: float = 0.0) -> float:
         """Turn by (dpan, dtilt) degrees; + pan = right, + tilt = up. Returns
         the time (s) the move should take."""
+        if not self.motors:
+            return 0.0
         dp = float(np.clip(self.pan_deg + dpan_deg, -PAN_LIMIT_DEG, PAN_LIMIT_DEG) - self.pan_deg)
         dt = float(np.clip(self.tilt_deg + dtilt_deg, -TILT_LIMIT_DEG, TILT_LIMIT_DEG) - self.tilt_deg)
         dur = 0.0
@@ -186,13 +204,33 @@ class PersonDetector:
             pass
 
 
+def make_person_detector():
+    """The Pi's AI HAT (Hailo) if present, else TensorRT on a Jetson
+    (robot/detector.py; engine: $FLY_PERSON_ENGINE or ~/milo/models/
+    yolox_tiny.engine). A detector's .bgr says which frame it takes."""
+    errs = []
+    if os.path.exists(HAILO_HEF):
+        try:
+            return PersonDetector()
+        except Exception as ex:
+            errs.append(f"Hailo: {ex}")
+    from robot import detector
+    eng = os.environ.get("FLY_PERSON_ENGINE") or detector.DEFAULT_ENGINE
+    if os.path.exists(eng):
+        try:
+            return detector.YoloxPersons(eng)
+        except Exception as ex:
+            errs.append(f"TensorRT: {ex}")
+    raise RuntimeError("; ".join(errs) or f"no Hailo HEF ({HAILO_HEF}) or TensorRT engine ({eng})")
+
+
 # --------------------------------------------------------------- shared memory
 _F = ["seq", "t_wall", "fps", "frames", "pan_deg", "tilt_deg", "moving",
       # moving object / looming (brain/sensory/camera.LoomingExtractor, head-centred)
       "obj_active", "obj_az", "obj_el", "obj_half_deg", "obj_exp_deg_s",
       # person (Hailo)
       "person_active", "person_az", "person_el", "person_half_deg", "person_score",
-      "person_t",
+      "person_t", "person_ms",
       # commands from the simulation
       "cmd_seq", "cmd_dpan", "cmd_dtilt", "cmd_reset", "cmd_done", "cmd_stop",
       "preview_seq", "preview_len"]
@@ -236,7 +274,7 @@ def _preview(rgb, mask, est, person, pan, tilt, moving, fps) -> bytes:
     return jpg.tobytes() if ok else b""
 
 
-def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
+def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bool = True) -> None:
     import cv2
     from brain.sensory.camera import LoomingExtractor
 
@@ -261,13 +299,13 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
     det = None
     if use_person:
         try:
-            det = PersonDetector()
-        except Exception as ex:                          # no HAT / driver: carry on without
+            det = make_person_detector()
+        except Exception as ex:                          # no detector: carry on without
             print("person detector unavailable:", ex, file=sys.stderr)
     parent = os.getppid()
     last_cmd = 0
-    person, person_t = None, 0.0
-    t_last, frames, rate, n = time.monotonic(), 0, 0.0, 0
+    person, person_t, det_ms, t_det_next = None, 0.0, 0.0, 0.0
+    t_last, frames, rate = time.monotonic(), 0, 0.0
     try:
         while os.getppid() == parent and not hdr[_I["cmd_stop"]]:
             # commands from the simulation (efference: executed here, vision gated)
@@ -289,18 +327,26 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
             gray = cv2.resize(cv2.cvtColor(band, cv2.COLOR_BGR2GRAY), (PROC_W, PROC_H),
                               interpolation=cv2.INTER_AREA)
             moving = pt.moving
-            if moving:
+            if moving or not use_looming:
                 ext._prev = None                           # efference copy: no motion signal
                 est = ext._inactive(); ext.est = est; ext.mask[:] = 0
             else:
                 est = ext.update(gray, t)
-            n += 1
-            if det is not None and not moving and n % PERSON_EVERY == 0:
+            if det is not None and not moving and t >= t_det_next - 0.005:
+                # on a 0.1 s schedule (frames come every 33-67 ms): 10 Hz on
+                # average; after a gap (the head moved) start afresh
+                t_det_next = t_det_next + PERSON_PERIOD_S if t - t_det_next < PERSON_PERIOD_S else t + PERSON_PERIOD_S
                 try:
-                    person = det.detect(rgb)
+                    t_det = time.perf_counter()
+                    person = det.detect(frame if getattr(det, "bgr", False) else rgb)
                     person_t = time.time()
+                    det_ms = 1e3 * (time.perf_counter() - t_det)
                 except Exception as ex:
                     print("detector error:", ex, file=sys.stderr)
+                    try:
+                        det.close()
+                    except Exception:
+                        pass
                     det = None
             if moving:
                 person = None
@@ -314,6 +360,7 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True) -> None:
                 hdr[_I["frames"]] += 1
                 hdr[_I["pan_deg"]], hdr[_I["tilt_deg"]] = pt.pan_deg, pt.tilt_deg
                 hdr[_I["moving"]] = float(moving)
+                hdr[_I["person_ms"]] = det_ms
                 hdr[_I["obj_active"]] = float(est["active"])
                 hdr[_I["obj_az"]], hdr[_I["obj_el"]] = est["azimuth_deg"], est["elevation_deg"]
                 hdr[_I["obj_half_deg"]] = est["half_angle_deg"]
@@ -361,7 +408,7 @@ class HeadFeed:
 
     STALE_S = 0.5
 
-    def __init__(self, dev: str | None = None, person: bool = True):
+    def __init__(self, dev: str | None = None, person: bool = True, looming: bool = True):
         dev = dev or find_orbit()
         if dev is None:
             raise RuntimeError("pan/tilt camera (Logitech Orbit) not found")
@@ -372,15 +419,36 @@ class HeadFeed:
         args = [sys.executable, "-m", "robot.head", "--shm", self.shm.name, "--dev", dev]
         if not person:
             args.append("--no-person")
+        if not looming:
+            args.append("--no-looming")
         self.proc = subprocess.Popen(args, cwd=root, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.PIPE)
+        # Drain the worker's stderr (libjpeg and V4L2 warnings, TensorRT's
+        # log): a full pipe would block the worker for good on a long run.
+        # The last few KB are kept for error().
+        self._err = collections.deque(maxlen=64)
+        threading.Thread(target=self._drain, daemon=True).start()
+
+    def _drain(self) -> None:
+        try:
+            for line in self.proc.stderr:
+                self._err.append(line.decode(errors="replace"))
+        except (OSError, ValueError):
+            pass
 
     @property
     def alive(self) -> bool:
         return self.proc.poll() is None
 
     def error(self) -> str:
-        return "" if self.alive else (self.proc.stderr.read() or b"").decode(errors="replace")[-2000:]
+        if self.alive:
+            return ""
+        try:
+            self.proc.wait(timeout=1)             # the drain thread reads to the end
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(0.05)
+        return "".join(self._err)[-2000:]
 
     def _read(self, i, fn):
         for _ in range(1000):
@@ -506,6 +574,13 @@ class ObjectEncoder:
             az, el, half, moving, kind = s["obj_az"], s["obj_el"], s["obj_half_deg"], 1.0, "object"
         else:
             return rates
+        # the same target as the last block (the camera updates at ~10 Hz,
+        # the session asks every 1 ms): the same rates
+        key = (az, el, half, moving, kind, self.arousal, self.PEAK_DEG, self.STILL_FRACTION, self.MAX_HZ)
+        m = getattr(self, "_memo", None)
+        if m is not None and m[0] == key:
+            self.last = dict(m[2], azimuth_deg=round(az, 1))
+            return m[1].copy()
         size = max(2 * half, 1.0)
         tuning = np.exp(-0.5 * (np.log(size / self.PEAK_DEG) / 0.8) ** 2)
         gain = self.STILL_FRACTION + (1 - self.STILL_FRACTION) * moving
@@ -516,7 +591,8 @@ class ObjectEncoder:
         rates = self.MAX_HZ * tuning * gain * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
         self.last = {"target": kind, "azimuth_deg": round(az, 1), "size_deg": round(size, 1),
                      "drive_hz": round(float(rates.max()), 1)}
-        return rates
+        self._memo = (key, rates, dict(self.last))
+        return rates.copy()
 
     def state(self, t_ms: float) -> dict:
         return {"kind": "head_object", "active": self.last.get("target") is not None, **self.last}
@@ -594,6 +670,7 @@ def main():
     ap.add_argument("--shm")
     ap.add_argument("--dev")
     ap.add_argument("--no-person", action="store_true")
+    ap.add_argument("--no-looming", action="store_true", help="no moving-object estimate (saves CPU)")
     ap.add_argument("--test", action="store_true", help="run the sensor for 10 s and print")
     a = ap.parse_args()
     if a.test:
@@ -604,13 +681,14 @@ def main():
             s = feed.state()
             print({k: round(v, 1) for k, v in s.items() if isinstance(v, float) and k in
                    ("fps", "pan_deg", "moving", "obj_active", "obj_az", "obj_half_deg",
-                    "person_active", "person_az", "person_half_deg", "person_score")},
+                    "person_active", "person_az", "person_el", "person_half_deg", "person_score",
+                    "person_ms")},
                   feed.error())
             if 5 < time.time() - t0 < 6.2:
                 feed.command(15.0)
         feed.close()
         return
-    run_worker(a.shm, a.dev or find_orbit(), use_person=not a.no_person)
+    run_worker(a.shm, a.dev or find_orbit(), use_person=not a.no_person, use_looming=not a.no_looming)
 
 
 if __name__ == "__main__":

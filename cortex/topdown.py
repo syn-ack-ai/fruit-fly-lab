@@ -76,11 +76,17 @@ class AttendEncoder:
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
         if self.gain <= 0:
             return np.zeros(len(self.indices))
+        key = (self.az, self.gain, self.max_hz)          # set once per control step, asked every block
+        m = getattr(self, "_memo", None)
+        if m is not None and m[0] == key:
+            return m[1].copy()
         from simulation.stimuli.looming import angular_distance_deg
         half = ATTEND_SIZE_DEG / 2
         d = angular_distance_deg(self.az, 0.0, self._az, self._el)
         edge = np.maximum(0.0, d - half)
-        return self.gain * self.max_hz * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
+        out = self.gain * self.max_hz * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
+        self._memo = (key, out)
+        return out.copy()
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "cortex_attend", "active": self.gain > 0,

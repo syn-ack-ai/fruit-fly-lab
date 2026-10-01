@@ -108,12 +108,22 @@ class LoomingEncoder(SensoryEncoder):
             self.rf["rf_radius_deg"].to_numpy(dtype=np.float64), 5.0, 60.0)
         self._is_lc4 = (self.rf["cell_type"] == "LC4").to_numpy()
         self._is_lplc2 = (self.rf["cell_type"] == "LPLC2").to_numpy()
+        self._memo = None
 
     # ------------------------------------------------------------------ rates
     def rates_hz(self, t_ms: float, stim: LoomingStimulus) -> np.ndarray:
         st = stim.state(t_ms)
         if not st["active"] or st["half_angle_deg"] <= 0.0:
             return np.zeros(len(self.indices))
+
+        # The session asks every 1 ms block; a camera or lidar stimulus changes
+        # at ~10 Hz. The same inputs give the same rates: computed once.
+        tn = self.tuning
+        key = (st["half_angle_deg"], st["expansion_rate_deg_s"], st["azimuth_deg"], st["elevation_deg"],
+               tn.lc4_max_hz, tn.lplc2_max_hz, tn.lc4_half_vel_deg_s, tn.lplc2_half_size_deg,
+               tn.lplc2_expansion_gate_deg_s, tn.rf_gain)
+        if self._memo is not None and self._memo[0] == key:
+            return self._memo[1].copy()
 
         theta = st["half_angle_deg"]
         rate_raw = st["expansion_rate_deg_s"]
@@ -128,7 +138,6 @@ class LoomingEncoder(SensoryEncoder):
         gate = np.exp(-(edge ** 2) / (2.0 * self._sigma ** 2)) * self.tuning.rf_gain
 
         # --- published tuning ----------------------------------------------
-        tn = self.tuning
         rates = np.zeros(len(self.indices))
         rates[self._is_lc4] = (tn.lc4_max_hz * dtheta
                                / (dtheta + tn.lc4_half_vel_deg_s))
@@ -136,7 +145,9 @@ class LoomingEncoder(SensoryEncoder):
         exp_gate = dtheta / (dtheta + tn.lplc2_expansion_gate_deg_s)
         rates[self._is_lplc2] = (tn.lplc2_max_hz * theta
                                  / (theta + tn.lplc2_half_size_deg)) * exp_gate
-        return np.clip(rates * gate, 0.0, None)
+        out = np.clip(rates * gate, 0.0, None)
+        self._memo = (key, out)
+        return out.copy()
 
     # ------------------------------------------------------------- provenance
     @property

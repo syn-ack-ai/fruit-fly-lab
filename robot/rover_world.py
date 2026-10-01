@@ -8,12 +8,21 @@ latest sensors.
 
     brain_client  --(v, w)-->  RoverWorld.step  --> UGVBase.drive (robot/ugv.py)
                   <--(obs)---   odometry pose, D500 scan (robot/d500.py),
-                                person from the camera (not yet: never visible)
+                                person from the head camera (robot/head.py,
+                                robot/detector.py), when there is one
 
 --rover fake runs the same loop with a simulated base, lidar and person in a
 small room (FakeBase / FakeLidar / FakePerson below): the brain and the timing
 are real, the world is not. It tests that everything keeps up with real time
-on the Jetson before the robot arrives.
+on the Jetson before the robot arrives. With --camera the person comes from
+the real camera instead (the detector's GPU and CPU load included).
+
+The camera (robot.head.HeadFeed: its own process, the person detector at
+~10 Hz) is aimed CAM_PITCH_DEG up, as Habitat's camera, so the person's
+azimuth, elevation and angular size mean what they mean in Habitat. A person
+counts as seen only while a detection is fresh (< 0.5 s) and the head is
+still; a stalled camera is counted (camera_stale_s), not a stop: the camera
+is not a safety layer (the lidar is).
 
 What the robot cannot know is filled in, marked in the reply: dist (the
 person's distance) is estimated from their apparent size when they are seen
@@ -253,8 +262,11 @@ class StepTiming:
 
 class RoverWorld:
     def __init__(self, base, lidar=None, person=None, hfov_deg: float = 53.0, fake: bool = False,
-                 clock=time.monotonic, sleep=time.sleep):
-        self.base, self.lidar, self.person = base, lidar, person
+                 clock=time.monotonic, sleep=time.sleep, camera=None):
+        self.base, self.lidar, self.person, self.camera = base, lidar, person, camera
+        self._cam_aimed = False
+        self._cam_state = None
+        self._cam_dead = False
         self.hfov = hfov_deg
         self.fake = fake
         self.clock, self.sleep = clock, sleep
@@ -269,6 +281,7 @@ class RoverWorld:
         self._replied = None
         self._scan_t = None                       # the last scan handed to the brain
         self.stale, self.stale_s, self.stale_events = [], 0.0, 0
+        self.camera_stale_s, self.camera_fps, self.seen_s = 0.0, 0.0, 0.0
 
     def handle(self, msg: dict) -> dict:
         cmd = msg.get("cmd")
@@ -348,6 +361,15 @@ class RoverWorld:
             self._fake_advance(period)
         self.t += period
         out = self.summary()
+        if self.camera is not None:
+            if self._cam_state is None:
+                if self._cam_aimed or self._cam_dead:  # ready once (the first ~8 s start it up), or died
+                    self.camera_stale_s += period
+            elif self._cam_state.get("stale"):
+                self.camera_stale_s += period
+            if out["visible"]:
+                self.seen_s += period
+            out["stats"].update(camera_stale_s=round(self.camera_stale_s, 1), person_seen_s=round(self.seen_s, 1))
         self._replied = self.clock()
         return out
 
@@ -360,16 +382,46 @@ class RoverWorld:
         if self.lidar is not None:
             self.lidar.update(self.t + dt)
 
+    def _camera_person(self) -> dict | None:
+        """The person through the head camera, in Habitat's camera frame
+        (azimuth + = right of the body's heading, elevation from an axis
+        pitched CAM_PITCH_DEG up), or None."""
+        s = self.camera.state()
+        self._cam_state = s if s.get("ready") else None
+        if not getattr(self.camera, "alive", True) and not self._cam_dead:
+            # the camera process ended: say why once (the run goes on blind)
+            self._cam_dead = True
+            err = self.camera.error() if hasattr(self.camera, "error") else ""
+            print("head camera stopped:", err.strip()[-500:] or "no message", flush=True)
+        if not s.get("ready"):
+            return None
+        self.camera_fps = s.get("fps", 0.0)
+        if not self._cam_aimed:
+            self.camera.command(-s["pan_deg"], CAM_PITCH_DEG - s["tilt_deg"])
+            self._cam_aimed = True
+        if s.get("stale") or s["moving"] or not s["person_active"] or s["person_stale"]:
+            return None
+        from robot.safety import person_distance
+        half = float(s["person_half_deg"])
+        d = person_distance(half)
+        if d is None:                             # too small to tell: not a person to act on
+            return None
+        return {"az": s["person_az"] + s["pan_deg"], "el": s["person_el"] + s["tilt_deg"] - CAM_PITCH_DEG,
+                "half": half, "visible": True, "in_fov": True, "dist": float(d)}
+
     def summary(self) -> dict:
         st = self.base.state()
         pose = tuple(float(x) for x in st["pose"])
         seen = {"az": 0.0, "el": 0.0, "half": 0.0, "visible": False, "in_fov": False, "dist": float("nan")}
-        if self.person is not None:
+        if self.camera is not None:
+            seen.update(self._camera_person() or {})
+        elif self.person is not None:
             g = person_geometry(pose, self.person.xz(), self.hfov)
             seen.update({k: g[k] for k in ("az", "el", "half", "visible", "in_fov")})
             if g["visible"]:
                 from robot.safety import person_distance
-                seen["dist"] = float(person_distance(g["half"]))
+                d = person_distance(g["half"])
+                seen["dist"] = float("nan") if d is None else float(d)
         lid = lid_pose = None
         if self.lidar_beams and self.lidar is not None:
             s = self.lidar.latest()
@@ -388,6 +440,8 @@ class RoverWorld:
                 "blocked_s": round(getattr(self.base, "blocked_s", 0.0), 2) if self.fake else None,
                 "stats": {"overruns": float(self.overruns), "late_s": round(self.late_s, 3),
                           "stale_s": round(self.stale_s, 1), "stale_events": float(self.stale_events),
+                          **({"camera_fps": round(self.camera_fps, 1), "camera_stale_s": round(self.camera_stale_s, 1),
+                              "person_seen_s": round(self.seen_s, 1)} if self.camera is not None else {}),
                           **self.timing.stats()},
                 "stale": list(self.stale), "battery_v": st.get("battery_v"), "rover": True}
 
@@ -395,27 +449,58 @@ class RoverWorld:
         try:
             self.base.stop()
         finally:
-            self.base.close()
-            if self.lidar is not None:
-                self.lidar.close()
+            try:
+                self.base.close()
+            finally:
+                try:
+                    if self.lidar is not None:
+                        self.lidar.close()
+                finally:
+                    if self.camera is not None:
+                        self.camera.close()
+
+
+def open_camera(camera: str | None):
+    """robot.head.HeadFeed on a device ("auto": the Orbit if plugged in), or
+    None. "auto" without a camera is not an error (the robot runs blind)."""
+    if not camera or camera == "none":
+        return None
+    from robot.head import HeadFeed, find_orbit
+    dev = find_orbit() if camera == "auto" else camera
+    if dev is None:
+        print("no head camera found: the person is never seen", flush=True)
+        return None
+    try:
+        return HeadFeed(dev, person=True, looming=False)
+    except Exception as ex:                       # never stop the robot over its camera
+        print(f"head camera {dev} failed to start ({ex}): the person is never seen", flush=True)
+        return None
 
 
 def make_world(kind: str, ugv_port: str = "/dev/ttyTHS1", lidar_port: str | None = None,
-               beams: int = 90, hfov_deg: float = 53.0) -> RoverWorld:
-    """kind "fake": simulated room, base, lidar and person; "hw": the robot."""
-    if kind == "fake":
-        room = FakeRoom()
-        base = FakeBase(start=(-1.0, 0.5, 0.0), room=room)
-        person = FakePerson()
-        return RoverWorld(base, FakeLidar(room, base, person, beams), person, hfov_deg, fake=True)
-    from robot.ugv import UGVBase
-    base = UGVBase(ugv_port)
-    lidar = None
-    if lidar_port:
-        from robot.d500 import D500
-        try:
-            lidar = D500(lidar_port, beams)
-        except Exception:
-            base.close()                          # stops the wheels and frees the port
-            raise
-    return RoverWorld(base, lidar, None, hfov_deg)
+               beams: int = 90, hfov_deg: float = 53.0, camera: str | None = None) -> RoverWorld:
+    """kind "fake": simulated room, base, lidar and person (the person from
+    the real camera when there is one); "hw": the robot."""
+    cam = open_camera(camera)
+    try:
+        if kind == "fake":
+            room = FakeRoom()
+            base = FakeBase(start=(-1.0, 0.5, 0.0), room=room)
+            person = None if cam is not None else FakePerson()
+            return RoverWorld(base, FakeLidar(room, base, person, beams), person, hfov_deg, fake=True,
+                              camera=cam)
+        from robot.ugv import UGVBase
+        base = UGVBase(ugv_port)
+        lidar = None
+        if lidar_port:
+            from robot.d500 import D500
+            try:
+                lidar = D500(lidar_port, beams)
+            except Exception:
+                base.close()                      # stops the wheels and frees the port
+                raise
+        return RoverWorld(base, lidar, None, hfov_deg, camera=cam)
+    except Exception:
+        if cam is not None:
+            cam.close()
+        raise

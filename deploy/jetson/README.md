@@ -7,7 +7,8 @@ same brain client as the Habitat studies (`sim/habitat_bridge/brain_client.py
 
 ```
 brain_client --rover hw
-  camera (not yet: the person is never seen)       robot/rover_world.py
+  head camera (Logitech Orbit, /dev/video0)        robot/head.py (own process): the person,
+    person detector: YOLOX-tiny, TensorRT, GPU       robot/detector.py, native/trt_detect.cpp
   D500 lidar, /dev/ttyUSB0, 230400 baud            robot/d500.py
   UGV base (ESP32), /dev/ttyTHS1, 115200 baud      robot/ugv.py: drive, odometry, battery
 ```
@@ -47,7 +48,24 @@ its name across reboots. After `usermod -aG dialout` log out and in (with
 lingering, reboot) so the service's user session has the group.
 
 In the repo (no sudo): `uv pip install --python .venv/bin/python pyserial`,
-`make -C native && make -C native cuda`, `mkdir -p ~/milo/runs`.
+`make -C native && make -C native cuda && make -C native trt`, `mkdir -p ~/milo/runs`.
+
+The person detector's model (YOLOX, Megvii, Apache-2.0; not in the repo) and
+its TensorRT engine, built for this GPU (a few minutes each):
+
+```bash
+mkdir -p ~/milo/models && cd ~/milo/models
+curl -LO https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx
+cd ~/fly-lab/fruit-fly-lab && .venv/bin/python -m robot.detector --build ~/milo/models/yolox_tiny.onnx
+```
+
+`FLY_PERSON_ENGINE` picks another engine (yolox_nano, yolox_s). The Orbit's
+pan/tilt motors are Logitech extension controls that this kernel does not
+map by itself: without them the head is a fixed camera (it still sees);
+`sudo apt install uvcdynctrl` and replugging the camera should map them (it
+did on the Pi). Without the motors the camera is taken to be level (tilt 0;
+Habitat's camera looks 20 degrees up, rover_world.CAM_PITCH_DEG), and a
+person's head close by is above the picture.
 
 ## Check the hardware, piece by piece
 
@@ -55,6 +73,8 @@ In the repo (no sudo): `uv pip install --python .venv/bin/python pyserial`,
 .venv/bin/python -m robot.ugv --port /dev/ttyTHS1           # feedback: battery, wheels
 .venv/bin/python -m robot.ugv --port /dev/ttyTHS1 --test    # + drives 0.1 m/s for 1 s: wheels up first!
 .venv/bin/python -m robot.d500 --port /dev/ttyUSB0          # scans: put a box in front and check +0 is short
+.venv/bin/python -m robot.detector --camera /dev/video0     # people in view, 10 s
+PYTHONPATH=. .venv/bin/python -m robot.head --test          # the head process: person azimuth, size
 ```
 
 To calibrate on the robot (constants at the top of each file):
@@ -71,6 +91,8 @@ To calibrate on the robot (constants at the top of each file):
 PYTHONPATH=. FLY_DATASET=merged FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so \
   .venv/bin/python -m sim.habitat_bridge.brain_client --rover fake --lidar --avoid \
   --cortex pet --learning on --hfov 150 --seconds 60 --out /tmp/rover
+# the same with the person from the real camera (--camera auto: the Orbit)
+#   ... --rover fake --camera auto --lidar --avoid --cortex pet --learning on ...
 
 # the robot, as a service (deploy/jetson/milo.service)
 cp deploy/jetson/milo.service ~/.config/systemd/user/
@@ -78,21 +100,31 @@ systemctl --user daemon-reload && systemctl --user start milo
 journalctl --user -u milo -f
 ```
 
-The run prints how many 100 ms steps took longer than 100 ms and the brain's
-time per step. On the Orin Nano Super (MAXN_SUPER, jetson_clocks), with the
-neocortex, mushroom-body learning, lidar senses and steering, a step takes
-~80 ms (2026-09-30, a 15-minute run: 900 s in 903.7 s, mean 79 ms, 95th
-percentile 99 ms, 6% of steps a little late; memory steady at ~1.3 GB). The
-rover run pipelines the mushroom body's weight updates one 1 ms block later
-than the Habitat studies (`Session.pipeline_plasticity`), which is what makes
-it real time.
+The run prints how many 100 ms steps took longer than 100 ms, the brain's
+time per step and, with a camera, its frame rate and how long the person was
+seen. On the Orin Nano Super (MAXN_SUPER, jetson_clocks), with the neocortex,
+mushroom-body learning, lidar senses and steering, a step takes ~66 ms
+(2026-09-30, 2-minute runs: mean 66 ms, 95th percentile 75-77 ms, no step
+late), the same with the camera and the detector running (15 fps in a dim
+room; the detector 3.8 ms a frame at 10 Hz on the GPU, the camera process 8%
+of one core). The rover run pipelines the mushroom body's weight updates one
+1 ms block later than the Habitat studies (`Session.pipeline_plasticity`),
+which is what makes it real time.
+
+Where the time goes (py-spy, 2026-09-30): the loop is CPU-bound; the GPU
+waits for Python, not the other way round (3% of the loop waits on it). Each
+1 ms block's Python work was ~0.8 ms: the sensory encoders (44%; they
+recomputed rates that change at 10 Hz every 1 ms: now computed once per
+change, results unchanged), the per-block readout, body and mushroom body
+(28%), the neocortex (10%; one PyTorch thread, `FLY_TORCH_THREADS=1`, is as
+fast as six on its small nets and leaves the cores free).
 
 ## Not yet
 
-- The camera: the kit's 160-degree USB camera on the pan-tilt, and a person
-  detector on the GPU (TensorRT), feeding the same fields the Habitat server
-  sends (the person's azimuth, elevation and apparent size). Until then Milo
-  sees no one, and its person-speed limit never engages.
+- The kit's 160-degree camera on the rover's pan-tilt (the ESP32's T133):
+  the head process reads any V4L2 camera, but its pan/tilt and field of view
+  are the Orbit's (`robot/head.py` HFOV_DEG, PanTilt). The detector finds
+  people, not faces: a face detector (who is looking at Milo) comes later.
 - The battery layer (robot/battery.py) from the base's voltage, the charging
   dock, bumpers (the rover has none: contacts are the lidar's).
 - The face on the iPad (robot/face_server.py) and the voice.

@@ -149,9 +149,19 @@ decides the *words*.
   jetson-clocks unit, then check the base and lidar one by one
   (`deploy/jetson/README.md`) and calibrate the lidar's zero angle and the
   wheel track.
-- **next** The camera on the rover: the kit's 160-degree camera and a person
-  detector on the GPU (TensorRT), feeding the person's azimuth, elevation and
-  size as the Habitat server does. Until then Milo sees no one.
+- **done 2026-09-30** The camera on the Jetson: the head process
+  (`robot/head.py`) runs a person detector on the GPU (YOLOX-tiny through
+  TensorRT, `robot/detector.py`, 3.8 ms a frame at 10 Hz), and `--rover`
+  feeds the person's azimuth, elevation and size as the Habitat server does
+  (`--camera`; tested with the Logitech Orbit). The brain loop's timing is
+  unchanged with it running.
+- **done 2026-09-30** The rover loop profiled (py-spy): CPU-bound, not GPU.
+  The sensory encoders no longer recompute unchanged rates every 1 ms (exactly
+  the same output); the neocortex runs on one thread. A step 79 -> 66 ms
+  (95th percentile 99 -> 76 ms).
+- **next** The kit's 160-degree camera on the rover's pan-tilt (ESP32 T133
+  instead of the Orbit's motors), and a face detector (who is looking at
+  Milo).
 - **done 2026-09-30** Nsight Compute profile of the engine on the Orin: the
   update is instruction-issue bound (per-neuron branch bookkeeping; only ~11%
   of instructions are floating point). Six further layouts and schedules did

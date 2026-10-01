@@ -8,7 +8,9 @@ engine with the same C API. Select it with
 (the CPU `liblif.so` stays the default everywhere). Results are bit-identical
 with the CPU engine: `python native/verify_cuda.py` compares both on published
 and calibrated dynamics, silencing, input switches, gain, the pipelined
-start/wait path, the quiescence tolerance and FLY_DT=0.2. Short-term
+start/wait path, the quiescence tolerance and FLY_DT=0.2, each with the
+GPU's neuron order as configured, renumbered early and renumbered at random
+over and over (`FLY_VERIFY_CUDA_LIB` checks another build). Short-term
 depression decays lazily in both (brought up to date when a neuron spikes),
 with the same binary-powering decay (`std_decay`): libm's and CUDA's `exp`
 may round differently (review 2026-09-28; verified identical on FAFB and the
@@ -54,6 +56,24 @@ captured in CUDA graphs, cached by their exact arguments.
 - **Order.** The GPU lists a step's spikes in any order; the host sorts each
   step's spikes (insertion sort, or a bitmap for large steps), which is the
   CPU's ascending order.
+- **Neuron numbering.** A warp pays for a branch (adaptation, Poisson input,
+  pending input) when any of its 32 neurons takes it. At rest ~7% of neurons
+  carry adaptation and ~2% are Poisson-driven, but they are spread over ~90%
+  and ~40% of the words. After the first second (`FLY_CUDA_REORDER_MS`,
+  default 1000; `FLY_CUDA_REORDER=0` keeps the caller's order) the engine
+  renumbers its neurons once: Poisson-driven first, then by the adaptation
+  and input they received, from the spikes counted so far. Those branches
+  then run in ~7%, ~2% and ~4% of the words. Every piece of state moves with
+  its neuron (including pending input in the delay ring), and everything
+  outside stays in the caller's numbering (indices passed in, spikes, spike
+  counts, the v/g/adapt/gs mirrors, depression, per-synapse multipliers), so
+  results are unchanged. It takes ~150 ms once on the Orin (the rover: one
+  control step may be late once, ~1 s after start). The order is chosen once
+  per engine, from its first second; with the approximate quiescence
+  tolerance (per 16-neuron block, like the CPU; the lab server's world mode
+  sets one) the caller's order is used, and switching the tolerance off
+  renumbers again a second later. Without GPU memory for it the engine keeps
+  the caller's order.
 - **Poisson.** Draws reproduce the CPU's mulberry32 stream by index; the CPU's
   `u / 2^32 < p` is the exact integer test `u <= ceil(p 2^32) - 1`.
 - **Memory.** When they fit (5 bytes a neuron), each block keeps its neurons'
@@ -82,13 +102,18 @@ run). Multiples of real time:
 
 | Machine | step | CPU engine | old CUDA engine | CUDA engine |
 | --- | --- | --- | --- | --- |
-| Jetson Orin Nano Super (MAXN_SUPER, jetson_clocks) | 0.1 ms | 1.02x (6 threads) | 0.42x (0.44x) | **2.1x** (2.6x) |
-| | 0.2 ms | 1.76x | 0.79x | **3.5x** (4.8x) |
+| Jetson Orin Nano Super (MAXN_SUPER, jetson_clocks) | 0.1 ms | 1.02x (6 threads) | 0.42x (0.44x) | **2.6x** (3.1x) |
+| | 0.2 ms | 1.76x | 0.79x | **4.1x** (6.1x) |
 | RTX 3080 Ti / i9-9900K | 0.1 ms | | 3.7x (3.6x) | **11.9x** (17.8x) |
 | | 0.2 ms | | | **17.9x** (31x) |
 
-On the Orin the step now costs ~39 us: ~30 us of update, ~4 us of scatter and
-a ~3 us barrier. Nsight Compute (2026-09-30; `FLY_CUDA_NO_GRAPH=1` launches
+(Orin before the neuron renumbering of 2026-09-30: 2.1x (2.5x) and 3.5x
+(4.8x); it saves ~8 us a step there, 17-20%, and changes nothing measurable on
+the 3080 Ti, whose wider GPU is not issue-bound.)
+
+On the Orin a step costs ~32 us in a long run (~39 us in 1 ms blocks); before
+the renumbering ~40 us: ~30 us of update, ~4 us of scatter and a ~3 us
+barrier. Nsight Compute (2026-09-30; `FLY_CUDA_NO_GRAPH=1` launches
 directly so the profiler sees the kernel) shows the update issue-bound: ~170
 warp instructions per 32 neurons, only ~11% of them floating-point (the rest
 branch bookkeeping, moves and integer work for the per-neuron cases:
@@ -97,7 +122,9 @@ busy with ~2 eligible warps per scheduler. What did not shorten the step:
 balancing the blocks (1024-thread blocks, or warps taking words from a
 counter), prefetching the flag-dependent loads a word ahead, branch-free
 adaptation, integer instead of boolean flags, and v, g, adapt, gs as one
-16-byte record (the last made published dynamics 20% slower: more L2 misses). A 1 ms block adds ~80 us
+16-byte record (the last made published dynamics 20% slower: more L2 misses).
+What did: renumbering the neurons so that those taking the same branches
+share words (above). A 1 ms block adds ~80 us
 (launch ~13 us, GPU start ~40 us, Python ~30 us). A whole-brain storm (every
 neuron driven at 150-600 Hz, 59 M spikes) takes 3.2 s on the Orin's GPU and
 31 s on its CPU.

@@ -8,6 +8,18 @@ then Share -> Add to Home Screen for a full-screen face; tap once to turn sound 
 The robot (or sim/habitat_bridge/brain_client.py --face) POSTs the face state
 (robot/face.FaceModel) to /state; every open page gets it over a WebSocket.
 
+Questions (robot/people.Social: "What's your name?"): a state with "ask"
+{"id", "q"} shows an answer box on the page; the page POSTs /reply {"id",
+"text"}, and the answer goes back to the robot in the response to its next
+/state post. /reply has no token (the iPad has none), so (review 2026-09-30):
+only JSON (a cross-site form or fetch cannot send it without a preflight,
+which this server does not grant), only from the page's own origin (Origin
+must match Host; /ws checks the same, so another site cannot read the
+question), only for the open question (a random id), at most 512 bytes, and
+at most a few attempts a minute (failed ones count). Someone on the home
+network who loads the page can still answer; robot/people.py never adds a
+face to a name it knows unless the face matches.
+
 Security (review 2026-09-26): the page and WebSocket are open to the home
 network (the iPad must reach them). Changing the face needs the shared token
 (header X-Face-Token; $FLY_FACE_KEY or ~/.fly_face_key, mode 600, created on
@@ -35,6 +47,18 @@ app = FastAPI(title="Pet face")
 STATE = {"state": {"gaze": [0, 0.2], "open": 0.85, "pupil": 0.4, "mouth": "neutral", "mood": "calm",
                    "event": {"id": 0}}, "version": 0}
 MAX_BYTES = 8192
+REPLIES = []                 # answers waiting for the robot's next /state post
+REPLY_TIMES = []             # recent /reply attempts (rate limit)
+REPLY_PER_MIN = 8
+
+
+def same_origin(headers) -> bool:
+    """A browser request from this server's own page (or not from a browser)."""
+    origin = headers.get("origin")
+    if origin is None:
+        return True
+    from urllib.parse import urlparse
+    return urlparse(origin).netloc == headers.get("host", "")
 KEY_PATH = os.path.expanduser("~/.fly_face_key")
 MOUTHS = {"neutral", "smile", "frown", "o", "chew"}
 SOUNDS = {"beep", "boop", "chirp", "trill", "whirr", "buzz", "song"}   # "song": the fly brain's own (pIP10)
@@ -87,6 +111,13 @@ def clean_state(st) -> dict:
     for k in ("hunger", "social"):
         if k in st:
             out[k] = _num(st[k], 0, 1)
+    ask = st.get("ask")
+    if ask is not None:
+        if not isinstance(ask, dict):
+            raise ValueError("ask")
+        out["ask"] = {"id": int(_num(ask.get("id", 0), 0, 2 ** 31)), "q": _word(ask.get("q", ""), 60)}
+    else:
+        out["ask"] = None
     ev = st.get("event") or {"id": 0}
     if not isinstance(ev, dict):
         raise ValueError("event")
@@ -118,11 +149,53 @@ async def post_state(req: Request):
         return JSONResponse({"ok": False}, status_code=400)
     STATE["state"] = st
     STATE["version"] += 1
+    replies = REPLIES[:]
+    REPLIES.clear()
+    return {"ok": True, "replies": replies}
+
+
+@app.post("/reply")
+async def post_reply(req: Request):
+    """The page's answer to the open question (no token: the iPad has none;
+    only the open question's id is accepted, a few times a minute)."""
+    import time as _time
+    from fastapi.responses import JSONResponse
+    now = _time.monotonic()
+    REPLY_TIMES[:] = [t for t in REPLY_TIMES if now - t < 60.0]
+    if len(REPLY_TIMES) >= REPLY_PER_MIN:
+        return JSONResponse({"ok": False}, status_code=429)
+    REPLY_TIMES.append(now)                       # every attempt counts
+    if not same_origin(req.headers):
+        return JSONResponse({"ok": False}, status_code=403)
+    if not req.headers.get("content-type", "").startswith("application/json"):
+        return JSONResponse({"ok": False}, status_code=415)
+    try:
+        n = int(req.headers.get("content-length", ""))
+    except ValueError:
+        return JSONResponse({"ok": False}, status_code=411)
+    if n > 512:
+        return JSONResponse({"ok": False}, status_code=413)
+    body = await req.body()
+    if len(body) > 512:
+        return JSONResponse({"ok": False}, status_code=413)
+    try:
+        r = json.loads(body)
+        rid, text = int(r["id"]), _word(r["text"], 60).strip()
+    except (ValueError, TypeError, KeyError, OverflowError, json.JSONDecodeError):
+        return JSONResponse({"ok": False}, status_code=400)
+    ask = STATE["state"].get("ask")
+    if not ask or ask.get("id") != rid or not text:
+        return JSONResponse({"ok": False}, status_code=409)
+    REPLIES.append({"id": rid, "text": text})
+    del REPLIES[:-4]
     return {"ok": True}
 
 
 @app.websocket("/ws")
 async def ws(sock: WebSocket):
+    if not same_origin(sock.headers):             # another site's page may not read the face (its question)
+        await sock.close(code=1008)
+        return
     await sock.accept()
     seen = -1
     try:

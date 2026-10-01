@@ -197,7 +197,7 @@ def robot_command(body_state) -> tuple:
 def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 seed: int, video_dir: str | None, brain=None, home=None, cortex=None,
                 safe_speed: bool = True, person=None, personality=None, face=None,
-                checkpoint=None, checkpoint_s: float = 600.0) -> dict:
+                checkpoint=None, checkpoint_s: float = 600.0, social=None) -> dict:
     from fly.body.foraging_body import ForagingBody
     from robot.safety import ProximityGovernor
     governor = ProximityGovernor() if safe_speed else None
@@ -262,6 +262,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
     if face is not None:
         face[0].reset()
     said = []                                     # (t, personality output) when new
+    social_failed = []                            # camera commands that did not get through
     prev_events = {"pets": 0, "treats": 0, "bowl": False, "seen_t": -1e9}
     song = {"bouts": 0, "s": 0.0, "on": False, "off_t": -1e9, "onset": False, "peak_hz": 0.0,
             "start_t": 0.0, "counted": False}
@@ -427,9 +428,26 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                                          f"({song['peak_hz']:.0f} Hz): you are singing", urge=True)
         if personality is not None and mode == "brain":
             _events(personality, t_sim, obs, home, fr_prev, prev_events)
+        soc = None
+        if social is not None and mode == "brain":
+            # faces: greet the people Milo knows, ask new ones their name (robot/people.py);
+            # on the wall clock, which never goes back (episodes restart t_sim)
+            cam_ev = list(obs.get("camera_events") or []) + social_failed
+            social_failed.clear()
+            soc = social.step(time.monotonic(), obs.get("faces") or [],
+                              face[1].replies() if face is not None else [], cam_ev)
+            for c in soc["commands"]:
+                if not _call(conn, {"cmd": "camera", "send": c}).get("ok") and c.get("cmd") == "enroll":
+                    social_failed.append({"event": "enroll_failed", "track": c.get("track"),
+                                          "name": c.get("name"), "why": "camera"})
+            for e in soc["events"]:
+                if personality is not None:
+                    personality.event(t_sim, e, urge=True)
+            if soc["say"]:
+                said.append((round(t_sim, 1), {"social": soc["say"]}))
         if face is not None and mode == "brain":
             _face(face, period_ms / 1000.0, obs, ses, fr_prev, home, cortex, personality,
-                  song=song["onset"])
+                  song=song["onset"], social=soc)
         if bumped:
             hs = math.hypot(obs["human"][0] - prev_obs["human"][0],
                             obs["human"][1] - prev_obs["human"][1]) / (period_ms / 1000.0)
@@ -495,6 +513,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["cortex"] = cortex.summary()
     if person is not None:
         res["speech"] = person.summary()
+    if social is not None:
+        res["social"] = {"stats": dict(social.stats), "met": sorted(social.met)}
     if personality is not None:
         personality.wait(30.0)
         res["personality"] = {"said": said, "stats": dict(personality.stats), "log": personality.log}
@@ -609,12 +629,14 @@ def _digest(cortex, ses, obs, home=None, fr=None) -> dict:
     x, z = obs["robot"][0], obs["robot"][1]
     food = [cortex.map.food_point(c) for c, n in cortex.map.nodes.items() if n["food"] > 0.1]
     fd = min((math.hypot(fx - x, fz - z) for fx, fz in food), default=None)
+    # who it is, when the camera knows their face (robot/people.py)
+    known = ", ".join(sorted({f["who"] for f in obs.get("faces") or [] if f.get("who") not in (None, "?")}))
     return {"hunger": cortex.hunger, "social": cortex.social,
             # sleepiness only means something to a pet that naps (review 2026-09-26)
             "sleepy": cortex.sleepy if getattr(cortex, "naps", False) else None,
             "battery": getattr(getattr(home, "battery", None), "soc", None) if home is not None else None,
             "behaviour": ses.body.state.behaviour,
-            "person": f"{d:.1f} m {side}" if d is not None else "not in view",
+            "person": ((f"{known}, " if known else "") + f"{d:.1f} m {side}") if d is not None else "not in view",
             "food": f"you remember food {fd:.1f} m away" if fd is not None else "you do not know where food is yet",
             "doing": f"heading for {goal}" + (f"; manners: {cortex.manner}" if getattr(cortex, "manner", None) else ""),
             "brain": brain_readout(fr, cortex)}
@@ -670,7 +692,16 @@ def _song(song, fr, t, dt):
             song["off_t"] = t
 
 
-def _face(face, dt, obs, ses, fr, home, cortex, personality, song=False):
+def _say(model, first, second):
+    """One line per face update: `first`, else what waited, else `second`; a
+    line that loses waits for the next update (at most one)."""
+    waiting = getattr(model, "_waiting_say", None)
+    queue_ = [x for x in (first, waiting, second) if x]
+    model._waiting_say = queue_[1] if len(queue_) > 1 else None
+    return queue_[0] if queue_ else None
+
+
+def _face(face, dt, obs, ses, fr, home, cortex, personality, song=False, social=None):
     """The face (robot/face.py) from the brain, body and personality. A song
     onset (the fly brain's pIP10) is voiced as the "song" sound."""
     from robot.safety import person_distance
@@ -688,7 +719,10 @@ def _face(face, dt, obs, ses, fr, home, cortex, personality, song=False):
         "eating": ses.body.state.proboscis_extension > 0.5, "grooming": ch.get("groom", 0.0) > 0.5,
         "petting": bool(home.petting) if home is not None else False,
         "mood": personality.current["mood"] if personality is not None else "calm",
-        "say": fresh["say"] if fresh else None,
+        # Milo's own greeting or question (robot/people.Social) first; the
+        # personality's words then wait for the next step
+        "say": _say(model, (social or {}).get("say"), fresh["say"] if fresh else None),
+        "ask": (social or {}).get("ask"),
         "sound": "song" if song else (fresh["sound"] if fresh else None),
         "hunger": getattr(cortex, "hunger", 0.0), "social": getattr(cortex, "social", 0.0)})
     pub.send(st)
@@ -758,6 +792,9 @@ def main():
     ap.add_argument("--ugv-port", default="/dev/ttyTHS1", help="--rover hw: the base's serial port")
     ap.add_argument("--lidar-port", default=None, help="--rover hw: the D500's serial port (none: no lidar)")
     ap.add_argument("--hfov", type=float, default=53.0, help="--rover: the head camera's horizontal field of view")
+    ap.add_argument("--faces", action="store_true",
+                    help="--rover: recognise faces; greet the people Milo knows and ask new ones their name "
+                         "on the face page (robot/faces.py, robot/people.py; with --face to speak)")
     ap.add_argument("--camera", default=None,
                     help="--rover: the head camera (robot/head.py) with the person detector: a V4L2 device, "
                          "auto (the Orbit if plugged in; default with hw) or none (default with fake: the "
@@ -774,6 +811,8 @@ def main():
             # the lidar safety layer (brake, steering) must never be silently off on the robot
             raise SystemExit("--rover hw needs --lidar and --lidar-port")
         a.body = "rover"
+        if a.faces and (a.camera or ("auto" if a.rover == "hw" else "none")) == "none":
+            raise SystemExit("--faces needs a camera (--camera auto or a device)")
         os.environ.setdefault("FLY_TORCH_DEVICE", "cpu")   # the neocortex's small nets; the brain has the GPU
         os.environ.setdefault("FLY_TORCH_THREADS", "1")    # ...on one core (Jetson: same speed, the rest free)
     home = None
@@ -855,6 +894,14 @@ def main():
     if a.face:
         from robot.face import FaceModel, FacePublisher
         face = (FaceModel(), FacePublisher(a.face))
+    social = None
+    if a.faces:
+        if not a.rover:
+            raise SystemExit("--faces: the real camera, with --rover")
+        if not a.face:
+            raise SystemExit("--faces needs the face page (--face URL): Milo asks and is answered there")
+        from robot.people import Social
+        social = Social(a.pet_name)
     if a.rover:
         import signal
         import sys
@@ -863,7 +910,7 @@ def main():
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         from robot.rover_world import LocalConn, make_world
         cam = a.camera or ("auto" if a.rover == "hw" else "none")
-        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov, camera=cam)
+        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov, camera=cam, faces=a.faces)
         connection = LocalConn(world)
     else:
         from sim.habitat_bridge.authkey import authkey
@@ -897,7 +944,7 @@ def main():
                 r = run_episode(conn, a.mode, ep, a.seconds, a.period_ms, a.seed + ep,
                                 a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,
                                 person=person, personality=personality, face=face,
-                                checkpoint=save_learning if a.rover else None)
+                                checkpoint=save_learning if a.rover else None, social=social)
             except BaseException:
                 if a.rover:
                     save_learning()               # stopped or crashed: keep what was learned

@@ -13,6 +13,9 @@ adds a mood and the occasional word:
   mouth            chewing while the proboscis is out (eating); otherwise the mood
   blush            being petted
   speech bubble    the personality's words; sounds are synthesised in the browser
+  question         an open question (robot/people.Social: "What's your name?"):
+                   the page shows an answer box (typed or, where the browser
+                   can, spoken); the answer comes back with the next state post
   song             the fly brain's courtship-song command (pIP10) fired: its
                    own song, voiced as chirps (sim/habitat_bridge/brain_client.py)
 
@@ -41,7 +44,7 @@ class FaceModel:
     def update(self, dt: float, s: dict) -> dict:
         """s: person_visible, person_az (deg, + right), person_el, person_d (m),
         goal_az, startle (0..1), speed (m/s), behaviour, eating, grooming,
-        petting, mood, say, sound, hunger, social."""
+        petting, mood, say, sound, hunger, social, ask ({"id", "q"} or None)."""
         self.startle = max(float(s.get("startle", 0.0)), self.startle * math.exp(-dt / 0.8))
         speed = abs(float(s.get("speed", 0.0)))
         self.rest_s = self.rest_s + dt if speed < 0.02 and not s.get("eating") else 0.0
@@ -74,7 +77,8 @@ class FaceModel:
                       "mouth": mouth, "blush": bool(s.get("petting")), "mood": mood,
                       "grooming": bool(s.get("grooming")), "behaviour": s.get("behaviour", ""),
                       "hunger": round(float(s.get("hunger", 0.0)), 2),
-                      "social": round(float(s.get("social", 0.0)), 2)}
+                      "social": round(float(s.get("social", 0.0)), 2),
+                      "ask": s.get("ask")}
         # words and sounds are events: numbered, so a page that misses a state
         # update still plays each one once
         snd = s.get("sound") if s.get("sound") not in (None, "none") else None
@@ -93,7 +97,17 @@ class FacePublisher:
         self.key = key or face_key()
         self.q = queue.Queue(maxsize=1)
         self.fails = 0
+        self._replies = queue.Queue(maxsize=16)
         threading.Thread(target=self._run, daemon=True).start()
+
+    def replies(self) -> list:
+        """Answers typed or spoken on the face page since the last call."""
+        out = []
+        while True:
+            try:
+                out.append(self._replies.get_nowait())
+            except queue.Empty:
+                return out
 
     def send(self, state: dict) -> None:
         try:
@@ -111,6 +125,11 @@ class FacePublisher:
             try:
                 req = urllib.request.Request(self.url, json.dumps(st).encode(),
                                              {"Content-Type": "application/json", "X-Face-Token": self.key})
-                urllib.request.urlopen(req, timeout=1.0).read()
+                body = urllib.request.urlopen(req, timeout=1.0).read()
+                for r in (json.loads(body or b"{}").get("replies") or [])[:4]:
+                    if isinstance(r, dict):
+                        self._replies.put_nowait({"id": r.get("id"), "text": str(r.get("text", ""))[:60]})
+            except queue.Full:
+                pass
             except Exception:
                 self.fails += 1

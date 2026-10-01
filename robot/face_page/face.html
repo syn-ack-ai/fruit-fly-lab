@@ -22,6 +22,16 @@
   #conn { position: fixed; top: max(10px, env(safe-area-inset-top)); right: 14px; width: 10px; height: 10px;
           border-radius: 50%; background: #a33; }
   #conn.ok { background: #2a6; opacity: .35; }
+  /* an open question (robot/people.Social): typed or spoken answer */
+  #ask { position: fixed; left: 50%; bottom: max(48px, calc(env(safe-area-inset-bottom) + 40px));
+         transform: translateX(-50%); display: flex; gap: 10px; align-items: center;
+         background: #1f2530; padding: 12px 14px; border-radius: 18px; max-width: calc(100vw - 32px); }
+  #ask.hidden { display: none; }
+  #ask input { font-size: 22px; padding: 10px 14px; border-radius: 12px; border: 0; width: min(46vw, 360px);
+               background: #e8edf3; color: #1b1f27; }
+  #ask button { font-size: 22px; padding: 10px 16px; border-radius: 12px; border: 0;
+                background: #3b7ddd; color: #fff; }
+  #ask button.listening { background: #c0392b; }
 </style>
 </head>
 <body>
@@ -66,6 +76,11 @@
 <div id="status"></div>
 <div id="conn"></div>
 <div id="wake">Tap to wake Milo (turns sound on)</div>
+<form id="ask" class="hidden" autocomplete="off">
+  <input id="askText" maxlength="60" placeholder="Your name">
+  <button type="button" id="askMic" title="Say it">&#127908;</button>
+  <button type="submit">OK</button>
+</form>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -78,7 +93,7 @@ let nextBlink = performance.now() + 3000, blinkT = -1, slowT = -1, nextSlow = 0;
 function connect() {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   ws.onopen = () => $("conn").className = "ok";
-  ws.onmessage = m => { const s = JSON.parse(m.data); Object.assign(target, s); onEvent(s.event); status(s); };
+  ws.onmessage = m => { const s = JSON.parse(m.data); Object.assign(target, s); onEvent(s.event); status(s); onAsk(s.ask); };
   ws.onclose = () => { $("conn").className = ""; setTimeout(connect, 1500); };
 }
 connect();
@@ -88,6 +103,36 @@ function status(s) {
   $("status").textContent = [s.mood, b, s.hunger != null ? "hunger " + s.hunger : "",
                              s.social != null ? "company " + s.social : ""].filter(Boolean).join("  ·  ");
 }
+
+// --- an open question: show an answer box; send the answer once
+let askId = null;
+function onAsk(ask) {
+  if (!ask) { askId = null; $("ask").className = "hidden"; return; }
+  if (ask.id === askId) return;
+  askId = ask.id;
+  $("askText").value = ""; $("askText").placeholder = ask.q || "Your answer";
+  $("ask").className = "";
+}
+function sendAnswer(text) {
+  text = (text || "").trim().slice(0, 60);
+  if (!text || askId === null) return;
+  fetch("/reply", {method: "POST", headers: {"Content-Type": "application/json"},
+                   body: JSON.stringify({id: askId, text})}).catch(() => {});
+  $("ask").className = "hidden";
+}
+$("ask").addEventListener("submit", e => { e.preventDefault(); sendAnswer($("askText").value); });
+// speech recognition needs a secure page (https) in most browsers; typing always works
+const Rec = window.isSecureContext && (window.SpeechRecognition || window.webkitSpeechRecognition);
+if (!Rec) $("askMic").style.display = "none";
+$("askMic").addEventListener("click", e => {
+  e.stopPropagation();
+  const r = new Rec(); r.lang = navigator.language || "en-US"; r.interimResults = false; r.maxAlternatives = 1;
+  $("askMic").className = "listening";
+  r.onresult = ev => { const t = ev.results[0][0].transcript; $("askText").value = t; sendAnswer(t); };
+  r.onend = () => { $("askMic").className = ""; };
+  r.onerror = () => { $("askMic").className = ""; $("askText").placeholder = "Type it instead"; };
+  r.start();
+});
 
 // --- words and sounds (events are numbered; each plays once)
 function onEvent(ev) {

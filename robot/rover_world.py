@@ -302,6 +302,10 @@ class RoverWorld:
             return {"ok": False, "geodesic": None, "waypoint": [float(msg["goal"][0]), float(msg["goal"][1])]}
         if cmd in ("topdown", "video"):
             return {"error": f"{cmd}: not on the real rover"}
+        if cmd == "camera":
+            # a command for the camera process (robot/head.py), e.g. learn a face's name
+            ok = self.camera is not None and hasattr(self.camera, "send") and self.camera.send(msg.get("send") or {})
+            return {"ok": bool(ok)}
         if cmd == "close":
             self.base.stop()
             return {"ok": True}
@@ -422,6 +426,10 @@ class RoverWorld:
                 from robot.safety import person_distance
                 d = person_distance(g["half"])
                 seen["dist"] = float("nan") if d is None else float(d)
+        faces = cam_events = None
+        if self.camera is not None and hasattr(self.camera, "faces"):
+            faces = self._camera_faces()
+            cam_events = self.camera.events()
         lid = lid_pose = None
         if self.lidar_beams and self.lidar is not None:
             s = self.lidar.latest()
@@ -443,7 +451,18 @@ class RoverWorld:
                           **({"camera_fps": round(self.camera_fps, 1), "camera_stale_s": round(self.camera_stale_s, 1),
                               "person_seen_s": round(self.seen_s, 1)} if self.camera is not None else {}),
                           **self.timing.stats()},
-                "stale": list(self.stale), "battery_v": st.get("battery_v"), "rover": True}
+                "stale": list(self.stale), "battery_v": st.get("battery_v"), "rover": True,
+                "faces": faces, "camera_events": cam_events}
+
+    def _camera_faces(self) -> list | None:
+        """Faces in view (robot/people.FaceTracker tracks) with their azimuth
+        and elevation in Habitat's camera frame, as the person's; None when
+        face recognition is off or stale."""
+        fs = self.camera.faces()
+        s = self._cam_state
+        if fs is None or s is None:
+            return None
+        return [dict(f, az=f["az"] + s["pan_deg"], el=f["el"] + s["tilt_deg"] - CAM_PITCH_DEG) for f in fs]
 
     def close(self) -> None:
         try:
@@ -460,7 +479,7 @@ class RoverWorld:
                         self.camera.close()
 
 
-def open_camera(camera: str | None):
+def open_camera(camera: str | None, faces: bool = False):
     """robot.head.HeadFeed on a device ("auto": the Orbit if plugged in), or
     None. "auto" without a camera is not an error (the robot runs blind)."""
     if not camera or camera == "none":
@@ -471,17 +490,18 @@ def open_camera(camera: str | None):
         print("no head camera found: the person is never seen", flush=True)
         return None
     try:
-        return HeadFeed(dev, person=True, looming=False)
+        return HeadFeed(dev, person=True, looming=False, faces=faces)
     except Exception as ex:                       # never stop the robot over its camera
         print(f"head camera {dev} failed to start ({ex}): the person is never seen", flush=True)
         return None
 
 
 def make_world(kind: str, ugv_port: str = "/dev/ttyTHS1", lidar_port: str | None = None,
-               beams: int = 90, hfov_deg: float = 53.0, camera: str | None = None) -> RoverWorld:
+               beams: int = 90, hfov_deg: float = 53.0, camera: str | None = None,
+               faces: bool = False) -> RoverWorld:
     """kind "fake": simulated room, base, lidar and person (the person from
     the real camera when there is one); "hw": the robot."""
-    cam = open_camera(camera)
+    cam = open_camera(camera, faces)
     try:
         if kind == "fake":
             room = FakeRoom()

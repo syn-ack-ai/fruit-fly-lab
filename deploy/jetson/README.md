@@ -67,6 +67,38 @@ did on the Pi). Without the motors the camera is taken to be level (tilt 0;
 Habitat's camera looks 20 degrees up, rover_world.CAM_PITCH_DEG), and a
 person's head close by is above the picture.
 
+### Faces: who is looking at Milo
+
+`--faces` (with `--camera` and the face page, `--face`) makes the camera
+process find faces (YuNet), tell whether each one faces the robot, and
+recognise it (SFace embeddings; `robot/faces.py`, `robot/people.py`). Milo
+greets a person it knows who looks at it ("Hi Ben!", at most every 10
+minutes) and asks one it does not know: "Hi! I don't think we've met. What's
+your name?". The face page shows an answer box (type, or tap the microphone
+where the browser offers speech recognition: on an iPad that is Apple's,
+which may send the audio to Apple; typing stays on the home network). "No" or
+"skip" is respected and nothing is kept. A face is saved only with the name
+its owner gave, in `~/milo/people/` on the robot (`python -m robot.people
+--list`, `--forget NAME`). Models (OpenCV Zoo: YuNet MIT, SFace Apache-2.0):
+
+```bash
+cd ~/milo/models
+curl -LO https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+curl -LO https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx
+cd ~/fly-lab/fruit-fly-lab && .venv/bin/python -m robot.faces --build     # TensorRT engines (else OpenCV on the CPU)
+.venv/bin/python -m robot.faces --check some_photo.jpg                     # TensorRT = OpenCV
+python -m robot.face_server --port 8010 &                                  # the face, on the iPad: http://milo:8010/
+... brain_client --rover hw ... --faces --face http://127.0.0.1:8010/state
+```
+
+Tested on an RTX 3080 Ti (2026-09-30; the Jetson was off): TensorRT gives the
+same faces (within 0.0001 px) and embeddings (cosine 0.99999) as OpenCV; a
+frame with a face takes 3.0 ms (TensorRT) or 5.9 ms (OpenCV, i9 CPU), at
+5 Hz. End to end (the brain client with the fly brain on the GPU, the camera
+process replaying a video, the face server and a scripted answer) Milo asked,
+learned "Lena" from "my name is Lena", and knew her when she came back. Not
+yet timed on the Orin, nor with a live person.
+
 ## Check the hardware, piece by piece
 
 ```bash
@@ -123,8 +155,10 @@ fast as six on its small nets and leaves the cores free).
 
 - The kit's 160-degree camera on the rover's pan-tilt (the ESP32's T133):
   the head process reads any V4L2 camera, but its pan/tilt and field of view
-  are the Orbit's (`robot/head.py` HFOV_DEG, PanTilt). The detector finds
-  people, not faces: a face detector (who is looking at Milo) comes later.
+  are the Orbit's (`robot/head.py` HFOV_DEG, PanTilt).
+- Hearing words: the face page takes the answer to Milo's question (typed
+  or the browser's speech recognition); speech recognition on the robot
+  itself would let Milo just listen.
 - The battery layer (robot/battery.py) from the base's voltage, the charging
   dock, bumpers (the rover has none: contacts are the lidar's).
 - The face on the iPad (robot/face_server.py) and the voice.

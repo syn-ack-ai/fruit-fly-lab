@@ -355,7 +355,7 @@ def test_camera_person_in_habitats_frame():
 def test_fake_world_with_camera_has_no_fake_person(monkeypatch):
     import robot.rover_world as rw
     cam = _Cam(person_active=0.0)
-    monkeypatch.setattr(rw, "open_camera", lambda c: cam if c else None)
+    monkeypatch.setattr(rw, "open_camera", lambda c, faces=False: cam if c else None)
     w = rw.make_world("fake", camera="auto")
     assert w.person is None and w.camera is cam
     assert not w.handle({"cmd": "reset"})["visible"]

@@ -43,17 +43,21 @@ STRIDES = (8, 16, 32)
 
 
 class TRTEngine:
-    """A TensorRT engine with one float32 input and output (native/trt_detect.cpp)."""
+    """A TensorRT engine with float32 inputs and outputs (native/trt_detect.cpp).
+    .inputs / .outputs map tensor names to numpy views of pinned host buffers,
+    written and read in place; with one of each, .input / .output are those."""
 
     def __init__(self, engine_path: str, lib_path: str = LIB):
         lib = C.CDLL(os.path.abspath(lib_path))
         lib.trt_open.restype = C.c_void_p
         lib.trt_open.argtypes = [C.c_char_p, C.c_char_p, C.c_int]
-        lib.trt_dims.restype = C.c_int
-        lib.trt_dims.argtypes = [C.c_void_p, C.c_int, C.POINTER(C.c_int64), C.c_int]
-        for f in ("trt_host_in", "trt_host_out"):
-            getattr(lib, f).restype = C.POINTER(C.c_float)
-            getattr(lib, f).argtypes = [C.c_void_p]
+        lib.trt_count.restype = C.c_int
+        lib.trt_count.argtypes = [C.c_void_p]
+        lib.trt_info.restype = C.c_int
+        lib.trt_info.argtypes = [C.c_void_p, C.c_int, C.c_char_p, C.c_int, C.POINTER(C.c_int),
+                                 C.POINTER(C.c_int64), C.c_int]
+        lib.trt_host.restype = C.POINTER(C.c_float)
+        lib.trt_host.argtypes = [C.c_void_p, C.c_int]
         lib.trt_run.restype = C.c_int
         lib.trt_run.argtypes = [C.c_void_p]
         lib.trt_close.restype = None
@@ -63,28 +67,32 @@ class TRTEngine:
         if not h:
             raise RuntimeError(f"TensorRT engine {engine_path}: {err.value.decode(errors='replace')}")
         self._lib, self._h = lib, h
+        self.inputs, self.outputs = {}, {}
+        for i in range(lib.trt_count(h)):
+            name, is_in, d = C.create_string_buffer(256), C.c_int(), (C.c_int64 * 8)()
+            n = lib.trt_info(h, i, name, len(name), C.byref(is_in), d, 8)
+            shape = tuple(int(d[k]) for k in range(n))
+            arr = np.ctypeslib.as_array(lib.trt_host(h, i), shape=shape)
+            (self.inputs if is_in.value else self.outputs)[name.value.decode()] = arr
+        self.input = next(iter(self.inputs.values())) if len(self.inputs) == 1 else None
+        self.output = next(iter(self.outputs.values())) if len(self.outputs) == 1 else None
+        self.in_shape = self.input.shape if self.input is not None else None
+        self.out_shape = self.output.shape if self.output is not None else None
 
-        def dims(which):
-            d = (C.c_int64 * 8)()
-            n = lib.trt_dims(h, which, d, 8)
-            return tuple(int(d[i]) for i in range(n))
-        self.in_shape, self.out_shape = dims(0), dims(1)
-        # pinned host buffers, written and read in place
-        self.input = np.ctypeslib.as_array(lib.trt_host_in(h), shape=self.in_shape)
-        self.output = np.ctypeslib.as_array(lib.trt_host_out(h), shape=self.out_shape)
-
-    def run(self) -> np.ndarray:
-        """self.input -> self.output (the GIL is released while the GPU works)."""
+    def run(self):
+        """Inputs -> outputs (the GIL is released while the GPU works). Returns
+        .output with one output, else the .outputs dict."""
         if self._h is None:
             raise RuntimeError("engine closed")
         e = self._lib.trt_run(self._h)
         if e:
             raise RuntimeError(f"TensorRT run failed (error {e})")
-        return self.output
+        return self.output if self.output is not None else self.outputs
 
     def close(self) -> None:
         if self._h is not None:
             self.input = self.output = None
+            self.inputs, self.outputs = {}, {}
             self._lib.trt_close(self._h)
             self._h = None
 
@@ -189,12 +197,37 @@ class YoloxPersons:
 
 
 def build_engine(onnx_path: str, out_path: str | None = None, fp16: bool = True) -> str:
-    """ONNX -> a TensorRT engine for this GPU (trtexec; a few minutes on the Orin)."""
+    """ONNX -> a TensorRT engine for this GPU (a few minutes on the Orin): with
+    trtexec (JetPack) or else TensorRT's Python API (the pip wheel). Engines are
+    specific to the GPU and the TensorRT version."""
     out_path = out_path or os.path.splitext(onnx_path)[0] + ".engine"
-    cmd = [TRTEXEC, f"--onnx={onnx_path}", f"--saveEngine={out_path}.tmp", "--skipInference"]
-    if fp16:
-        cmd.append("--fp16")
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+    if os.path.exists(TRTEXEC):
+        cmd = [TRTEXEC, f"--onnx={onnx_path}", f"--saveEngine={out_path}.tmp", "--skipInference"]
+        if fp16:
+            cmd.append("--fp16")
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+    else:
+        import tensorrt as trt
+        log = trt.Logger(trt.Logger.WARNING)
+        builder = trt.Builder(log)
+        major = int(trt.__version__.split(".")[0])
+        net = builder.create_network(0 if major >= 10 else
+                                     1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        parser = trt.OnnxParser(net, log)
+        if not parser.parse_from_file(onnx_path):
+            raise RuntimeError("; ".join(str(parser.get_error(i)) for i in range(parser.num_errors)))
+        for i in range(net.num_inputs):
+            if any(d < 0 for d in net.get_input(i).shape):
+                raise RuntimeError(f"{onnx_path}: input {net.get_input(i).name} has a dynamic shape; "
+                                   "fix its size in the ONNX file (or use trtexec --shapes)")
+        cfg = builder.create_builder_config()
+        if fp16 and hasattr(trt.BuilderFlag, "FP16"):
+            cfg.set_flag(trt.BuilderFlag.FP16)
+        blob = builder.build_serialized_network(net, cfg)
+        if blob is None:
+            raise RuntimeError("TensorRT could not build the engine")
+        with open(out_path + ".tmp", "wb") as fh:
+            fh.write(blob)
     os.replace(out_path + ".tmp", out_path)
     return out_path
 

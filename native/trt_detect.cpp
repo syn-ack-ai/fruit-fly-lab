@@ -1,13 +1,14 @@
 /*
- * A TensorRT engine runner for the robot's camera detector (robot/detector.py),
- * called through ctypes so the inference never holds Python's GIL.
+ * A TensorRT engine runner for the robot's camera models (robot/detector.py:
+ * people; robot/faces.py: faces and face embeddings), called through ctypes so
+ * the inference never holds Python's GIL.
  *
- * One engine with one float32 input and one float32 output, static shapes
- * (an ONNX model built with trtexec --fp16; deploy/jetson/README.md). The
- * caller writes the preprocessed input into trt_host_in() (pinned memory),
- * calls trt_run(), and reads trt_host_out(). The engine runs on its own CUDA
- * stream at the LOWEST priority: in the brain's process (native/lif_cuda.cu)
- * the brain's kernels are scheduled first; from another process (the camera's,
+ * Any number of float32 inputs and outputs. A dynamic input takes its
+ * optimisation profile's "opt" shape (fixed for the engine's life). The caller
+ * writes each input into trt_host(i) (pinned memory), calls trt_run(), and
+ * reads the outputs from trt_host(j). The engine runs on its own CUDA stream
+ * at the LOWEST priority: in the brain's process (native/lif_cuda.cu) the
+ * brain's kernels are scheduled first; from another process (the camera's,
  * robot/head.py) the GPU time-slices the two. The wait at the end blocks the
  * thread (no spinning CPU core).
  *
@@ -35,21 +36,27 @@ struct Logger : ILogger {
     }
 } g_log;
 
+struct Tensor {
+    std::string name;
+    bool input = false;
+    Dims dims{};
+    size_t n = 0;
+    float *dev = nullptr, *host = nullptr;
+};
+
 struct Det {
     IRuntime *rt = nullptr;
     ICudaEngine *eng = nullptr;
     IExecutionContext *ctx = nullptr;
     cudaStream_t st = nullptr;
     cudaEvent_t done = nullptr;
-    Dims in_d{}, out_d{};
-    size_t in_n = 0, out_n = 0;
-    float *d_in = nullptr, *d_out = nullptr, *h_in = nullptr, *h_out = nullptr;
+    std::vector<Tensor> io;
 };
 
 size_t volume(const Dims &d) {
     size_t v = 1;
     for (int i = 0; i < d.nbDims; i++) {
-        if (d.d[i] <= 0) return 0;              /* dynamic: not supported */
+        if (d.d[i] <= 0) return 0;
         v *= (size_t)d.d[i];
     }
     return v;
@@ -64,13 +71,19 @@ void destroy(Det *d) {
     delete d->ctx;
     delete d->eng;
     delete d->rt;
-    if (d->d_in) cudaFree(d->d_in);
-    if (d->d_out) cudaFree(d->d_out);
-    if (d->h_in) cudaFreeHost(d->h_in);
-    if (d->h_out) cudaFreeHost(d->h_out);
+    for (Tensor &t : d->io) {
+        if (t.dev) cudaFree(t.dev);
+        if (t.host) cudaFreeHost(t.host);
+    }
     if (d->done) cudaEventDestroy(d->done);
     if (d->st) cudaStreamDestroy(d->st);
     delete d;
+}
+
+Det *fail(Det *d, char *err, int errlen, const char *msg) {
+    say(err, errlen, msg);
+    destroy(d);
+    return nullptr;
 }
 
 }  // namespace
@@ -78,77 +91,95 @@ void destroy(Det *d) {
 extern "C" {
 
 /* Load a serialized engine. Returns NULL with a message in err on failure. */
-void *trt_open(const char *path, char *err, int errlen) try {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) { say(err, errlen, "cannot read the engine file"); return nullptr; }
-    std::vector<char> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    Det *d = new Det();
-    d->rt = createInferRuntime(g_log);
-    if (!d->rt) { say(err, errlen, "createInferRuntime failed"); destroy(d); return nullptr; }
-    d->eng = d->rt->deserializeCudaEngine(buf.data(), buf.size());
-    if (!d->eng) { say(err, errlen, "deserializing the engine failed (TensorRT version or GPU mismatch?)"); destroy(d); return nullptr; }
-    d->ctx = d->eng->createExecutionContext();
-    if (!d->ctx) { say(err, errlen, "createExecutionContext failed"); destroy(d); return nullptr; }
-    const char *in_name = nullptr, *out_name = nullptr;
-    int nio = d->eng->getNbIOTensors();
-    for (int i = 0; i < nio; i++) {
-        const char *nm = d->eng->getIOTensorName(i);
-        if (d->eng->getTensorDataType(nm) != DataType::kFLOAT) {
-            say(err, errlen, "the engine's inputs and outputs must be float32"); destroy(d); return nullptr;
+void *trt_open(const char *path, char *err, int errlen) {
+    Det *d = nullptr;
+    try {
+        std::ifstream f(path, std::ios::binary);
+        if (!f) return fail(d, err, errlen, "cannot read the engine file");
+        std::vector<char> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        d = new Det();
+        d->rt = createInferRuntime(g_log);
+        if (!d->rt) return fail(d, err, errlen, "createInferRuntime failed");
+        d->eng = d->rt->deserializeCudaEngine(buf.data(), buf.size());
+        if (!d->eng) return fail(d, err, errlen, "deserializing the engine failed (TensorRT version or GPU mismatch?)");
+        d->ctx = d->eng->createExecutionContext();
+        if (!d->ctx) return fail(d, err, errlen, "createExecutionContext failed");
+        const int nio = d->eng->getNbIOTensors();
+        d->io.resize(nio);
+        for (int i = 0; i < nio; i++) {               /* inputs first: their shapes fix the outputs' */
+            Tensor &t = d->io[i];
+            t.name = d->eng->getIOTensorName(i);
+            const char *nm = t.name.c_str();
+            if (d->eng->getTensorDataType(nm) != DataType::kFLOAT)
+                return fail(d, err, errlen, "the engine's inputs and outputs must be float32");
+            t.input = d->eng->getTensorIOMode(nm) == TensorIOMode::kINPUT;
+            if (!t.input) continue;
+            Dims s = d->eng->getTensorShape(nm);
+            if (!volume(s)) {                         /* dynamic: the profile's opt shape */
+                s = d->eng->getProfileShape(nm, 0, OptProfileSelector::kOPT);
+                if (!volume(s) || !d->ctx->setInputShape(nm, s))
+                    return fail(d, err, errlen, "a dynamic input without a usable optimisation profile");
+            }
+            t.dims = s;
         }
-        if (d->eng->getTensorIOMode(nm) == TensorIOMode::kINPUT) {
-            if (in_name) { say(err, errlen, "more than one input"); destroy(d); return nullptr; }
-            in_name = nm;
-        } else {
-            if (out_name) { say(err, errlen, "more than one output"); destroy(d); return nullptr; }
-            out_name = nm;
+        for (Tensor &t : d->io) {
+            if (!t.input) t.dims = d->ctx->getTensorShape(t.name.c_str());
+            t.n = volume(t.dims);
+            if (!t.n) return fail(d, err, errlen, "an output's shape is not known");
         }
+        int least = 0, greatest = 0;
+        if (cudaDeviceGetStreamPriorityRange(&least, &greatest) != cudaSuccess ||
+            cudaStreamCreateWithPriority(&d->st, cudaStreamNonBlocking, least) != cudaSuccess ||
+            cudaEventCreateWithFlags(&d->done, cudaEventBlockingSync | cudaEventDisableTiming) != cudaSuccess)
+            return fail(d, err, errlen, cudaGetErrorString(cudaGetLastError()));
+        for (Tensor &t : d->io) {
+            if (cudaMalloc(&t.dev, t.n * sizeof(float)) != cudaSuccess ||
+                cudaHostAlloc(&t.host, t.n * sizeof(float), cudaHostAllocDefault) != cudaSuccess)
+                return fail(d, err, errlen, cudaGetErrorString(cudaGetLastError()));
+            memset(t.host, 0, t.n * sizeof(float));
+            if (!d->ctx->setTensorAddress(t.name.c_str(), t.dev))
+                return fail(d, err, errlen, "setTensorAddress failed");
+        }
+        return d;
+    } catch (const std::exception &ex) {          /* never let a C++ exception reach ctypes */
+        return fail(d, err, errlen, ex.what());
     }
-    if (!in_name || !out_name) { say(err, errlen, "need one input and one output"); destroy(d); return nullptr; }
-    d->in_d = d->eng->getTensorShape(in_name);
-    d->out_d = d->eng->getTensorShape(out_name);
-    d->in_n = volume(d->in_d);
-    d->out_n = volume(d->out_d);
-    if (!d->in_n || !d->out_n) { say(err, errlen, "dynamic shapes are not supported"); destroy(d); return nullptr; }
-    int least = 0, greatest = 0;
-    if (cudaDeviceGetStreamPriorityRange(&least, &greatest) != cudaSuccess ||
-        cudaStreamCreateWithPriority(&d->st, cudaStreamNonBlocking, least) != cudaSuccess ||
-        cudaEventCreateWithFlags(&d->done, cudaEventBlockingSync | cudaEventDisableTiming) != cudaSuccess ||
-        cudaMalloc(&d->d_in, d->in_n * sizeof(float)) != cudaSuccess ||
-        cudaMalloc(&d->d_out, d->out_n * sizeof(float)) != cudaSuccess ||
-        cudaHostAlloc(&d->h_in, d->in_n * sizeof(float), cudaHostAllocDefault) != cudaSuccess ||
-        cudaHostAlloc(&d->h_out, d->out_n * sizeof(float), cudaHostAllocDefault) != cudaSuccess) {
-        say(err, errlen, cudaGetErrorString(cudaGetLastError()));
-        destroy(d);
-        return nullptr;
-    }
-    if (!d->ctx->setTensorAddress(in_name, d->d_in) || !d->ctx->setTensorAddress(out_name, d->d_out)) {
-        say(err, errlen, "setTensorAddress failed"); destroy(d); return nullptr;
-    }
-    return d;
-} catch (const std::exception &ex) {          /* never let a C++ exception reach ctypes */
-    say(err, errlen, ex.what());
-    return nullptr;
 }
 
-/* Shape of the input (which = 0) or the output (1); returns the rank. */
-int trt_dims(void *h, int which, int64_t *dims, int maxd) {
-    const Dims &s = which ? ((Det *)h)->out_d : ((Det *)h)->in_d;
-    for (int i = 0; i < s.nbDims && i < maxd; i++) dims[i] = s.d[i];
-    return s.nbDims;
+/* The number of input and output tensors. */
+int trt_count(void *h) { return (int)((Det *)h)->io.size(); }
+
+/* Tensor i: its name (into name, namelen bytes), whether it is an input, and
+ * its shape (into dims, at most maxd); returns the rank, or -1 for a bad i. */
+int trt_info(void *h, int i, char *name, int namelen, int *is_input, int64_t *dims, int maxd) {
+    Det *d = (Det *)h;
+    if (i < 0 || i >= (int)d->io.size()) return -1;
+    const Tensor &t = d->io[i];
+    say(name, namelen, t.name.c_str());
+    *is_input = t.input;
+    for (int k = 0; k < t.dims.nbDims && k < maxd; k++) dims[k] = t.dims.d[k];
+    return t.dims.nbDims;
 }
 
-float *trt_host_in(void *h) { return ((Det *)h)->h_in; }
-float *trt_host_out(void *h) { return ((Det *)h)->h_out; }
+/* Tensor i's pinned host buffer (float32, its shape), or NULL. */
+float *trt_host(void *h, int i) {
+    Det *d = (Det *)h;
+    return i >= 0 && i < (int)d->io.size() ? d->io[i].host : nullptr;
+}
 
-/* Input (host) -> engine -> output (host). 0 on success, else a CUDA error code
- * (or -1 if TensorRT refused to enqueue). */
+/* Inputs (host) -> engine -> outputs (host). 0 on success, else a CUDA error
+ * code (or -1 if TensorRT refused to enqueue). */
 int trt_run(void *h) {
     Det *d = (Det *)h;
-    cudaError_t e = cudaMemcpyAsync(d->d_in, d->h_in, d->in_n * sizeof(float), cudaMemcpyHostToDevice, d->st);
+    cudaError_t e = cudaSuccess;
+    for (const Tensor &t : d->io)
+        if (t.input && e == cudaSuccess)
+            e = cudaMemcpyAsync(t.dev, t.host, t.n * sizeof(float), cudaMemcpyHostToDevice, d->st);
     if (e != cudaSuccess) return (int)e;
     if (!d->ctx->enqueueV3(d->st)) return -1;
-    e = cudaMemcpyAsync(d->h_out, d->d_out, d->out_n * sizeof(float), cudaMemcpyDeviceToHost, d->st);
+    for (const Tensor &t : d->io)
+        if (!t.input && e == cudaSuccess)
+            e = cudaMemcpyAsync(t.host, t.dev, t.n * sizeof(float), cudaMemcpyDeviceToHost, d->st);
     if (e == cudaSuccess) e = cudaEventRecord(d->done, d->st);
     if (e == cudaSuccess) e = cudaEventSynchronize(d->done);
     return (int)e;

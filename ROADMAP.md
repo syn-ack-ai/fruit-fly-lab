@@ -159,9 +159,15 @@ decides the *words*.
   The sensory encoders no longer recompute unchanged rates every 1 ms (exactly
   the same output); the neocortex runs on one thread. A step 79 -> 66 ms
   (95th percentile 99 -> 76 ms).
+- **done 2026-09-30** Faces: who is looking at Milo. The camera process finds
+  faces (YuNet), tells whether they face the robot, and recognises them
+  (SFace); Milo greets the people it knows and asks new ones their name on
+  the face page, then learns the face (`robot/faces.py`, `robot/people.py`,
+  `--faces`). TensorRT or OpenCV; checked on an RTX 3080 Ti, end to end with
+  a recorded video. Next: on the Jetson with a live person.
 - **next** The kit's 160-degree camera on the rover's pan-tilt (ESP32 T133
-  instead of the Orbit's motors), and a face detector (who is looking at
-  Milo).
+  instead of the Orbit's motors); speech recognition on the robot, so Milo
+  hears the answer instead of reading it from the face page.
 - **done 2026-09-30** Nsight Compute profile of the engine on the Orin: the
   update is instruction-issue bound (per-neuron branch bookkeeping; only ~11%
   of instructions are floating point). Six further layouts and schedules did

@@ -36,10 +36,17 @@ cuda: lif_cuda.cu
 
 # TensorRT runner for the camera's person detector (robot/detector.py; Jetson:
 # nvidia-jetpack ships TensorRT). Headers and libnvinfer from the system.
+# Elsewhere (an x86 test box with the pip wheel): TRT_INC=<TensorRT repo>/include
+# TRT_LIB=<site-packages>/tensorrt_libs NVINFER=:libnvinfer.so.11.
 TRT_INC ?= $(firstword $(wildcard /usr/include/$(ARCH)-linux-gnu /usr/include))
+TRT_LIB ?=
+NVINFER ?= nvinfer
+CUDA_INC ?= $(firstword $(wildcard $(CUDA_HOME)/targets/*/include) $(CUDA_HOME)/include)
 trt: trt_detect.cpp
-	$(CXX) -O2 -Wall -fPIC -shared -o libtrt_detect.so.tmp $< -I$(TRT_INC) -I$(CUDA_HOME)/include \
-	  -L$(CUDA_LIB) -Wl,-rpath=$(CUDA_LIB) -lnvinfer -lcudart && mv -f libtrt_detect.so.tmp libtrt_detect.so
+	$(CXX) -O2 -Wall -fPIC -shared -o libtrt_detect.so.tmp $< -I$(TRT_INC) -I$(CUDA_INC) \
+	  $(if $(TRT_LIB),-L$(TRT_LIB) -Wl$(comma)-rpath=$(TRT_LIB)) \
+	  -L$(CUDA_LIB) -Wl,-rpath=$(CUDA_LIB) -l$(NVINFER) -lcudart && mv -f libtrt_detect.so.tmp libtrt_detect.so
+comma := ,
 
 clean:
 	rm -f liblif.so liblif_generic.so liblif_cuda.so libtrt_detect.so

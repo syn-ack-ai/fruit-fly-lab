@@ -55,6 +55,7 @@ from __future__ import annotations
 import argparse
 import collections
 import glob
+import json
 import os
 import struct
 import subprocess
@@ -87,6 +88,7 @@ HAILO_HEF = "/usr/share/hailo-models/yolov8m_h10.hef"
 PERSON_PERIOD_S = 0.1                        # run the detector at most every 0.1 s (10 Hz: the
                                              # control rate; frames come at 15-30 Hz with the light)
 SETTLE_S = 0.25                              # vision blanked after a move ends
+FACE_PERIOD_S = 0.2                          # faces (robot/faces.py, robot/people.py) at 5 Hz
 
 
 def find_orbit() -> str | None:
@@ -159,6 +161,25 @@ class PanTilt:
 
     def close(self) -> None:
         os.close(self.fd)
+
+
+class FixedHead:
+    """PanTilt's interface for a camera without motors (or a recorded video)."""
+    pan_deg = tilt_deg = 0.0
+    motors = False
+    moving = False
+
+    def reset(self) -> None:
+        pass
+
+    def move(self, dpan_deg: float, dtilt_deg: float = 0.0) -> float:
+        return 0.0
+
+    def fixed_framerate(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
 
 
 class PersonDetector:
@@ -274,7 +295,38 @@ def _preview(rgb, mask, est, person, pan, tilt, moving, fps) -> bytes:
     return jpg.tobytes() if ok else b""
 
 
-def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bool = True) -> None:
+def _emit(d: dict) -> None:
+    """A message to the parent (HeadFeed), one JSON line on stdout."""
+    sys.stdout.write("@@" + json.dumps(d) + "\n")
+    sys.stdout.flush()
+
+
+def _stdin_commands() -> collections.deque:
+    """Commands from the parent, one JSON object per line on stdin."""
+    q = collections.deque(maxlen=64)
+
+    def run():
+        for line in sys.stdin:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(d, dict):
+                q.append(d)
+    threading.Thread(target=run, daemon=True).start()
+    return q
+
+
+def _face_angles(box, w: int, h: int) -> dict:
+    """A face box -> head-centred azimuth, elevation and angular half-width (deg)."""
+    x0, y0, x1, y1 = box
+    return {"az": round(((x0 + x1) / 2 / w - 0.5) * HFOV_DEG, 2),
+            "el": round((0.5 - (y0 + y1) / 2 / h) * HFOV_DEG * h / w, 2),
+            "half": round((x1 - x0) / w * HFOV_DEG / 2, 2)}
+
+
+def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bool = True,
+               use_faces: bool = False) -> None:
     import cv2
     from brain.sensory.camera import LoomingExtractor
 
@@ -286,9 +338,10 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
         shm = shared_memory.SharedMemory(name=shm_name)
         resource_tracker.unregister(shm._name, "shared_memory")
     hdr = np.ndarray((len(_F),), dtype=np.float64, buffer=shm.buf)
-    pt = PanTilt(dev)
+    live = dev.startswith("/dev/")
+    pt = PanTilt(dev) if live else FixedHead()     # a video file: a recording, replayed
     pt.reset()
-    cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+    cap = cv2.VideoCapture(dev, cv2.CAP_V4L2 if live else cv2.CAP_ANY)
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAP_W)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAP_H)
@@ -302,6 +355,18 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
             det = make_person_detector()
         except Exception as ex:                          # no detector: carry on without
             print("person detector unavailable:", ex, file=sys.stderr)
+    faces = tracker = cmds = None
+    if use_faces:
+        cmds = _stdin_commands()
+        try:
+            from robot.faces import Faces
+            from robot.people import FaceTracker, PeopleBook
+            faces = Faces()
+            tracker = FaceTracker(PeopleBook())
+        except Exception as ex:                          # no models: carry on without
+            print("face recognition unavailable:", ex, file=sys.stderr)
+            faces = None
+    t_face_next = 0.0
     parent = os.getppid()
     last_cmd = 0
     person, person_t, det_ms, t_det_next = None, 0.0, 0.0, 0.0
@@ -319,8 +384,12 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                 hdr[_I["cmd_done"]] = cs
             ok, frame = cap.read()
             if not ok:
+                if not live:                               # a recording: play it again
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 time.sleep(0.01)
                 continue
+            if not live:
+                time.sleep(1.0 / 15)                       # at a camera's pace
             t = time.monotonic()
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             band = frame[30:210]                           # central 320x180
@@ -350,6 +419,39 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                     det = None
             if moving:
                 person = None
+            while cmds:
+                # commands from the brain client (robot/people.Social); a failure
+                # is reported back, never the end of the camera process
+                c = cmds.popleft()
+                try:
+                    if faces is None or tracker is None:
+                        ev = ({"event": "enroll_failed", "track": c.get("track"), "name": c.get("name"),
+                               "why": "face recognition off"} if c.get("cmd") == "enroll" else None)
+                    else:
+                        ev = tracker.command(c, t)
+                except Exception as ex:
+                    print("face command error:", ex, file=sys.stderr)
+                    ev = {"event": f"{c.get('cmd')}_failed", "track": c.get("track"), "name": c.get("name"),
+                          "why": "error"}
+                if ev is not None:
+                    try:
+                        _emit(ev)
+                    except (OSError, ValueError):
+                        pass
+            if faces is not None:
+                if not moving and t >= t_face_next - 0.005:
+                    t_face_next = t_face_next + FACE_PERIOD_S if t - t_face_next < FACE_PERIOD_S else t + FACE_PERIOD_S
+                    try:
+                        t_f = time.perf_counter()
+                        seen = tracker.update(faces(frame), t)
+                        h_, w_ = frame.shape[:2]
+                        for o in seen:
+                            o.update(_face_angles(o["box"], w_, h_))
+                        _emit({"faces": seen, "ms": round(1e3 * (time.perf_counter() - t_f), 2)})
+                    except Exception as ex:
+                        print("face recognition error:", ex, file=sys.stderr)
+                        faces.close()
+                        faces = None
             frames += 1
             if t - t_last >= 1.0:
                 rate, frames, t_last = frames / (t - t_last), 0, t
@@ -393,6 +495,8 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
         cap.release()
         if det is not None:
             det.close()
+        if faces is not None:
+            faces.close()
         try:
             pt.move(-pt.pan_deg, -pt.tilt_deg)             # leave the head centred
         except Exception:
@@ -408,7 +512,8 @@ class HeadFeed:
 
     STALE_S = 0.5
 
-    def __init__(self, dev: str | None = None, person: bool = True, looming: bool = True):
+    def __init__(self, dev: str | None = None, person: bool = True, looming: bool = True,
+                 faces: bool = False):
         dev = dev or find_orbit()
         if dev is None:
             raise RuntimeError("pan/tilt camera (Logitech Orbit) not found")
@@ -421,13 +526,63 @@ class HeadFeed:
             args.append("--no-person")
         if not looming:
             args.append("--no-looming")
-        self.proc = subprocess.Popen(args, cwd=root, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.PIPE)
+        if faces:
+            args.append("--faces")
+        self.proc = subprocess.Popen(args, cwd=root, stderr=subprocess.PIPE,
+                                     stdout=subprocess.PIPE if faces else subprocess.DEVNULL,
+                                     stdin=subprocess.PIPE if faces else None)
+        self._faces = None                       # (monotonic t, [tracks]) from the worker
+        self._events = collections.deque(maxlen=64)
+        if faces:
+            threading.Thread(target=self._messages, daemon=True).start()
         # Drain the worker's stderr (libjpeg and V4L2 warnings, TensorRT's
         # log): a full pipe would block the worker for good on a long run.
         # The last few KB are kept for error().
         self._err = collections.deque(maxlen=64)
         threading.Thread(target=self._drain, daemon=True).start()
+
+    def _messages(self) -> None:
+        try:
+            for line in self.proc.stdout:
+                if not line.startswith(b"@@"):
+                    continue
+                try:
+                    d = json.loads(line[2:])
+                except ValueError:
+                    continue
+                if "faces" in d:
+                    self._faces = (time.monotonic(), d["faces"])
+                else:
+                    self._events.append(d)
+        except (OSError, ValueError):
+            pass
+
+    def faces(self, max_age_s: float = 1.0) -> list | None:
+        """The faces in view (robot/people.FaceTracker tracks with head-centred
+        az / el / half), or None if face recognition is off or stale (the head
+        moving, the camera stalled)."""
+        f = self._faces
+        if f is None or time.monotonic() - f[0] > max_age_s:
+            return None
+        return f[1]
+
+    def events(self) -> list:
+        """Messages from the camera process since the last call (e.g. enrolled)."""
+        out = []
+        while self._events:
+            out.append(self._events.popleft())
+        return out
+
+    def send(self, cmd: dict) -> bool:
+        """A command for the camera process (e.g. {"cmd": "enroll", ...})."""
+        if self.proc.stdin is None or not self.alive:
+            return False
+        try:
+            self.proc.stdin.write((json.dumps(cmd) + "\n").encode())
+            self.proc.stdin.flush()
+            return True
+        except (OSError, ValueError):
+            return False
 
     def _drain(self) -> None:
         try:
@@ -671,6 +826,7 @@ def main():
     ap.add_argument("--dev")
     ap.add_argument("--no-person", action="store_true")
     ap.add_argument("--no-looming", action="store_true", help="no moving-object estimate (saves CPU)")
+    ap.add_argument("--faces", action="store_true", help="faces and who they are (robot/faces.py, robot/people.py)")
     ap.add_argument("--test", action="store_true", help="run the sensor for 10 s and print")
     a = ap.parse_args()
     if a.test:
@@ -688,7 +844,8 @@ def main():
                 feed.command(15.0)
         feed.close()
         return
-    run_worker(a.shm, a.dev or find_orbit(), use_person=not a.no_person, use_looming=not a.no_looming)
+    run_worker(a.shm, a.dev or find_orbit(), use_person=not a.no_person, use_looming=not a.no_looming,
+               use_faces=a.faces)
 
 
 if __name__ == "__main__":

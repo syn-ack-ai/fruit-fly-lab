@@ -699,9 +699,17 @@ class Session:
             idx = np.concatenate(arrs)
             uniq, inv, cnt = np.unique(idx, return_inverse=True, return_counts=True)
             multi = cnt[inv] > 1
-            m = self._merge = (arrs, _freeze(uniq), inv[~multi], np.flatnonzero(~multi),
-                               inv[multi], np.flatnonzero(multi))
-        _, uniq, inv_s, pos_s, inv_m, pos_m = m
+            pos_s, pos_m = np.flatnonzero(~multi), np.flatnonzero(multi)
+            # per encoder: where its singly driven neurons sit in the merged
+            # array, and whether it shares any neuron (then: the full merge)
+            offs = np.cumsum([0] + [len(a) for a in arrs])
+            per = []
+            for j in range(len(arrs)):
+                own = (pos_s >= offs[j]) & (pos_s < offs[j + 1])
+                shared = bool(((pos_m >= offs[j]) & (pos_m < offs[j + 1])).any())
+                per.append((inv[~multi][own], pos_s[own] - offs[j], shared))
+            m = self._merge = (arrs, _freeze(uniq), inv[~multi], pos_s, inv[multi], pos_m, per)
+        _, uniq, inv_s, pos_s, inv_m, pos_m, per = m
         parts = [enc.rates_hz(t_ms, stim) for enc, stim in self.encoders]
         # Within a control step the inputs rarely change: encoders then return
         # the same read-only arrays (brain/sensory/encoders.RatesMemo), and so
@@ -710,6 +718,18 @@ class Session:
         if (last is not None and last[0] is m and len(last[1]) == len(parts)
                 and all(a is b and _frozen(a) for a, b in zip(parts, last[1]))):
             return last[2]
+        if last is not None and last[0] is m and len(last[1]) == len(parts):
+            # only some encoders changed (the eye, every 10 ms; the rest once a
+            # control step): rewrite their slices of the last merge, the same
+            # values as a full merge when they share no neuron
+            changed = [j for j, (a, b) in enumerate(zip(parts, last[1])) if not (a is b and _frozen(a))]
+            if not any(per[j][2] for j in changed):
+                out = last[2][1].copy()
+                for j in changed:
+                    out[per[j][0]] = np.asarray(parts[j], np.float64)[per[j][1]]
+                res = (uniq, _freeze(out))
+                self._rates_last = (m, parts, res)
+                return res
         rates = np.concatenate(parts)
         out = np.empty(uniq.size, dtype=np.float64)
         out[inv_s] = rates[pos_s]

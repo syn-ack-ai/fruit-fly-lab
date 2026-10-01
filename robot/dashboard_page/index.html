@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="referrer" content="no-referrer">
+<title>Milo Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --ink: #1c2230; --muted: #667085; --line: #e3e6ec;
+    --accent: #2f6fed; --ok: #1f9d55; --warn: #d97706; --bad: #d64545; --bar: #dfe6f3;
+    --lidar-bg: #f7f9fc; --lidar-ring: #d9dfe9; --lidar-hit: #2f6fed; --lidar-near: #d64545;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f131a; --card: #171c25; --ink: #e6e9ef; --muted: #8b95a7; --line: #262d3a;
+      --accent: #6c9cff; --ok: #3ccf7f; --warn: #f2a93b; --bad: #ff6b6b; --bar: #253048;
+      --lidar-bg: #121822; --lidar-ring: #263045; --lidar-hit: #6c9cff; --lidar-near: #ff6b6b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f131a; --card: #171c25; --ink: #e6e9ef; --muted: #8b95a7; --line: #262d3a;
+    --accent: #6c9cff; --ok: #3ccf7f; --warn: #f2a93b; --bad: #ff6b6b; --bar: #253048;
+    --lidar-bg: #121822; --lidar-ring: #263045; --lidar-hit: #6c9cff; --lidar-near: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center;
+           padding: max(10px, env(safe-area-inset-top)) 16px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  .stat { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .stat b { color: var(--ink); font-weight: 600; }
+  .warn { color: var(--bad); font-weight: 600; }
+  main { padding: 16px; display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); max-width: 1400px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .wide { grid-column: span 6; } .third { grid-column: span 4; }
+  @media (max-width: 900px) { .wide, .third { grid-column: span 12; } }
+  #cam { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #000; border-radius: 10px; display: block; }
+  #camnote { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 10px; background: var(--lidar-bg); }
+  .row { display: grid; grid-template-columns: 9.5em 1fr 4em; gap: 8px; align-items: center; margin: 5px 0; }
+  .row span:first-child { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .track { height: 8px; border-radius: 4px; background: var(--bar); position: relative; overflow: hidden; }
+  .fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 4px; }
+  .center .fill { left: 50%; }
+  .kv { display: grid; grid-template-columns: 7em 1fr; gap: 4px 10px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .log { list-style: none; margin: 0; padding: 0; max-height: 14em; overflow: auto; }
+  .log li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .log li:last-child { border-bottom: 0; }
+  .who { font-weight: 600; } .t { color: var(--muted); font-size: 12px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); }
+  #readout { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .full { grid-column: span 12; }
+  .brainwrap { display: grid; grid-template-columns: minmax(0, 2fr) minmax(16em, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .brainwrap { grid-template-columns: 1fr; } }
+  #brain3d { width: 100%; aspect-ratio: 16 / 10; background: #05070b; border-radius: 10px; touch-action: none; cursor: grab; }
+  .views { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .views button { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line);
+                  background: var(--card); color: var(--ink); }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  #spikes { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  #lidar3d { width: 100%; aspect-ratio: 4 / 3; display: block; border-radius: 10px; background: #050a18; touch-action: none; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  #neuroninfo b { color: var(--ink); }
+  #neuroninfo .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+  #neuroninfo ul { list-style: none; margin: 2px 0 0; padding: 0; font-size: 13px; }
+  #neuroninfo li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .out { color: #3ccf7f; } .in { color: #ff73bf; } .inh { opacity: .75; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Milo</h1>
+  <span class="dot" id="live" title="connection"></span>
+  <span class="stat">time <b id="simt">–</b></span>
+  <span class="stat">step <b id="loopms">–</b> ms <span id="p95"></span></span>
+  <span class="stat">battery <b id="batt">–</b></span>
+  <span class="stat">doing <b id="behaviour">–</b></span>
+  <span id="stale" class="warn"></span>
+</header>
+<main>
+  <section class="card wide">
+    <h2>Camera</h2>
+    <img id="cam" alt="Milo's camera">
+    <div id="camnote"></div>
+  </section>
+  <section class="card wide">
+    <h2>Lidar</h2>
+    <canvas id="lidar3d" aria-label="the lidar's scans around the robot in 3D"></canvas>
+    <div class="views"><button id="lidarFollow">Camera: following</button><button id="lidarClear">Clear map</button></div>
+    <div id="lidarnote" class="note">One scanning plane (D500): each hit is drawn as a column; past scans stay as a fading map.</div>
+  </section>
+
+  <section class="card full">
+    <h2>Brain activity</h2>
+    <div class="brainwrap">
+      <div>
+        <canvas id="brain3d" aria-label="the fly's brain and nerve cord in 3D; active neurons glow"></canvas>
+        <div class="views">
+          <button data-view="front">Front</button><button data-view="side">Side</button>
+          <button data-view="top">Top</button><button id="spin">Auto-rotate: on</button>
+        </div>
+        <div id="spikes">Drag to turn, pinch or scroll to zoom. Each dot is a neuron; it glows when it fires.</div>
+        <div class="views"><button id="flowToggle">Wiring: on</button><button id="clearSel">Clear selection</button></div>
+        <div id="neuroninfo" class="note">Tap a neuron to see what it is wired to.</div>
+      </div>
+      <div id="systems"></div>
+    </div>
+  </section>
+
+  <section class="card third">
+    <h2>Fly brain</h2>
+    <div id="brain"></div>
+    <div id="readout"></div>
+  </section>
+  <section class="card third">
+    <h2>Neocortex</h2>
+    <div id="drives"></div>
+    <div class="kv" id="cortex" style="margin-top:10px"></div>
+  </section>
+  <section class="card third">
+    <h2>People</h2>
+    <div id="people"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Heard and said</h2>
+    <ul class="log" id="voice"></ul>
+  </section>
+  <section class="card wide">
+    <h2>Learning and motion</h2>
+    <div class="kv" id="learning"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const key = new URLSearchParams(location.search).get("key") || "";
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+let camSeen = -1, camBusy = false;
+
+function connect() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?key=" + encodeURIComponent(key));
+  ws.onopen = () => $("live").className = "dot ok";
+  ws.onmessage = m => {
+    const d = JSON.parse(m.data);
+    if (d.t) render(d.t);
+    onBrain(d);
+    if (d.camera !== camSeen && !camBusy) {
+      camSeen = d.camera; camBusy = true;
+      const img = new Image();
+      img.onload = () => { $("cam").src = img.src; camBusy = false; };
+      img.onerror = () => { camBusy = false; };
+      img.src = "/camera.jpg?key=" + encodeURIComponent(key) + "&n=" + d.camera;
+    }
+  };
+  ws.onclose = () => { $("live").className = "dot bad"; setTimeout(connect, 1500); };
+}
+connect();
+
+function bar(label, v, max = 1, centred = false, text = null) {
+  const f = Math.max(-1, Math.min(1, v / max));
+  const style = centred ? (f >= 0 ? `left:50%;width:${50 * f}%` : `left:${50 + 50 * f}%;width:${-50 * f}%`)
+                        : `width:${100 * Math.max(0, f)}%`;
+  return `<div class="row"><span>${esc(label)}</span><div class="track${centred ? " center" : ""}"><div class="fill" style="${style}"></div></div>` +
+         `<span>${esc(text ?? v.toFixed(2))}</span></div>`;
+}
+function kv(pairs) { return pairs.map(([k, v]) => `<div>${esc(k)}</div><div>${esc(v ?? "–")}</div>`).join(""); }
+function clock(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`; }
+
+function render(t) {
+  $("simt").textContent = clock(t.t || 0);
+  if (t.loop) { $("loopms").textContent = t.loop.mean_ms ?? "–"; $("p95").textContent = t.loop.p95_ms != null ? `(95% ${t.loop.p95_ms})` : ""; }
+  $("batt").textContent = t.battery_v != null ? `${t.battery_v.toFixed(1)} V` : "–";
+  $("behaviour").textContent = (t.body || "–").replace(/\(.*?\)/g, "").trim();
+  $("stale").textContent = t.stale && t.stale.length ? "sensors quiet: " + t.stale.join(", ") + " (stopped)" : "";
+  $("camnote").textContent = t.camera_fps != null ? `${t.camera_fps} fps` + (t.person && t.person.visible ? ` · person ${t.person.dist != null ? t.person.dist.toFixed(1) + " m" : ""} at ${Math.round(t.person.az)}°` : "") : "no camera";
+
+  const b = t.brain || {};
+  const rows = [["walking drive", b.forward_walk, 1], ["steering (L–R)", b.turn_bias, 1, true],
+                ["escape", Math.max(b.escape_takeoff || 0, b.escape_long_mode || 0), 1], ["grooming", b.groom, 1],
+                ["backing up", b.backward_walk, 1], ["song (pIP10)", b.song, 1]];
+  $("brain").innerHTML = rows.filter(r => r[1] != null).map(r => bar(r[0], r[1], r[2], r[3])).join("") || '<div class="empty">no readout yet</div>';
+  $("readout").textContent = t.readout || "";
+
+  const c = t.cortex || {};
+  $("drives").innerHTML = [["hunger", c.hunger], ["wants company", c.social], ["sleepy", c.sleepy]]
+    .filter(r => r[1] != null).map(r => bar(r[0], r[1])).join("");
+  $("cortex").innerHTML = kv([["goal", c.goal], ["intent", c.intent], ["mood", c.mood], ["manners", c.manner]]);
+
+  const faces = t.faces || [];
+  $("people").innerHTML = faces.length ? faces.map(f =>
+      `<div class="row"><span class="who">${esc(f.who === "?" ? "someone new" : f.who || "…")}</span>` +
+      `<div class="track"><div class="fill" style="width:${Math.min(100, 100 * (f.facing_s || 0) / 3)}%"></div></div>` +
+      `<span>${f.facing ? "looking" : ""}</span></div>`).join("")
+    : (t.person && t.person.visible ? '<div class="empty">a person, face not seen</div>' : '<div class="empty">nobody in view</div>');
+
+  const log = (t.voice || []).slice().reverse();
+  $("voice").innerHTML = log.length ? log.map(e => `<li><span class="t">${clock(e.t)}</span><span class="who">${e.who === "milo" ? "Milo" : "heard"}:</span> ${esc(e.text)}</li>`).join("")
+    : '<li class="empty">nothing yet</li>';
+
+  const L = t.learning || {};
+  $("learning").innerHTML = kv([["speed", t.cmd ? `${t.cmd[0].toFixed(2)} m/s, turn ${Math.round(t.cmd[1])}°/s` : null],
+    ["position", t.pose ? `${t.pose[0].toFixed(2)}, ${t.pose[1].toFixed(2)} m · ${Math.round(t.pose[2])}°` : null],
+    ["synapses", L.depressed != null ? `${L.depressed} depressed (mushroom body)` : null],
+    ["people known", L.people != null ? L.people : null], ["late steps", t.loop ? t.loop.late : null]]);
+  if (window.Lidar3D) window.Lidar3D.update(t);
+  const A = t.activity;
+  if (A) {
+    const mx = Math.max(5, ...A.systems.map(s => s.hz));
+    $("systems").innerHTML = A.systems.map((s, i) =>
+      `<div class="row"><span><span class="swatch" style="background:${SYS_CSS[i % SYS_CSS.length]}"></span>${esc(s.name)}</span>` +
+      `<div class="track"><div class="fill" style="width:${100 * Math.min(1, s.hz / mx)}%;background:${SYS_CSS[i % SYS_CSS.length]}"></div></div>` +
+      `<span>${s.hz.toFixed(1)} Hz</span></div>`).join("");
+    $("spikes").textContent = `${A.spikes_per_s.toLocaleString()} spikes a second across the brain · drag to turn, pinch to zoom`;
+  }
+}
+
+// --- the brain in 3D: drawn by the module below (three.js, robot/brainmap.py's data)
+const SYS_CSS = ["#00e5ff", "#4d8cff", "#40d973", "#b3e640", "#2ec4b6", "#b373ff", "#ff9933", "#ff4d4d", "#ff73bf", "#ffd940",
+                 "#8ca6d9", "#999ead"];
+const B = {geomSeen: -1, actSeen: -1, busy: false};
+function fetchBin(path) {
+  return fetch(path + "?key=" + encodeURIComponent(key) + "&n=" + Date.now())
+    .then(r => r.status === 200 ? r.arrayBuffer() : null).catch(() => null);
+}
+function onBrain(d) {
+  const view = window.Brain3D;
+  if (!view) return;
+  if (d.geometry !== B.geomSeen && d.geometry > 0) {
+    B.geomSeen = d.geometry; fetchBin("/geometry.bin").then(b => { if (b) view.geometry(b); });
+  }
+  if (d.activity !== B.actSeen && view.ready() && !B.busy) {
+    B.actSeen = d.activity; B.busy = true;
+    Promise.all([fetchBin("/activity.bin"), fetchBin("/flow.bin")])
+      .then(([a, f]) => { if (a) view.activity(a); if (f) view.flow(f); }).finally(() => { B.busy = false; });
+  }
+}
+
+</script>
+<script type="importmap">{"imports": {"three": "/vendor/three/three.module.min.js"}}</script>
+<script type="module">
+// The fly's brain and nerve cord in 3D, as the lab's brain view (visualization/static):
+// every neuron at its real position, dim in its system's colour, glowing when it fires.
+import * as THREE from "three";
+import { OrbitControls } from "/vendor/three/OrbitControls.js";
+const el = document.getElementById("brain3d");
+const PAL = ["#00e5ff", "#4d8cff", "#40d973", "#b3e640", "#2ec4b6", "#b373ff", "#ff9933", "#ff4d4d", "#ff73bf", "#ffd940",
+             "#8ca6d9", "#999ead"].map(c => new THREE.Color(c));
+const renderer = new THREE.WebGLRenderer({canvas: el, antialias: false});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#05070b");
+const camera = new THREE.PerspectiveCamera(40, 1.6, 0.01, 50);
+camera.position.set(0, 0.2, 2.8);
+const controls = new OrbitControls(camera, el);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.minDistance = 0.6; controls.maxDistance = 6;
+controls.autoRotate = true; controls.autoRotateSpeed = 0.6;
+const mat = new THREE.ShaderMaterial({
+  uniforms: {pal: {value: PAL}, px: {value: 2.2 * Math.min(devicePixelRatio, 2)}},
+  vertexShader: `attribute float sys; attribute float lev; uniform vec3 pal[12]; uniform float px; varying vec4 c;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
+      float a = lev / 15.0; vec3 base = pal[int(sys)];
+      c = vec4(mix(base * 0.8, mix(base, vec3(1.0, 0.95, 0.75), 0.6), a), 0.22 + 0.78 * a);
+      gl_PointSize = px * (1.1 + 2.6 * a) / -mv.z; }`,
+  fragmentShader: `varying vec4 c; void main() { vec2 d = gl_PointCoord - 0.5; float r = dot(d, d);
+      if (r > 0.25) discard; gl_FragColor = vec4(c.rgb, c.a * (1.0 - 4.0 * r)); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending});
+let points = null, levels = null, posArr = null;
+
+function geometry(buf) {
+  const dv = new DataView(buf);
+  if (String.fromCharCode(...new Uint8Array(buf, 0, 4)) !== "FLYG") return;
+  const n = dv.getUint32(4, true), lo = [0, 1, 2].map(i => dv.getFloat32(8 + 4 * i, true)),
+        hi = [0, 1, 2].map(i => dv.getFloat32(20 + 4 * i, true));
+  const q = new Uint16Array(buf.slice(32, 32 + 6 * n)), sys = new Uint8Array(buf, 32 + 6 * n, n);
+  const span = Math.max(...[0, 1, 2].map(i => hi[i] - lo[i])), pos = new Float32Array(3 * n), sysF = new Float32Array(n);
+  const sign = [1, -1, -1];                     // up is -y in the data; the front of the head (-z) towards the viewer
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = lo[k] + q[3 * i + k] / 65535 * (hi[k] - lo[k]);
+      pos[3 * i + k] = sign[k] * (v - (lo[k] + hi[k]) / 2) / span * 2;
+    }
+    sysF[i] = Math.min(11, sys[i]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("sys", new THREE.BufferAttribute(sysF, 1));
+  levels = new THREE.BufferAttribute(new Float32Array(n), 1);
+  levels.setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute("lev", levels);
+  if (points) { scene.remove(points); points.geometry.dispose(); }
+  points = new THREE.Points(g, mat);
+  scene.add(points);
+  posArr = pos;
+}
+
+// the wiring activity travels along: lines from the neurons that fired to their strongest targets
+const MAXE = 8000;
+const flowGeo = new THREE.BufferGeometry();
+flowGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAXE * 6), 3).setUsage(THREE.DynamicDrawUsage));
+flowGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(MAXE * 6), 3).setUsage(THREE.DynamicDrawUsage));
+flowGeo.setDrawRange(0, 0);
+const flowLines = new THREE.LineSegments(flowGeo, new THREE.LineBasicMaterial({vertexColors: true, transparent: true,
+  opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false}));
+flowLines.frustumCulled = false;                  // its bounding sphere is never recomputed
+scene.add(flowLines);
+function flow(buf) {
+  if (!posArr) return;
+  const e = new Int32Array(buf), n = Math.min(MAXE, e.length >> 1);
+  const P = flowGeo.attributes.position.array, C = flowGeo.attributes.color.array;
+  let k = 0;
+  for (let j = 0; j < n; j++) {
+    const s = e[2 * j]; let t = e[2 * j + 1]; const inh = t < 0; if (inh) t = -t - 1;
+    if (s === t) continue;
+    for (let q = 0; q < 3; q++) { P[6 * k + q] = posArr[3 * s + q]; P[6 * k + 3 + q] = posArr[3 * t + q]; }
+    const c0 = inh ? [0.35, 0.55, 1.0] : [1.0, 0.65, 0.25], c1 = inh ? [0.2, 0.3, 0.7] : [0.7, 0.35, 0.1];
+    C.set(c0, 6 * k); C.set(c1, 6 * k + 3); k++;
+  }
+  flowGeo.setDrawRange(0, 2 * k);
+  flowGeo.attributes.position.needsUpdate = flowGeo.attributes.color.needsUpdate = true;
+}
+document.getElementById("flowToggle").addEventListener("click", e => {
+  flowLines.visible = !flowLines.visible; e.target.textContent = "Wiring: " + (flowLines.visible ? "on" : "off");
+});
+
+// tap a neuron: what is it wired to?
+const ray = new THREE.Raycaster(); ray.params.Points.threshold = 0.012;
+const selGeo = new THREE.BufferGeometry();
+const selLines = new THREE.LineSegments(selGeo, new THREE.LineBasicMaterial({vertexColors: true, transparent: true, opacity: 0.9}));
+selLines.frustumCulled = false;
+scene.add(selLines);
+let down = null;
+el.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
+el.addEventListener("pointerup", e => {
+  if (!down || !points || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
+  const r = el.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+  const hit = ray.intersectObject(points)[0];
+  if (hit) select(hit.index);
+});
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+function select(i) {
+  const key = new URLSearchParams(location.search).get("key") || "";
+  fetch(`/neuron?key=${encodeURIComponent(key)}&i=${i}`).then(r => r.json()).then(d => {
+    const box = document.getElementById("neuroninfo");
+    if (!d.ok) { box.textContent = d.why === "not ready" ? "The wiring is still loading…" : "No data for that neuron."; return; }
+    const li = (p, cls) => `<li class="${cls}${p.synapses < 0 ? " inh" : ""}">${esc(p.type)} <span style="opacity:.7">· ${esc(p.system)} · ${Math.abs(p.synapses)} syn${p.synapses < 0 ? " (inhibits)" : ""}</span></li>`;
+    box.innerHTML = `<b>${esc(d.type)}</b> · ${esc(d.system)}<div class="cols"><div><span class="in">Strongest inputs</span><ul>` +
+      d.inputs.slice(0, 10).map(p => li(p, "in")).join("") + `</ul></div><div><span class="out">Strongest outputs</span><ul>` +
+      d.outputs.slice(0, 10).map(p => li(p, "out")).join("") + "</ul></div></div>";
+    const pts = [], cols = [];
+    const add = (p, c) => { if (p.i < 0) return; pts.push(...posArr.slice(3 * i, 3 * i + 3), ...posArr.slice(3 * p.i, 3 * p.i + 3)); cols.push(...c, ...c); };
+    d.outputs.forEach(p => add(p, [0.24, 0.81, 0.5])); d.inputs.forEach(p => add(p, [1.0, 0.45, 0.75]));
+    selGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    selGeo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    controls.autoRotate = false; document.getElementById("spin").textContent = "Auto-rotate: off";
+  }).catch(() => {});
+}
+document.getElementById("clearSel").addEventListener("click", () => {
+  selGeo.deleteAttribute("position"); selGeo.deleteAttribute("color");
+  document.getElementById("neuroninfo").textContent = "Tap a neuron to see what it is wired to.";
+});
+
+function activity(buf) {
+  if (!levels) return;
+  const b = new Uint8Array(buf), L = levels.array;
+  for (let i = 0; i < L.length; i++) { const v = b[i >> 1]; L[i] = (i & 1) ? (v >> 4) : (v & 15); }
+  levels.needsUpdate = true;
+}
+
+function resize() {
+  const w = el.clientWidth, h = el.clientHeight;
+  if (el.width !== Math.round(w * renderer.getPixelRatio()) || el.height !== Math.round(h * renderer.getPixelRatio())) {
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+}
+renderer.setAnimationLoop(() => { resize(); controls.update(); renderer.render(scene, camera); });
+
+const VIEWS = {front: [0, 0.2, 2.8], side: [2.8, 0.2, 0], top: [0, 2.8, 0.01]};
+document.querySelectorAll(".views button[data-view]").forEach(b => b.addEventListener("click", () => {
+  camera.position.set(...VIEWS[b.dataset.view]); controls.target.set(0, 0, 0);
+  controls.autoRotate = false; document.getElementById("spin").textContent = "Auto-rotate: off";
+}));
+document.getElementById("spin").addEventListener("click", e => {
+  controls.autoRotate = !controls.autoRotate; e.target.textContent = "Auto-rotate: " + (controls.autoRotate ? "on" : "off");
+});
+window.Brain3D = {geometry, activity, flow, ready: () => levels !== null};
+
+// ---------------------------------------------------------------- the lidar in 3D
+// The D500 scans one plane: each hit is drawn as a short column (coloured by
+// distance), in the world frame from the odometry pose, so past scans build a
+// fading map of the walls around the robot. The camera follows the robot.
+const lel = document.getElementById("lidar3d");
+const lr = new THREE.WebGLRenderer({canvas: lel, antialias: true});
+lr.setPixelRatio(Math.min(devicePixelRatio, 2));
+const ls = new THREE.Scene();
+ls.background = new THREE.Color("#050a18");
+ls.fog = new THREE.Fog("#050a18", 6, 14);
+const lcam = new THREE.PerspectiveCamera(50, 4 / 3, 0.05, 60);
+const lctl = new OrbitControls(lcam, lel);
+lctl.enableDamping = true; lctl.maxPolarAngle = 1.45; lctl.minDistance = 0.6; lctl.maxDistance = 12;
+ls.add(new THREE.HemisphereLight(0xbfd4ff, 0x101830, 1.4));
+const sunL = new THREE.DirectionalLight(0xffffff, 1.2); sunL.position.set(2, 4, 1); ls.add(sunL);
+// the rover (~25 x 23 cm), facing +x in its own frame
+const rover = new THREE.Group();
+const bodyM = new THREE.MeshStandardMaterial({color: 0x9fb6d8, metalness: 0.4, roughness: 0.45});
+const body = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.09, 0.22), bodyM); body.position.y = 0.09; rover.add(body);
+const top = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.14), new THREE.MeshStandardMaterial({color: 0x30384a}));
+top.position.set(-0.02, 0.17, 0); rover.add(top);
+const lidarHead = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.04, 20), new THREE.MeshStandardMaterial({color: 0x222831}));
+lidarHead.position.set(0.06, 0.23, 0); rover.add(lidarHead);
+const wheelG = new THREE.CylinderGeometry(0.045, 0.045, 0.04, 18); wheelG.rotateX(Math.PI / 2);
+for (const x of [-0.09, 0, 0.09]) for (const z of [-0.125, 0.125]) {
+  const w = new THREE.Mesh(wheelG, new THREE.MeshStandardMaterial({color: 0x15181f})); w.position.set(x, 0.045, z); rover.add(w);
+}
+ls.add(rover);
+// distance rings around the robot (every 0.5 m), moving with it
+const rings = new THREE.Group();
+for (let k = 1; k <= 8; k++) {
+  const r = 0.5 * k, pts = [];
+  for (let a = 0; a <= 128; a++) pts.push(new THREE.Vector3(r * Math.cos(a / 64 * Math.PI), 0.002, r * Math.sin(a / 64 * Math.PI)));
+  rings.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color: new THREE.Color().setHSL(0.62, 0.9, 0.55 - 0.035 * k), transparent: true, opacity: 0.55})));
+}
+ls.add(rings);
+// each scan: a glowing line at the lidar's height, coloured by distance, with a
+// curtain down to the floor; the last TRAILS scans stay, fading
+const TRAILS = 60, LH = 0.23;
+const trails = [];
+const dcol = d => new THREE.Color().setHSL(Math.max(0, Math.min(0.66, 0.02 + 0.11 * d)), 1, 0.55);   // near red .. far blue
+let lastPose = null, follow = true, lastScan = "";
+function addScan(t) {
+  const L = t.lidar; if (!L || !t.pose) return;
+  const sig = L.ranges.join(","); if (sig === lastScan) return; lastScan = sig;
+  // a lidar that does not move with the (simulated) base is drawn in the robot's frame
+  const [x, z, yaw] = L.moves === false ? [0, 0, 0] : t.pose;
+  const line = [], lcol = [], cur = [], ccol = [];
+  const n = L.ranges.length;
+  let prev = null;
+  for (let k = 0; k <= n; k++) {
+    const i = k % n, r = L.ranges[i];
+    if (!(r > 0.02) || r >= 7.9) { prev = null; continue; }
+    const b = (yaw - L.angles[i]) * Math.PI / 180, px = x + r * Math.cos(b), pz = z - r * Math.sin(b), c = dcol(r);
+    if (prev && Math.hypot(px - prev[0], pz - prev[1]) < 0.35) {   // join neighbours on the same surface
+      line.push(prev[0], LH, prev[1], px, LH, pz); lcol.push(prev[2].r, prev[2].g, prev[2].b, c.r, c.g, c.b);
+    }
+    if (k < n) { cur.push(px, 0.0, pz, px, LH, pz); ccol.push(c.r * 0.15, c.g * 0.15, c.b * 0.15, c.r * 0.7, c.g * 0.7, c.b * 0.7); }
+    prev = [px, pz, c];
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(line.concat(cur), 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(lcol.concat(ccol), 3));
+  const m = new THREE.LineSegments(g, new THREE.LineBasicMaterial({vertexColors: true, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false}));
+  ls.add(m); trails.push(m);
+  while (trails.length > TRAILS) { const o = trails.shift(); ls.remove(o); o.geometry.dispose(); o.material.dispose(); }
+  trails.forEach((o, j) => { o.material.opacity = 0.08 + 0.92 * Math.pow((j + 1) / trails.length, 3); });
+}
+function updateLidar(t) {
+  if (!t.pose) return;
+  const fixed = t.lidar && t.lidar.moves === false;
+  const [x, z, yaw] = fixed ? [0, 0, 0] : t.pose, a = yaw * Math.PI / 180;
+  rover.position.set(x, 0, z); rover.rotation.y = a;
+  rings.position.set(x, 0, z);
+  const tgt = new THREE.Vector3(x, 0.1, z);
+  if (!lastPose) {                                    // start behind and above the robot
+    lcam.position.set(x - 1.8 * Math.cos(a), 1.3, z + 1.8 * Math.sin(a)); lctl.target.copy(tgt);
+  } else if (follow) {                                // keep the same view relative to the robot as it moves
+    const d = tgt.clone().sub(lctl.target); lcam.position.add(d); lctl.target.copy(tgt);
+  }
+  lastPose = [x, z, yaw];
+  addScan(t);
+  document.getElementById("lidarnote").textContent = (fixed ? "Bench test: the lidar is not on the moving base, so it is drawn around the robot. " : "")
+    + "The D500 scans one plane: each scan is a line at its height with a curtain to the floor; recent scans fade.";
+}
+document.getElementById("lidarFollow").addEventListener("click", e => {
+  follow = !follow; e.target.textContent = "Camera: " + (follow ? "following" : "free");
+});
+document.getElementById("lidarClear").addEventListener("click", () => {
+  while (trails.length) { const o = trails.shift(); ls.remove(o); o.geometry.dispose(); o.material.dispose(); }
+});
+function lresize() {
+  const w = lel.clientWidth, h = lel.clientHeight;
+  if (lel.width !== Math.round(w * lr.getPixelRatio()) || lel.height !== Math.round(h * lr.getPixelRatio())) {
+    lr.setSize(w, h, false); lcam.aspect = w / h; lcam.updateProjectionMatrix();
+  }
+}
+lr.setAnimationLoop(() => { lresize(); lctl.update(); lr.render(ls, lcam); });
+window.Lidar3D = {update: updateLidar};
+</script>
+</body>
+</html>

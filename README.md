@@ -4,8 +4,8 @@
 > This fork extends the original Fruit Fly Laboratory toward **Milo, a small home
 > robot whose lower brain is the connectome of a real fruit fly**. On top of it sit
 > a small learned "neocortex" and an optional language-model personality. Milo is a
-> robot and says so: it never presents itself as a cat or any other animal (robot
-> face and sounds; honesty checks in `cortex/llm_bench.py`). Plans are in
+> robot and says so: it never presents itself as a cat or any other animal (a
+> robot voice and sounds; honesty checks in `cortex/llm_bench.py`). Plans are in
 > `ROADMAP.md`. Additions are MIT-licensed (see LICENSE); upstream code keeps its
 > author's copyright.
 >
@@ -125,7 +125,12 @@ FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_cli
     --rover fake --lidar --avoid --cortex pet --learning on --hfov 150 --seconds 60
 ```
 
-**Face (iPad / browser):** `python -m robot.face_server --port 8010`.
+**On the robot:** `--voice` (Milo speaks from the rover's speaker, `robot/voice.py`),
+`--listen` (speech recognition, `robot/speech.py`), `--faces` (who is looking,
+`robot/faces.py`, `robot/people.py`), `--dashboard 8080` (a read-only dashboard
+for an iPad: camera, lidar, brain, neocortex, voice; `robot/dashboard.py`),
+`--eye` (the camera and the lidar through the fly's optic lobes: the flyvis
+eye model, `robot/eye.py`; `experiments/vision_ab`).
 
 **Environment variables:**
 
@@ -140,6 +145,8 @@ FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_cli
 | `FLY_TORCH_THREADS` | the neocortex's PyTorch threads (1 on the rover) |
 | `FLY_CRITIC` | `numpy` (the rover's default): the neocortex's critic without PyTorch's per-call overhead; `torch` elsewhere |
 | `FLY_MODELS`, `FLY_PEOPLE_DIR` | the camera models (`~/milo/models`) and the faces Milo knows (`~/milo/people`; `robot/people.py`) |
+| `FLY_EYE_DT`, `FLY_EYE_RATE_MAX`, `FLY_EYE_BASELINE_S` | `--eye`: flyvis's step (s; the robot `0.02`), the rate at a cell type's strong response (Hz; `50`), the adapting baseline (s; `2`) (`robot/eye.py`) |
+| `FLY_EYE_GRAPH`, `FLY_EYE_THREADS`, `FLY_EYE_MAP`, `FLYVIS_ROOT_DIR` | `--eye`: CUDA graph for flyvis's step (`1`), its CPU threads (`1`), the connectome mapping (`~/milo/models/flyvis/milo_map_<dataset>.npz`), flyvis's models (`~/milo/models/flyvis`) |
 | `FLY_PERSON_ENGINE`, `FLY_TRT_LIB` | the camera's person detector on a Jetson: its TensorRT engine (`~/milo/models/yolox_tiny.engine`) and `native/libtrt_detect.so` (`robot/detector.py`) |
 | `FLY_MOTOR_TAU` | robot motor lag `tau_v,tau_w[,stages[,tau_w_fast]]` in s (`0.3,1.5`; `0` = off) |
 | `FLY_ORIENT` | the neocortex's orienting reflex for the pet (`1`) |
@@ -158,7 +165,9 @@ FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_cli
 | `FLY_POP_READOUT` | pooled descending-neuron readout for all channels (off; the long-mode escape is always pooled) |
 | `FLY_EXAM_SEED_OFFSET` | shifts every exam seed (0; 100 = calibration's second set, 200 = report set) |
 | `FLYWIRE_V783_DIR` | FlyWire files (default: a `flywire_v783/` folder next to the repository) |
-| `FLY_FACE_KEY`, `FLY_HABITAT_KEY` | shared secrets for the face server and the Habitat socket |
+| `FLY_DASHBOARD_KEY`, `FLY_HABITAT_KEY` | the dashboard's key (else `~/.milo_dashboard_key`) and the Habitat socket's secret |
+| `FLY_SPEAKER`, `FLY_VOICE_STYLE`, `FLY_VOICE_REF` | Milo's voice: the ALSA speaker, the robot effect (`tin`), the reference voice (`stuart_bell`) |
+| `FLY_ASR_DIR`, `FLY_TTS_DIR` | speech recognition and voice models (`~/milo/models/asr`, `~/milo/models/tts`) |
 
 Run-script variables (`sim/habitat_bridge/run_cortex_life.sh`): `HAB_HOST` (split
 mode), `REAL=1` (real senses: no smell), `BODY=rover`, `DATASET`, `SEEDS`, `DAYS`,
@@ -549,7 +558,8 @@ fruit-fly-lab/
 ├── fly/                         body/ (fly_body.py, foraging_body.py), world/ (closed-loop foraging)
 ├── cognition/                   exam/ (the fly exam), calibrate_merged.py, calibrate_dynamics.py
 ├── cortex/                      v0.py (neocortex), topdown.py, obstacle_map.py, personality.py, llm_bench.py
-├── robot/                       safety, avoid, lidar, battery, motion, hearing, head, face (+ face_page/)
+├── robot/                       safety, avoid, lidar, battery, motion, hearing, head, faces, people,
+│                                speech, voice, dashboard (+ dashboard_page/), ugv, d500, rover_world
 ├── sim/habitat_bridge/          Habitat server/client, run scripts, score_pets.py, compare_* tools
 ├── experiments/                 01-05 plus symmetry, VNC turn, antenna touch, satiety and sleep tests
 ├── visualization/               server.py + static/: the Python server build

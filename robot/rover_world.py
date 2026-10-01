@@ -445,7 +445,12 @@ class RoverWorld:
                 lid = [round(float(r), 3) for r in np.minimum(s[1], LIDAR_MAX_M)]
                 lp = self.base.pose_at(s[0]) if hasattr(self.base, "pose_at") else pose
                 lid_pose = [float(x) for x in lp]
+        fine = getattr(self.lidar, "fine", None) if self.lidar is not None else None
         return {"t": round(self.t, 4), "dist": seen["dist"], "lidar": lid, "lidar_pose": lid_pose,
+                # for the dashboard: a 1-degree scan, and whether the scans move with the
+                # (simulated) base: a real lidar on a bench with the simulated base does not
+                "lidar_fine": [round(float(r), 3) for r in np.minimum(fine[1], LIDAR_MAX_M)] if fine else None,
+                "lidar_moves": not (self.fake and self.lidar is not None and not hasattr(self.lidar, "update")),
                 "az": seen["az"], "el": seen["el"], "half": seen["half"], "visible": seen["visible"],
                 "in_fov": seen["in_fov"], "robot": [pose[0], pose[1], pose[2]],
                 "human": [float("nan"), float("nan")], "over": False,

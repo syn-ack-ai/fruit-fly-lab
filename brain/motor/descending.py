@@ -218,7 +218,7 @@ DN_COMMANDS = (
         "and sine song through the nerve cord's song pattern generator (dPR1, "
         "vPR6/9, TN1A). Absent from the female FAFB brain. Milo does not sing "
         "with wings: the channel drives its robot voice (sim/habitat_bridge/"
-        "brain_client.py, robot/face_page).",
+        "brain_client.py, robot/voice.py).",
         "bilateral",
         "von Philipsborn et al. 2011, Neuron 69:509-522; Shirangi et al. 2016, Dev Cell 37:533",
         "10.1016/j.neuron.2010.12.014",

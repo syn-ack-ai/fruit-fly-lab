@@ -44,7 +44,7 @@ import urllib.request
 
 INTENTS = ("seek_person", "follow", "rest", "explore", "eat", "give_space", "none")
 MOODS = ("happy", "eager", "content", "curious", "sleepy", "hungry", "grumpy", "startled", "playful", "calm")
-SOUNDS = ("beep", "boop", "chirp", "trill", "whirr", "buzz", "none")   # robot sounds (robot/face_page)
+SOUNDS = ("beep", "boop", "chirp", "trill", "whirr", "buzz", "none")   # robot sounds (robot/voice.py)
 INTENT_S = 20.0              # an intention lasts this long unless replaced
 IDLE_S = 30.0                # with nothing happening, reconsider this often
 MIN_GAP_S = 1.0              # at most one call per this (simulated) time

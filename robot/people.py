@@ -3,8 +3,9 @@ The people Milo knows, by face, and how it meets new ones.
 
     camera process (robot/head.py)          brain client (sim/habitat_bridge/brain_client.py)
       faces (robot/faces.py)                  Social: greet a known face that looks at Milo;
-      -> FaceTracker: tracks, who is who        ask an unknown one its name (spoken on the
-         (PeopleBook), facing for how long       face page), learn the face from the answer
+      -> FaceTracker: tracks, who is who        ask an unknown one its name (out loud,
+         (PeopleBook), facing for how long       robot/voice.py), learn the face from the
+                                                 spoken answer (robot/speech.py)
       <- "enroll track 3 as Ben", "snooze"  <-
 
 PeopleBook keeps each person's face embeddings (robot/faces.py, SFace) in
@@ -15,9 +16,10 @@ person gave their name. `python -m robot.people --list`, `--forget NAME`
 A face is someone Milo knows when most of its recent embeddings match one
 person (cosine >= MATCH, SFace's published threshold) and unknown when several
 good embeddings matched no one. Milo asks only when one face is facing it, an
-unknown one, for ASK_AFTER_S, at most once per ASK_GAP_S. The answer (typed or
-spoken on the face page) is read for a name ("I'm Ben", "my name is Ben",
-"Ben"). "No" / "skip", or no answer, snoozes that face (kept in memory only,
+unknown one, for ASK_AFTER_S, at most once per ASK_GAP_S. The spoken answer
+(robot/speech.py) is read by the language model (AnswerReader: a name, a
+refusal, or other talk in the room), and Milo checks it ("Did I get that
+right? Your name is Ben?"): only a yes learns the face. "No" / "skip", or no answer, snoozes that face (kept in memory only,
 for an hour / 15 minutes): Milo does not ask it again meanwhile. A name Milo
 already knows is only added to if the face matches that person; otherwise it
 asks for a full name.
@@ -56,22 +58,6 @@ SNOOZE_UNANSWERED_S = 900.0
 GREET_AFTER_S = 0.6        # a known face facing Milo this long: greet
 GREET_GAP_S = 600.0        # greet each person at most once per this long
 NAME_RE = re.compile(r"^[^\W\d_](?:[^\W\d_]|['\-]){0,19}$")   # letters (any script), ' and -
-ANSWER_RE = re.compile(r"^(?:[^\W\d_]|[\s'\-.,!])*$")           # what an answer may contain (no "?")
-LEAD = re.compile(r"\b(?:my name is|my name's|name's|name is|i am|i'm|im|it's|its|this is|call me|"
-                  r"they call me)\b\s*(.*)$")
-DECLINE = {"no", "nope", "nah", "none", "nobody", "skip", "pass", "cancel", "never mind", "nevermind",
-           "no thanks", "no thank you", "not telling", "rather not", "i'd rather not", "stop", "go away",
-           "none of your business", "i don't want to say", "i dont want to say"}
-DECLINE_START = ("no ", "not ", "nope", "i don't", "i dont", "i do not", "rather not", "i'd rather",
-                 "none of", "i won't", "i wont", "i'm not telling", "im not telling")
-FILLER = {"the", "a", "an", "just", "here", "hi", "hello", "hey", "yes", "yeah", "ok", "okay", "um", "uh",
-          "erm", "well", "so", "and", "is", "am", "it", "its", "it's", "me", "my", "name", "i", "i'm", "im",
-          "call", "oh", "mr", "mrs", "ms", "dr"}
-NOT_NAMES = {"what", "who", "why", "where", "when", "how", "which", "sorry", "pardon", "know", "there",
-             "nothing", "none", "nobody", "someone", "somebody", "anyone", "everyone", "robot", "you", "your",
-             "yours", "thanks", "thank", "please", "don't", "dont", "can't", "cant", "cannot", "not", "of",
-             "business", "idea", "maybe", "later", "unknown", "guess", "secret", "busy", "fine", "good",
-             "bye", "goodbye", "huh", "eh", "test", "testing", "stupid", "shut", "up"}
 
 
 def slug(name: str) -> str:
@@ -81,32 +67,98 @@ def slug(name: str) -> str:
 
 
 def name_ok(name: str) -> bool:
-    """One or two words of letters (as parse_name returns)."""
+    """One or two words of letters (any script), ' and - : the only check on a
+    name the language model read from an answer, before it names a face."""
     w = str(name or "").split()
     return 1 <= len(w) <= 2 and all(NAME_RE.match(x) for x in w)
 
 
-def parse_name(text: str, robot: str = "Milo"):
-    """A name from an answer, "decline", or None (not understood)."""
-    text = str(text or "").strip()
-    low = " ".join(re.sub(r"[.,!]+", " ", text.lower()).split())
-    if not low:
-        return None
-    if low in DECLINE or low.startswith(DECLINE_START):
-        return "decline"
-    if not ANSWER_RE.match(text):
-        return None                                   # digits, symbols, a question
-    m = LEAD.search(low)
-    rest = (m.group(1) if m else low).split()
-    if m and (" ".join(rest) in DECLINE or " ".join(rest).startswith(DECLINE_START)):
-        return "decline"                              # "I'm not telling"
-    if len(rest) > 6:
-        return None
-    words = [w for w in rest if w not in FILLER][:2]
-    if (not words or not all(NAME_RE.match(w) for w in words)
-            or any(w in NOT_NAMES or w == robot.lower() for w in words)):
-        return None
-    return " ".join(re.sub(r"(^|['\-])(\w)", lambda q: q.group(1) + q.group(2).upper(), w) for w in words)
+class AnswerReader:
+    """Reads spoken answers with the language model (Gemma via PAIR, as
+    cortex/personality.py): is this the person telling their name, refusing,
+    or something else said in the room? And for "Did I get that right?": yes,
+    no, or something else. In a background thread; poll() returns results.
+    Nothing is hand-coded about which words are names: the model decides, the
+    code only checks the reply's format, and Milo confirms before learning."""
+
+    SYSTEM = ("You help a small home robot called {robot} understand short spoken answers. The words come from "
+              "speech recognition, which can mishear, and the robot hears everyone in the room, including talk "
+              "that is not an answer to its question (other people, a TV, commands to the robot). Reply with "
+              "one JSON object only, no other text.")
+    ASK = {"name": ("{robot} asked the person looking at it: \"What's your name?\"\nHeard: \"{text}\"\n"
+                    "If this is the person telling their own first name (or first and last name), reply "
+                    '{{"answer": "name", "name": "<the name, written normally, e.g. Ben or Mary Ann>"}}. Only if '
+                    'they clearly refuse to tell their name (e.g. "I\'d rather not say"), reply '
+                    '{{"answer": "decline"}}. Otherwise (not an answer, unclear, a question, a command or a "no" '
+                    'about something else, someone else talking) reply {{"answer": "other"}}.'),
+           "confirm": ("{robot} asked the person: \"Did I get that right? Your name is {name}?\"\nHeard: \"{text}\"\n"
+                       'Reply {{"answer": "yes"}} if they confirm, {{"answer": "no"}} if they say it is wrong, '
+                       'otherwise {{"answer": "other"}}.')}
+
+    def __init__(self, url: str = "http://127.0.0.1:1234/v1/chat/completions", model: str = "gemma-4-e4b-it-mlx",
+                 robot: str = "Milo", timeout_s: float = 8.0):
+        import queue
+        self.url, self.model, self.robot, self.timeout = url, model, robot, timeout_s
+        self.results = queue.Queue()
+        self.stats = collections.Counter()
+
+    def available(self) -> bool:
+        """Does the model answer (a short check at start)?"""
+        import urllib.request
+        try:
+            urllib.request.urlopen(self.url.rsplit("/chat/", 1)[0] + "/models", timeout=20).read()   # PAIR lists the cluster: ~8 s
+            return True
+        except Exception:
+            return False
+
+    def read(self, rid, kind: str, text: str, name: str | None = None) -> None:
+        import threading
+        threading.Thread(target=self._run, args=(rid, kind, str(text)[:200], name), daemon=True).start()
+
+    def _run(self, rid, kind, text, name) -> None:
+        import json
+        import urllib.request
+        from cortex.personality import request_body   # the same request as the personality (Qwen's think switch)
+        msg = self.ASK[kind].format(robot=self.robot, text=text.replace('"', "'"), name=name or "")
+        body = dict(request_body(self.model, self.SYSTEM.format(robot=self.robot), msg),
+                    temperature=0.0, max_tokens=60)
+        t0 = time.time()
+        try:
+            req = urllib.request.Request(self.url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=self.timeout) as fh:
+                out = json.load(fh)["choices"][0]["message"]["content"]
+            res = self.check(kind, out)
+            self.stats["read"] += 1
+        except Exception:
+            res = {"answer": "error"}
+            self.stats["errors"] += 1
+        res["ms"] = round(1e3 * (time.time() - t0))
+        self.results.put((rid, kind, text, res))
+
+    @staticmethod
+    def check(kind: str, reply: str) -> dict:
+        """The model's reply, kept only if it is one of the allowed answers in
+        the right format (a name: one or two words of letters)."""
+        import json
+        m = re.search(r"\{[^{}]*\}", str(reply), re.S)          # the first (flat) JSON object
+        try:
+            d = json.loads(m.group(0)) if m else {}
+        except ValueError:
+            d = {}
+        a = d.get("answer") if isinstance(d, dict) else None
+        if kind == "name" and a == "name":
+            n = " ".join(str(d.get("name", "")).split())
+            if n.isupper() or n.islower():
+                n = n.title()                    # "BEN" -> "Ben"
+            return {"answer": "name", "name": n} if name_ok(n) else {"answer": "other"}
+        allowed = ("decline", "other") if kind == "name" else ("yes", "no", "other")
+        return {"answer": a if a in allowed else "other"}
+
+    def poll(self) -> list:
+        out = []
+        while not self.results.empty():
+            out.append(self.results.get_nowait())
+        return out
 
 
 def medoid(embs) -> np.ndarray | None:
@@ -353,15 +405,17 @@ class FaceTracker:
 class Social:
     """Greets the people Milo knows and asks the ones it does not. Each step:
     step(t, faces, replies, camera_events) -> {"say", "ask", "commands",
-    "events"}: words for the face page to speak, the open question (shown with
-    an answer box; its id is random, so only the page showing it can answer),
-    commands for the camera process (enroll, snooze), and lines for the
-    personality. t is a clock that never goes back (time.monotonic())."""
+    "events"}: words for Milo to say, the open question (replies carry its id:
+    an answer heard while it is open), commands for the camera process
+    (enroll, snooze), and lines for the personality. t is a clock that never goes back (time.monotonic())."""
 
     Q = "Hi! I don't think we've met. What's your name?"
 
-    def __init__(self, robot_name: str = "Milo"):
+    def __init__(self, robot_name: str = "Milo", can_ask: bool = True, reader: AnswerReader | None = None):
         self.robot = robot_name
+        self.reader = reader                     # the language model reads the answers
+        # only when the answer can be heard (robot/speech.py) and understood
+        self.can_ask = bool(can_ask and reader is not None)
         self.pending = None                      # {"id", "track", "t", "tries"}
         self.last_ask_t = -1e9
         self.greeted = {}                        # name -> t
@@ -369,9 +423,10 @@ class Social:
         self.stats = collections.Counter()
         self._rng = secrets.SystemRandom()
 
-    def _ask(self, t, track, tries=0) -> dict:
-        self.pending = {"id": self._rng.randrange(1, 2 ** 31 - 1), "track": track, "t": t, "tries": tries}
-        return {"id": self.pending["id"], "q": "What's your name?"}
+    def _ask(self, t, track, tries=0, confirm=None) -> dict:
+        self.pending = {"id": self._rng.randrange(1, 2 ** 31 - 1), "track": track, "t": t, "tries": tries,
+                        "confirm": confirm}
+        return {"id": self.pending["id"], "q": "Is that right?" if confirm else "What's your name?"}
 
     def step(self, t: float, faces: list, replies: list = (), camera_events: list = ()) -> dict:
         out = {"say": None, "ask": None, "commands": [], "events": []}
@@ -389,37 +444,52 @@ class Social:
                     return out
                 out["say"] = "Sorry, I didn't get a good look at you. Ask me again in a little while!"
                 self.last_ask_t = t - ASK_GAP_S + 30.0          # not straight away
-        if self.pending is not None:
+        if self.pending is not None and self.reader is not None:
+            # what was heard while the question is open goes to the language model;
+            # other talk in the room comes back "other" and is let pass
+            p = self.pending
             for r in replies:
-                if r.get("id") != self.pending["id"]:
-                    continue
-                name = parse_name(r.get("text", ""), self.robot)
-                if name == "decline":
-                    out["commands"].append({"cmd": "snooze", "track": self.pending["track"], "s": SNOOZE_DECLINED_S})
+                if r.get("id") == p["id"]:
+                    self.reader.read(p["id"], "confirm" if p.get("confirm") else "name", r.get("text", ""),
+                                     p.get("confirm"))
+            for rid, kind, text, res in self.reader.poll():
+                if self.pending is None or rid != self.pending["id"]:
+                    continue                             # an answer to an older question
+                p, a = self.pending, res.get("answer")
+                self.stats["read_" + str(a)] += 1
+                if kind == "name" and a == "name":
+                    # confirm first: only a yes learns the face
+                    out["say"] = f"Did I get that right? Your name is {res['name']}?"
+                    out["ask"] = self._ask(t, p["track"], p["tries"], confirm=res["name"])
+                    return out
+                if kind == "name" and a == "decline":
+                    out["commands"].append({"cmd": "snooze", "track": p["track"], "s": SNOOZE_DECLINED_S})
                     out["say"] = "Okay, no problem."
                     self.stats["declined"] += 1
                     self.pending = None
-                elif name:
-                    out["commands"].append({"cmd": "enroll", "track": self.pending["track"], "name": name})
-                    out["say"] = f"Nice to meet you, {name}!"
+                    return out
+                if kind == "confirm" and a == "yes":
+                    out["commands"].append({"cmd": "enroll", "track": p["track"], "name": p["confirm"]})
+                    out["say"] = f"Nice to meet you, {p['confirm']}!"
                     self.stats["named"] += 1
                     self.pending = None
-                elif self.pending["tries"] < RETRIES:
-                    out["say"] = "Sorry, I didn't catch that. What's your name?"
-                    out["ask"] = self._ask(t, self.pending["track"], self.pending["tries"] + 1)
                     return out
-                else:
-                    out["commands"].append({"cmd": "snooze", "track": self.pending["track"], "s": SNOOZE_UNANSWERED_S})
-                    out["say"] = "Never mind. Nice to see you anyway!"
-                    self.stats["not_understood"] += 1
-                    self.pending = None
-                break
+                if kind == "confirm" and a == "no":
+                    if p["tries"] < RETRIES:
+                        out["say"] = "Sorry! What's your name?"
+                        out["ask"] = self._ask(t, p["track"], p["tries"] + 1)
+                    else:
+                        out["commands"].append({"cmd": "snooze", "track": p["track"], "s": SNOOZE_UNANSWERED_S})
+                        out["say"] = "Never mind. Nice to see you anyway!"
+                        self.pending = None
+                    return out
             if self.pending is not None and t - self.pending["t"] > ANSWER_S:
                 out["commands"].append({"cmd": "snooze", "track": self.pending["track"], "s": SNOOZE_UNANSWERED_S})
                 self.stats["unanswered"] += 1
                 self.pending = None
             if self.pending is not None:
-                out["ask"] = {"id": self.pending["id"], "q": "What's your name?"}
+                out["ask"] = {"id": self.pending["id"],
+                              "q": "Is that right?" if self.pending.get("confirm") else "What's your name?"}
                 return out
         if out["say"]:
             return out
@@ -433,7 +503,7 @@ class Social:
                 self.stats["greeted"] += 1
                 return out
         # ask only when exactly one face is facing Milo (so it is clear who is asked)
-        if len(facing) == 1:
+        if len(facing) == 1 and self.can_ask and self.pending is None:
             f = facing[0]
             if (f.get("who") == "?" and f.get("facing_s", 0.0) >= ASK_AFTER_S and not f.get("snoozed")
                     and t - self.last_ask_t > ASK_GAP_S):

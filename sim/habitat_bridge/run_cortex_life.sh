@@ -19,7 +19,6 @@
 #   pettalk  the battery pet + personality + scripted talking person
 # The robot's near-person speed limit (robot/safety.py) is on in every condition; SAFE_SPEED=0 turns it off.
 # SPEECH=1 lets the scripted person talk in every condition (only "talk" listens).
-# FACE_URL=http://127.0.0.1:8010/state shows the face (robot/face_server.py); one pet only.
 # PORT0 (default 6040) sets the first Habitat port.
 # REAL=1: only the real rover's senses (camera, lidar, odometry, battery, dock
 # contacts): no odour, no owner petting/treats, no bitter plant (--real-senses).
@@ -42,7 +41,6 @@ SEEDS=${SEEDS:-1}
 CONDS=(${CONDS:-none v0 amnesic})
 SAFE=--safe-speed; [ "${SAFE_SPEED:-1}" = 0 ] && SAFE=--no-safe-speed
 [ "${SPEECH:-0}" = 1 ] && SAFE="$SAFE --speech"
-[ -n "${FACE_URL:-}" ] && SAFE="$SAFE --face $FACE_URL"
 [ "${REAL:-0}" = 1 ] && SAFE="$SAFE --real-senses"
 [ -n "${DATASET:-}" ] && export FLY_DATASET=$DATASET
 LLM_URL=${LLM_URL:-http://127.0.0.1:1234/v1/chat/completions}

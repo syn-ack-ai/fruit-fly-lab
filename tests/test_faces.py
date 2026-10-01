@@ -1,5 +1,5 @@
-"""Faces and people (robot/faces.py, robot/people.py) without a camera or GPU,
-and the face page's question and answer (robot/face_server.py)."""
+"""Faces and people (robot/faces.py, robot/people.py) without a camera, GPU or
+language model (the model's answers are scripted)."""
 import math
 
 import numpy as np
@@ -66,25 +66,48 @@ def test_yunet_decode_one_face():
     assert f[0, 4:6] == pytest.approx((24, 16)) and f[0, 6:8] == pytest.approx((32, 16))
 
 
-# ------------------------------------------------------------------ names
-@pytest.mark.parametrize("text,name", [
-    ("Ben", "Ben"), ("ben", "Ben"), ("I'm Ben", "Ben"), ("my name is Mary Ann", "Mary Ann"),
-    ("hi, it's sam!", "Sam"), ("call me Jo-Anne", "Jo-Anne"), ("This is O'Neil", "O'Neil"),
-    ("Tim Smith", "Tim Smith"), ("Kim Lee", "Kim Lee"), ("Ibrahim Ali", "Ibrahim Ali"),
-    ("José", "José"), ("zoë", "Zoë"), ("Иван", "Иван"),
-    ("no", "decline"), ("No thanks", "decline"), ("skip", "decline"), ("not telling", "decline"),
-    ("I'm not telling", "decline"), ("I don't know", "decline"), ("my name is none of your business", "decline"),
-    ("", None), ("12345", None), ("hello hello hello what is this robot doing here", None),
-    ("<script>alert(1)</script>", None), ("What?", None), ("Sorry?", None), ("who are you", None),
-    ("hello there", None), ("hi Milo", None), ("Ben?", None),
-])
-def test_parse_name(text, name):
-    assert P.parse_name(text) == name
-
-
-def test_name_ok():
-    assert P.name_ok("Ben") and P.name_ok("Mary Ann") and P.name_ok("O'Neil")
+# ------------------------------------------------------------------ names (the language model's replies)
+def test_name_format():
+    assert P.name_ok("Ben") and P.name_ok("Mary Ann") and P.name_ok("O'Neil") and P.name_ok("Иван")
     assert not P.name_ok("") and not P.name_ok("a b c") and not P.name_ok("Ben1") and not P.name_ok("x" * 30)
+
+
+@pytest.mark.parametrize("kind,reply,expect", [
+    ("name", '{"answer": "name", "name": "Ben"}', {"answer": "name", "name": "Ben"}),
+    ("name", 'Sure! {"answer": "name", "name": "Mary  Ann"} hope that helps', {"answer": "name", "name": "Mary Ann"}),
+    ("name", '{"answer": "name", "name": "<script>"}', {"answer": "other"}),
+    ("name", '{"answer": "name", "name": "Ben Smith Jones"}', {"answer": "other"}),
+    ("name", '{"answer": "decline"}', {"answer": "decline"}),
+    ("name", '{"answer": "yes"}', {"answer": "other"}),
+    ("name", "not json at all", {"answer": "other"}),
+    ("confirm", '{"answer": "yes"}', {"answer": "yes"}),
+    ("confirm", '{"answer": "no"}', {"answer": "no"}),
+    ("confirm", '{"answer": "name", "name": "Ben"}', {"answer": "other"}),
+])
+def test_answer_reader_keeps_only_well_formed_replies(kind, reply, expect):
+    assert P.AnswerReader.check(kind, reply) == expect
+
+
+class FakeReader:
+    """AnswerReader's interface: the model's answers, scripted by (kind, text)."""
+
+    def __init__(self, table):
+        self.table, self.q = table, []
+
+    def read(self, rid, kind, text, name=None):
+        self.q.append((rid, kind, text, dict(self.table.get((kind, text), {"answer": "other"}))))
+
+    def poll(self):
+        out, self.q = self.q, []
+        return out
+
+
+ANSWERS = {("name", "I'm Sam"): {"answer": "name", "name": "Sam"},
+           ("name", "Ben"): {"answer": "name", "name": "Ben"},
+           ("name", "Mary Ann"): {"answer": "name", "name": "Mary Ann"},
+           ("name", "no thanks"): {"answer": "decline"},
+           ("confirm", "Yes, that's right."): {"answer": "yes"}, ("confirm", "yep"): {"answer": "yes"},
+           ("confirm", "No"): {"answer": "no"}}
 
 
 # ------------------------------------------------------------------ the book
@@ -229,29 +252,43 @@ def test_social_greets_known_people_once():
 
 
 def test_social_asks_a_stranger_and_learns_the_name():
-    s = P.Social()
+    s = P.Social(reader=FakeReader(ANSWERS))
     assert s.step(0.0, [_track(4, "?", 1.0)])["ask"] is None
     assert s.step(1.2, [_track(4, "?", 2.2), _track(5, "Ben", 2.0)])["say"] == "Hi Ben!"
     assert s.step(1.3, [_track(4, "?", 2.3), _track(5, "Ben", 2.1)])["ask"] is None   # two facing: whom?
     out = s.step(1.4, [_track(4, "?", 2.4)])
     assert out["say"] == P.Social.Q
     q = out["ask"]["id"]
-    assert s.step(1.6, [_track(4, "?", 2.6)])["ask"]["id"] == q        # the question stays open
     out = s.step(3.0, [], [{"id": q + 1, "text": "Ben"}])               # an answer to another question
     assert out["commands"] == [] and out["ask"]["id"] == q
-    out = s.step(3.2, [], [{"id": q, "text": "uh"}])
-    assert out["say"].startswith("Sorry") and out["ask"]["id"] != q     # a new box on the page
+    out = s.step(3.2, [], [{"id": q, "text": "Do you want to go and find your charger?"}])   # other talk
+    assert out["say"] is None and out["ask"]["id"] == q                 # let pass, still asking
+    out = s.step(3.4, [], [{"id": q, "text": "I'm Sam"}])
+    assert out["commands"] == [] and out["say"] == "Did I get that right? Your name is Sam?"
     q2 = out["ask"]["id"]
-    out = s.step(3.4, [], [{"id": q2, "text": "I'm Sam"}])
+    assert s.step(3.5, [], [{"id": q2, "text": "Stop right there please."}])["say"] is None
+    out = s.step(3.6, [], [{"id": q2, "text": "Yes, that's right."}])
     assert out["commands"] == [{"cmd": "enroll", "track": 4, "name": "Sam"}]
     assert out["say"] == "Nice to meet you, Sam!" and out["ask"] is None
-    out = s.step(3.6, [], camera_events=[{"event": "enrolled", "name": "Sam"}])
+    out = s.step(3.8, [], camera_events=[{"event": "enrolled", "name": "Sam"}])
     assert s.met == {"Sam"} and out["events"] == ["you just met Sam and learned their face"]
     assert s.step(4.0, [_track(4, "Sam", 3.0)])["say"] is None          # just met
 
 
+def test_a_wrong_name_is_corrected_not_learned():
+    s = P.Social(reader=FakeReader(ANSWERS))
+    q = s.step(0.0, [_track(4, "?", 2.5)])["ask"]["id"]
+    q = s.step(1.0, [], [{"id": q, "text": "Ben"}])["ask"]["id"]
+    out = s.step(2.0, [], [{"id": q, "text": "No"}])
+    assert out["say"] == "Sorry! What's your name?" and not out["commands"]
+    q = out["ask"]["id"]
+    q = s.step(3.0, [], [{"id": q, "text": "Mary Ann"}])["ask"]["id"]
+    out = s.step(4.0, [], [{"id": q, "text": "yep"}])
+    assert out["commands"] == [{"cmd": "enroll", "track": 4, "name": "Mary Ann"}]
+
+
 def test_social_respects_no_and_does_not_nag():
-    s = P.Social()
+    s = P.Social(reader=FakeReader(ANSWERS))
     q = s.step(0.0, [_track(4, "?", 2.5)])["ask"]["id"]
     out = s.step(1.0, [_track(4, "?", 3.5)], [{"id": q, "text": "no thanks"}])
     assert out["say"] == "Okay, no problem."
@@ -264,63 +301,43 @@ def test_social_respects_no_and_does_not_nag():
     assert s.step(5.0 + P.ASK_GAP_S + P.ANSWER_S, [_track(6, "?", 3.0)])["ask"] is None   # not again so soon
 
 
-def test_social_gives_up_after_retries_and_handles_failures():
-    s = P.Social()
-    q = s.step(0.0, [_track(4, "?", 2.5)])["ask"]["id"]
-    for k in range(P.RETRIES):
-        q = s.step(1.0 + k, [], [{"id": q, "text": "?!"}])["ask"]["id"]
-    out = s.step(9.0, [], [{"id": q, "text": "12"}])
-    assert out["ask"] is None and out["commands"][0]["cmd"] == "snooze"
-    out = s.step(10.0, [], camera_events=[{"event": "enroll_failed", "name": "Sam", "track": 4, "why": "too few views"}])
+def test_social_failures_and_no_model():
+    s = P.Social(reader=FakeReader(ANSWERS))
+    out = s.step(0.0, [], camera_events=[{"event": "enroll_failed", "name": "Sam", "track": 4, "why": "too few views"}])
     assert out["say"].startswith("Sorry")
-    assert s.step(11.0, [_track(7, "?", 3.0)])["ask"] is None            # not straight away
+    assert s.step(1.0, [_track(7, "?", 3.0)])["ask"] is None             # not straight away
     assert s.step(45.0, [_track(7, "?", 3.0)])["ask"] is not None        # but later
-    s2 = P.Social()
+    s2 = P.Social(reader=FakeReader(ANSWERS))
     out = s2.step(0.0, [], camera_events=[{"event": "enroll_failed", "name": "Ben", "track": 4, "why": "name taken"}])
     assert "full name" in out["say"] and out["ask"] is not None
+    s3 = P.Social()                                                       # no language model: no questions
+    assert s3.step(0.0, [_track(4, "?", 5.0)])["ask"] is None
+    assert s3.step(1.0, [_track(1, "Ben", 1.0)])["say"] == "Hi Ben!"     # greetings still
 
 
-def test_one_line_per_face_update():
-    from sim.habitat_bridge.brain_client import _say
+def test_speech_goes_to_the_voice_in_order():
+    from sim.habitat_bridge.brain_client import _speak
 
-    class M:
-        pass
-    m = M()
-    assert _say(m, "Hi Ben!", "beep boop") == "Hi Ben!"
-    assert _say(m, None, None) == "beep boop"                            # waited one step
-    assert _say(m, None, None) is None
+    class V:
+        def __init__(self):
+            self.out = []
 
+        def say(self, t):
+            self.out.append(("say", t))
 
-# ------------------------------------------------------------------ the face page
-def test_face_page_question_and_answer():
-    pytest.importorskip("httpx")
-    from fastapi.testclient import TestClient
-    import robot.face_server as fs
-    fs.app.state.key = "k"
-    fs.REPLIES.clear()
-    fs.REPLY_TIMES.clear()
-    c = TestClient(fs.app)
-    h = {"X-Face-Token": "k"}
-    assert c.post("/state", json={"ask": {"id": 1234567, "q": "What's your name?"}}, headers=h).status_code == 200
-    assert fs.STATE["state"]["ask"] == {"id": 1234567, "q": "What's your name?"}
-    assert c.post("/reply", json={"id": 2, "text": "Ben"}).status_code == 409          # not the open question
-    assert c.post("/reply", json={"id": 1234567, "text": ""}).status_code == 409
-    assert c.post("/reply", json={"id": 1234567}).status_code == 400
-    assert c.post("/reply", content='{"id": 1234567, "text": "Ben"}',
-                  headers={"Content-Type": "text/plain"}).status_code == 415          # a cross-site form
-    assert c.post("/reply", json={"id": 1234567, "text": "Ben"},
-                  headers={"Origin": "http://evil.example"}).status_code == 403       # another site's page
-    assert c.post("/reply", content='{"id": 1e999, "text": "x"}',
-                  headers={"Content-Type": "application/json"}).status_code == 400
-    assert c.post("/reply", json={"id": 1234567, "text": "x" * 600}).status_code == 413
-    assert c.post("/reply", json={"id": 1234567, "text": "Ben"},
-                  headers={"Origin": "http://testserver"}).status_code == 200
-    r = c.post("/state", json={"ask": None}, headers=h).json()
-    assert r["replies"] == [{"id": 1234567, "text": "Ben"}]
-    assert c.post("/state", json={}, headers=h).json()["replies"] == []
-    assert c.post("/reply", json={"id": 1234567, "text": "Ben"}).status_code == 429    # every attempt counted
-    with pytest.raises(ValueError):
-        fs.clean_state({"ask": "what"})
+        def sound(self, k):
+            self.out.append(("sound", k))
+
+    class Pers:
+        def take_fresh(self):
+            return {"say": "beep boop", "sound": "chirp"}
+
+    v = V()
+    assert _speak(v, Pers(), {"say": "Hi Ben!"}) == ["Hi Ben!", "beep boop"]
+    assert v.out == [("say", "Hi Ben!"), ("say", "beep boop"), ("sound", "chirp")]
+    v.out = []
+    _speak(v, None, None, song=True)
+    assert v.out == [("sound", "song")]
 
 
 # ------------------------------------------------------------------ the rover

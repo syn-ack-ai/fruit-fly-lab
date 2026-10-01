@@ -116,9 +116,12 @@ decides the *words*.
 
 ## 3. Seeing what Milo sees and "thinks" (iPhone/iPad dashboard)
 
-- **later** A web app served by the Jetson and opened in Safari, added to the
-  Home Screen, extending `robot/face_server.py` and `visualization/server.py`.
-  Panels:
+- **done 2026-10-01** A read-only dashboard served by the Jetson
+  (`robot/dashboard.py`, `--dashboard 8080`, opened with its key): the camera
+  with detections, the lidar in 3D, the brain in 3D (every neuron at its real
+  position, glowing when it fires, the wiring the activity travels along, tap
+  a neuron for its strongest inputs and outputs), the systems' rates, the
+  neocortex's drives, people, what Milo heard and said. Originally planned:
   - the camera with detections;
   - the live lidar scan and Milo's map;
   - drives and current goal;
@@ -169,9 +172,20 @@ decides the *words*.
   the Orbit with person and face recognition, brain, neocortex, learning):
   62 ms a step (95th percentile 66, none late). The critic in numpy on the
   rover (same results), unchanged sensory inputs skipped (output identical).
-- **next** The kit's 160-degree camera on the rover's pan-tilt (ESP32 T133
-  instead of the Orbit's motors); speech recognition on the robot, so Milo
-  hears the answer instead of reading it from the face page.
+- **done 2026-10-01** Milo's voice and ears on the robot: speech
+  recognition (Parakeet TDT 0.6B v2, `robot/speech.py`) and a robot voice
+  from the rover's speaker (Pocket TTS in a reference voice, made robotic:
+  `robot/voice.py`, `--voice --listen`); names asked out loud, read by the
+  language model (Gemma via PAIR) and confirmed before a face is learned. The
+  iPad face page was removed (no iPad on the robot; the dashboard instead).
+- **done 2026-10-01** Vision through the optic lobes (`experiments/vision_ab`):
+  the connectome's own eye (A) does not compute motion in the spiking model;
+  the published flyvis eye model (B) does (T4/T5 direction selective, HS
+  follows yaw). B is wired up on the robot (`--eye`, `robot/eye.py`): camera
+  and lidar into ~61,000 optic-lobe neurons, in real time on the Orin.
+- **next** The kit's 160-degree camera on the rover's pan-tilt (more of the
+  fly's field from the camera, less from the lidar); looming and small-object
+  responses through the eye (LPLC2 / LC10a stay quiet under B so far).
 - **done 2026-09-30** Nsight Compute profile of the engine on the Orin: the
   update is instruction-issue bound (per-neuron branch bookkeeping; only ~11%
   of instructions are floating point). Six further layouts and schedules did

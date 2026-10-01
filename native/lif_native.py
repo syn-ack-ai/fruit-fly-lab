@@ -154,6 +154,7 @@ class NativeLIFEngine:
             self._lib.lif_spike_counts(self._h), (self.n,))
         self._silenced = np.zeros(self.n, dtype=bool)   # mirror, for inspection
         self._poi_idx = np.empty(0, np.int32)             # current Poisson targets
+        self._poi_src = None                              # ... as the caller's read-only array
         self._in_idx = self._in_rates = None              # the caller's last (read-only) arrays
 
     # State views. With the CUDA engine the state lives on the GPU and these
@@ -215,6 +216,7 @@ class NativeLIFEngine:
         self._lib.lif_reset(self._h)
         self._silenced[:] = False
         self._poi_idx = np.empty(0, np.int32)
+        self._poi_src = None
         self._in_idx = self._in_rates = None
         if seed is not None:
             self._lib.lif_set_seed(self._h, seed & 0xFFFFFFFF)
@@ -303,7 +305,11 @@ class NativeLIFEngine:
         # remembered only if read-only now (their values then cannot change)
         keep = (not getattr(getattr(indices, "flags", None), "writeable", True)
                 and not getattr(getattr(rates_hz, "flags", None), "writeable", True))
-        idx = np.ascontiguousarray(np.atleast_1d(indices), np.int32)
+        # the same read-only targets as the current set (Session._rates_at: an
+        # encoder's rates changed, its neurons did not): no conversion or compare
+        ro_idx = not getattr(getattr(indices, "flags", None), "writeable", True)
+        same_idx = ro_idx and indices is self._poi_src
+        idx = self._poi_idx if same_idx else np.ascontiguousarray(np.atleast_1d(indices), np.int32)
         rates = np.ascontiguousarray(np.atleast_1d(np.asarray(rates_hz, np.float64)))
         if rates.size == 1 and idx.size > 1:
             rates = np.repeat(rates, idx.size)
@@ -311,14 +317,15 @@ class NativeLIFEngine:
             raise ValueError("indices and rates_hz must have the same length")
         # The session refreshes rates every millisecond on unchanged targets,
         # mostly with unchanged rates too (sensors update every control step).
-        if (idx.size == self._poi_idx.size and idx.size
-                and np.array_equal(idx, self._poi_idx)):
+        if same_idx or (idx.size == self._poi_idx.size and idx.size
+                        and np.array_equal(idx, self._poi_idx)):
             last = getattr(self, "_poi_rates", None)
             if last is not None and np.array_equal(rates, last):
                 self._in_idx, self._in_rates = (indices, rates_hz) if keep else (None, None)
                 return
             if self._lib.lif_set_poisson_rates(self._h, rates, idx.size) == 0:
                 self._poi_rates = rates.copy()
+                self._poi_src = indices if ro_idx else None
                 self._in_idx, self._in_rates = (indices, rates_hz) if keep else (None, None)
                 return
         if np.unique(idx).size != idx.size:
@@ -327,11 +334,13 @@ class NativeLIFEngine:
         self._lib.lif_set_poisson(self._h, idx, rates, idx.size)
         self._poi_idx = idx
         self._poi_rates = rates.copy()
+        self._poi_src = indices if ro_idx else None
         self._in_idx, self._in_rates = (indices, rates_hz) if keep else (None, None)
 
     def clear_poisson(self):
         self._lib.lif_set_poisson(self._h, np.zeros(1, np.int32), np.zeros(1), 0)
         self._poi_idx = np.empty(0, np.int32)
+        self._poi_src = None
         self._in_idx = self._in_rates = None
 
     def silence(self, indices, on: bool = True):

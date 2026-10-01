@@ -90,15 +90,12 @@ def test_motor_lag_restarts_smoothly_after_a_brake():
     assert v < 0.15
 
 
-def test_face_page_plays_every_personality_sound():
-    import re
-    from pathlib import Path
+def test_voice_plays_every_personality_sound():
     from cortex.personality import SOUNDS
-    from robot import face_server
-    page = Path(face_server.__file__).parent.joinpath("face_page", "face.html").read_text()
-    for s in SOUNDS:
-        if s != "none":
-            assert s in face_server.SOUNDS and re.search(r'k === "%s"' % s, page), s
+    from robot.voice import SOUNDS as VOICE_SOUNDS, synth_sound
+    for k in [x for x in SOUNDS if x != "none"] + ["song"]:
+        assert k in VOICE_SOUNDS and 0.05 < len(synth_sound(k)) / 24000 < 1.5, k
+        assert float(abs(synth_sound(k)).max()) <= 1.0
 
 
 def test_honesty_check():

@@ -34,6 +34,7 @@ PACKET_LEN = 47
 HEADER, VERLEN = 0x54, 0x2C
 MAX_RANGE_M = 8.0          # as the Habitat server's lidar (habitat_server.Server.LIDAR_MAX_M)
 MIN_INTENSITY = 0
+FINE_BEAMS = 360               # the display's scan (1 degree)
 ZERO_DEG = 0.0
 CLOCKWISE = True
 
@@ -135,6 +136,7 @@ class D500:
         self._last_angle = None
         self._lock = threading.Lock()
         self.scan = None                          # (t_s, ranges)
+        self.fine = None                          # (t_s, ranges at FINE_BEAMS), for displays
         self._first = True                        # the first revolution is partial: dropped
         self.revolutions = 0
         self.errors = 0
@@ -172,8 +174,12 @@ class D500:
                     prev = self.scan[1] if self.scan is not None else None
                     gap = np.isnan(ranges)
                     ranges[gap] = prev[gap] if prev is not None else MAX_RANGE_M
+                    # a finer scan of the same turn for displays (robot/dashboard.py):
+                    # the D500 gives ~450 points a turn; the brain uses `beams`
+                    fine = bin_scan(self._rev, FINE_BEAMS, self.zero, self.cw)
                     with self._lock:
                         self.scan = (t_s, ranges)
+                        self.fine = (t_s, fine)
                         self.revolutions += 1
                 self._rev = []
             self._rev.append(p)

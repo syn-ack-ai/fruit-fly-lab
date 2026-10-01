@@ -1,7 +1,6 @@
-"""The LLM personality layer's reply parsing and latency, the face model, and
-the scripted person (no language model or server needed)."""
+"""The LLM personality layer's reply parsing and latency, and the scripted
+person (no language model needed)."""
 from cortex.personality import Personality, parse
-from robot.face import FaceModel
 from sim.habitat_bridge.speech import ScriptedPerson
 
 
@@ -21,19 +20,6 @@ def test_reply_waits_for_its_latency_in_simulated_time():
     out = p.step(12.0, {})
     assert out["new"] and out["intent"] == "rest"
     assert p.take_fresh()["mood"] == "sleepy" and p.take_fresh() is None
-
-
-def test_face_follows_brain_state():
-    f = FaceModel()
-    s = f.update(0.1, {"person_visible": True, "person_az": 30, "person_el": 0})
-    assert s["gaze"][0] == 0.5
-    s = f.update(0.1, {"startle": 1.0})
-    assert s["open"] == 1.0 and s["mouth"] == "o" and s["pupil"] > 0.9
-    s = f.update(0.1, {"eating": True, "mood": "happy"})
-    assert s["mouth"] == "chew"
-    e0 = s["event"]["id"]
-    assert f.update(0.1, {"say": "hi", "sound": "trill"})["event"]["id"] == e0 + 1
-    assert f.update(0.1, {})["event"]["id"] == e0 + 1   # an event is not repeated
 
 
 def test_scripted_person_praises_an_answered_call():
@@ -68,33 +54,3 @@ def test_parse_is_robust():
     assert parse('{"feedback": 0.9}')["feedback"] == 1
     assert parse('{"intent": "rest"} and then {"intent": "eat"}')["intent"] == "rest"
     assert parse('[1, 2]') is None
-
-
-def test_face_server_needs_the_token_and_clean_fields():
-    import pytest
-    pytest.importorskip("httpx")
-    from fastapi.testclient import TestClient
-    import robot.face_server as fs
-    fs.app.state.key = "k"
-    c = TestClient(fs.app)
-    good = {"gaze": [0.2, 0.1], "open": 0.9, "mouth": "smile", "event": {"id": 3, "say": "hi", "sound": "whirr"}}
-    assert c.post("/state", json=good).status_code == 403                              # no token
-    assert c.post("/state", content="{}", headers={"X-Face-Token": "k",
-                                                   "Content-Type": "text/plain"}).status_code == 415
-    assert c.post("/state", json={"gaze": None}, headers={"X-Face-Token": "k"}).status_code == 400
-    assert c.post("/state", json=good, headers={"X-Face-Token": "k"}).status_code == 200
-    st = fs.STATE["state"]
-    assert st["event"]["say"] == "hi" and st["mouth"] == "smile"
-    assert fs.clean_state({"mouth": "<script>", "event": {"id": 1, "sound": "roar", "say": "x" * 500}})["event"]["say"] == "x" * 60
-
-
-def test_face_state_cleaning():
-    import pytest
-    from robot.face_server import clean_state
-    st = clean_state({"gaze": [5, -5], "mouth": "<b>", "mood": "m" * 100,
-                      "event": {"id": 2, "say": "x" * 500, "sound": "roar"}})
-    assert st["gaze"] == [1.0, -1.0] and st["mouth"] == "neutral" and len(st["mood"]) == 24
-    assert st["event"] == {"id": 2, "say": "x" * 60, "sound": None}
-    for bad in ({"gaze": None}, {"gaze": [0, float("nan")]}, {"open": "wide"}, [1, 2], {"event": 5}):
-        with pytest.raises(ValueError):
-            clean_state(bad)

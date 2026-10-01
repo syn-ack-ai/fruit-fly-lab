@@ -1,6 +1,8 @@
-# Optional: the robot's camera head and the face server's tests.
+# Optional: the robot's camera head and the dashboard's tests.
 # (Habitat 3.0 runs in its own conda environment on the simulation machine:
 # see sim/habitat_bridge/README.md.)
 -r requirements.txt
 opencv-python>=4.8
 httpx>=0.27
+# --eye (robot/eye.py): flyvis, installed without its training extras
+# (deploy/jetson/README.md: "The eye")

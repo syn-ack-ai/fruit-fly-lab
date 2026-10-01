@@ -67,37 +67,87 @@ did on the Pi). Without the motors the camera is taken to be level (tilt 0;
 Habitat's camera looks 20 degrees up, rover_world.CAM_PITCH_DEG), and a
 person's head close by is above the picture.
 
-### Faces: who is looking at Milo
+### Faces, voice, ears and the dashboard
 
-`--faces` (with `--camera` and the face page, `--face`) makes the camera
-process find faces (YuNet), tell whether each one faces the robot, and
-recognise it (SFace embeddings; `robot/faces.py`, `robot/people.py`). Milo
-greets a person it knows who looks at it ("Hi Ben!", at most every 10
-minutes) and asks one it does not know: "Hi! I don't think we've met. What's
-your name?". The face page shows an answer box (type, or tap the microphone
-where the browser offers speech recognition: on an iPad that is Apple's,
-which may send the audio to Apple; typing stays on the home network). "No" or
-"skip" is respected and nothing is kept. A face is saved only with the name
-its owner gave, in `~/milo/people/` on the robot (`python -m robot.people
---list`, `--forget NAME`). Models (OpenCV Zoo: YuNet MIT, SFace Apache-2.0):
+- `--faces` (with `--camera`): the camera process finds faces (YuNet), tells
+  whether each one faces the robot, and recognises it (SFace;
+  `robot/faces.py`, `robot/people.py`). Milo greets a person it knows who
+  looks at it ("Hi Ben!", at most every 10 minutes) and asks one it does not
+  know, out loud: "Hi! I don't think we've met. What's your name?". The answer
+  is heard (`--listen`) and read by the language model (Gemma via PAIR:
+  `--personality URL` or `$FLY_LLM_URL`, default `127.0.0.1:1234`); Milo
+  checks it ("Did I get that right? Your name is Ben?") and only a yes learns
+  the face. "No" is respected and nothing is kept. A face is saved only with
+  the name its owner gave, in `~/milo/people/` on the robot
+  (`python -m robot.people --list`, `--forget NAME`).
+- `--voice`: Milo speaks from the rover's speaker (`robot/voice.py`: Pocket
+  TTS in Stuart Bell's voice, CC0, made robotic: `FLY_VOICE_STYLE=tin`); the
+  speaker is `$FLY_SPEAKER` or the first USB playback device.
+- `--listen`: speech recognition on the robot (`robot/speech.py`: Parakeet
+  TDT 0.6B v2 int8, sherpa-onnx, 2 CPU threads; muted while Milo speaks).
+  Audio is never stored; heard words are shown live on the dashboard and go
+  to the personality, but are not saved in the run's log.
+- `--dashboard 8080`: a read-only dashboard (`robot/dashboard.py`): open
+  `http://milo:8080/?key=<~/.milo_dashboard_key>` (the client prints it).
+
+Models (not in the repository), in `~/milo/models`:
 
 ```bash
-cd ~/milo/models
+cd ~/milo/models   # faces (OpenCV Zoo: YuNet MIT, SFace Apache-2.0)
 curl -LO https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 curl -LO https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx
-cd ~/fly-lab/fruit-fly-lab && .venv/bin/python -m robot.faces --build     # TensorRT engines (else OpenCV on the CPU)
-.venv/bin/python -m robot.faces --check some_photo.jpg                     # TensorRT = OpenCV
-python -m robot.face_server --port 8010 &                                  # the face, on the iPad: http://milo:8010/
-... brain_client --rover hw ... --faces --face http://127.0.0.1:8010/state
+mkdir -p asr tts/voices && cd asr   # ears (NVIDIA Parakeet, CC-BY-4.0) and the voice detector
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+tar xjf sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+cd ../tts          # voice (Kyutai Pocket TTS, CC-BY-4.0) and the reference voice (CC0)
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2
+tar xjf sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2
+curl -L -o voices/stuart_bell.wav https://huggingface.co/kyutai/tts-voices/resolve/main/voice-zero/stuart_bell.wav
+cd ~/fly-lab/fruit-fly-lab
+uv pip install --python .venv/bin/python sherpa-onnx
+.venv/bin/python -m robot.faces --build                 # TensorRT face engines (else OpenCV on the CPU)
+.venv/bin/python -m robot.voice --say "Hello, I am Milo."
 ```
 
-Tested on an RTX 3080 Ti (2026-09-30; the Jetson was off): TensorRT gives the
-same faces (within 0.0001 px) and embeddings (cosine 0.99999) as OpenCV; a
-frame with a face takes 3.0 ms (TensorRT) or 5.9 ms (OpenCV, i9 CPU), at
-5 Hz. End to end (the brain client with the fly brain on the GPU, the camera
-process replaying a video, the face server and a scripted answer) Milo asked,
-learned "Lena" from "my name is Lena", and knew her when she came back. Not
-yet timed on the Orin, nor with a live person.
+The language model runs on the Mac Studio (PAIR); until PAIR runs on the
+Jetson, a reverse tunnel from the Mac gives the Jetson's 127.0.0.1:1234:
+`ssh -f -N -R 127.0.0.1:1234:127.0.0.1:1234 milo` (on the Mac).
+
+Measured on the Orin (2026-10-01, max clocks): faces 6.5 ms a frame on the
+GPU at 5 Hz; speech 0.2 s for "My name is Ben." (7.4 s of speech in 1.0 s);
+everything at once (real lidar, camera, person and face recognition, ears,
+voice, dashboard with the 3D brain, neocortex, learning): ~62 ms a 100 ms
+step, none late.
+
+### The eye: camera and lidar through the fly's optic lobes
+
+`--eye`: what the camera and the lidar see goes through flyvis, the published
+model of the fly's visual system (Lappalainen et al. 2024, MIT), into the
+connectome's ~61,000 optic-lobe neurons (`robot/eye.py`,
+`robot/flyvis_eye.py`; why this and not the connectome's own photoreceptors:
+`experiments/vision_ab/README.md`). It runs in its own process on the GPU,
+in real time; the dashboard's optic lobes light up when something moves (a
+still room fades to rest within seconds, as the fly's visual neurons adapt).
+
+```bash
+cd ~/fly-lab/fruit-fly-lab
+# flyvis without its training extras (and without touching torch):
+uv pip install --python .venv/bin/python --no-deps flyvis==1.2.0 datamate==1.0.0
+uv pip install --python .venv/bin/python python-dotenv pytz h5py ruamel.yaml xarray \
+    matplotlib joblib toolz tqdm torchvision cachetools scikit-learn
+# its pretrained model and connectome (110 MB, from the box or flyvis's download),
+# in ~/milo/models/flyvis (FLYVIS_ROOT_DIR): connectome/ and results/flow/0000/000
+PYTHONPATH=. FLY_DATASET=merged .venv/bin/python -m robot.eye --build   # once: the connectome mapping
+```
+
+Measured on the Orin (2026-10-01): flyvis 1.6 ms of GPU a 20 ms step (a
+CUDA graph; PyTorch warns the GPU is unsupported, results match the CPU's to
+0.001 Hz); a step of the whole run with the eye ~85 ms (without, ~62). The
+brain's GPU blocks wait behind the eye's (two processes take turns on the
+GPU), hence 20 ms eye steps, not 10. The robot's settings
+(`FLY_EYE_DT=0.02`, `FLY_EYE_BASELINE_S=2`, `FLY_EYE_RATE_MAX=50`) and the
+lidar steadying are explained in `robot/eye.py`.
 
 ## Check the hardware, piece by piece
 
@@ -170,9 +220,7 @@ same run took 84 ms and was late 13 times: install the unit (one-time setup).
 - The kit's 160-degree camera on the rover's pan-tilt (the ESP32's T133):
   the head process reads any V4L2 camera, but its pan/tilt and field of view
   are the Orbit's (`robot/head.py` HFOV_DEG, PanTilt).
-- Hearing words: the face page takes the answer to Milo's question (typed
-  or the browser's speech recognition); speech recognition on the robot
-  itself would let Milo just listen.
 - The battery layer (robot/battery.py) from the base's voltage, the charging
   dock, bumpers (the rover has none: contacts are the lidar's).
-- The face on the iPad (robot/face_server.py) and the voice.
+- Language on the robot itself: the personality and the name reader use
+  Gemma on the Mac Studio (PAIR) through a tunnel.

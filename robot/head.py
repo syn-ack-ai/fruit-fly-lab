@@ -254,11 +254,15 @@ _F = ["seq", "t_wall", "fps", "frames", "pan_deg", "tilt_deg", "moving",
       "person_t", "person_ms",
       # commands from the simulation
       "cmd_seq", "cmd_dpan", "cmd_dtilt", "cmd_reset", "cmd_done", "cmd_stop",
-      "preview_seq", "preview_len"]
+      "preview_seq", "preview_len",
+      # the whole frame, small and grey, with where the head pointed (robot/eye.py)
+      "gray_seq", "gray_w", "gray_h", "gray_pan", "gray_tilt", "gray_moving"]
 _I = {k: i for i, k in enumerate(_F)}
 _HEADER = 512
 _PREVIEW_MAX = 256 * 1024
-SHM_SIZE = _HEADER + _PREVIEW_MAX
+GRAY_W, GRAY_H = 128, 96                     # 0.4 deg a pixel: finer than the fly's 5.8 deg columns
+_GRAY_AT = _HEADER + _PREVIEW_MAX
+SHM_SIZE = _GRAY_AT + GRAY_W * GRAY_H
 
 
 def _seq_write(buf, i, fn):
@@ -484,6 +488,15 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                 else:
                     hdr[_I["person_active"]] = 0.0
             _seq_write(hdr, _I["seq"], write)
+            small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (GRAY_W, GRAY_H),
+                               interpolation=cv2.INTER_AREA)
+
+            def wg():
+                shm.buf[_GRAY_AT:_GRAY_AT + small.size] = small.tobytes()
+                hdr[_I["gray_w"]], hdr[_I["gray_h"]] = GRAY_W, GRAY_H
+                hdr[_I["gray_pan"]], hdr[_I["gray_tilt"]] = pt.pan_deg, pt.tilt_deg
+                hdr[_I["gray_moving"]] = float(moving)
+            _seq_write(hdr, _I["gray_seq"], wg)
             if int(hdr[_I["frames"]]) % 3 == 0:
                 jpg = _preview(rgb, ext.mask, est, person, pt.pan_deg, pt.tilt_deg, moving, rate)
                 if 0 < len(jpg) <= _PREVIEW_MAX:
@@ -507,6 +520,24 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
 
 
 # ------------------------------------------------------------ simulation side
+def read_gray(shm, hdr):
+    """The head's latest small grey frame from its shared memory (a seqlock
+    read: None if it never settles or there is no frame yet)."""
+    i = _I["gray_seq"]
+    for _ in range(1000):
+        s1 = hdr[i]
+        if int(s1) % 2 or s1 == 0:
+            if s1 == 0:
+                return None
+            continue
+        w, h = int(hdr[_I["gray_w"]]), int(hdr[_I["gray_h"]])
+        img = np.frombuffer(shm.buf, np.uint8, w * h, _GRAY_AT).reshape(h, w).copy()
+        out = (int(s1), img, float(hdr[_I["gray_pan"]]), float(hdr[_I["gray_tilt"]]), bool(hdr[_I["gray_moving"]]))
+        if hdr[i] == s1:
+            return out
+    return None
+
+
 class HeadFeed:
     """Starts the head's sensor process; reads its state, sends motor commands."""
 
@@ -631,6 +662,11 @@ class HeadFeed:
         h[_I["cmd_dpan"]], h[_I["cmd_dtilt"]] = dpan_deg, dtilt_deg
         h[_I["cmd_reset"]] = 1.0 if reset else 0.0
         h[_I["cmd_seq"]] += 1                           # even: ready
+
+    def gray(self):
+        """The latest small grey frame: (seq, (GRAY_H, GRAY_W) uint8, pan_deg,
+        tilt_deg, moving), or None (robot/eye.py reads the same memory)."""
+        return read_gray(self.shm, self._h)
 
     def preview_jpeg(self) -> bytes | None:
         def grab():

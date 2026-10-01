@@ -256,13 +256,20 @@ _F = ["seq", "t_wall", "fps", "frames", "pan_deg", "tilt_deg", "moving",
       "cmd_seq", "cmd_dpan", "cmd_dtilt", "cmd_reset", "cmd_done", "cmd_stop",
       "preview_seq", "preview_len",
       # the whole frame, small and grey, with where the head pointed (robot/eye.py)
-      "gray_seq", "gray_w", "gray_h", "gray_pan", "gray_tilt", "gray_moving"]
+      "gray_seq", "gray_w", "gray_h", "gray_pan", "gray_tilt", "gray_moving",
+      # the whole frame as a clean JPEG (no overlays), for the vision-language
+      # model's appraisal (robot/appraise.py)
+      "clean_seq", "clean_len", "clean_pan", "clean_tilt", "clean_moving", "clean_t"]
 _I = {k: i for i, k in enumerate(_F)}
 _HEADER = 512
 _PREVIEW_MAX = 256 * 1024
 GRAY_W, GRAY_H = 128, 96                     # 0.4 deg a pixel: finer than the fly's 5.8 deg columns
 _GRAY_AT = _HEADER + _PREVIEW_MAX
-SHM_SIZE = _GRAY_AT + GRAY_W * GRAY_H
+_CLEAN_AT = _GRAY_AT + GRAY_W * GRAY_H
+_CLEAN_MAX = 128 * 1024
+CLEAN_PERIOD_S = 0.25                        # a clean JPEG this often (~1 ms to encode)
+SHM_SIZE = _CLEAN_AT + _CLEAN_MAX
+assert len(_F) * 8 <= _HEADER
 
 
 def _seq_write(buf, i, fn):
@@ -370,7 +377,7 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
         except Exception as ex:                          # no models: carry on without
             print("face recognition unavailable:", ex, file=sys.stderr)
             faces = None
-    t_face_next = 0.0
+    t_face_next = t_clean_next = 0.0
     parent = os.getppid()
     last_cmd = 0
     person, person_t, det_ms, t_det_next = None, 0.0, 0.0, 0.0
@@ -497,6 +504,17 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                 hdr[_I["gray_pan"]], hdr[_I["gray_tilt"]] = pt.pan_deg, pt.tilt_deg
                 hdr[_I["gray_moving"]] = float(moving)
             _seq_write(hdr, _I["gray_seq"], wg)
+            if t >= t_clean_next:
+                t_clean_next = t + CLEAN_PERIOD_S
+                ok_j, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok_j and enc.size <= _CLEAN_MAX:
+                    def wc():
+                        shm.buf[_CLEAN_AT:_CLEAN_AT + enc.size] = enc.tobytes()
+                        hdr[_I["clean_len"]] = enc.size
+                        hdr[_I["clean_pan"]], hdr[_I["clean_tilt"]] = pt.pan_deg, pt.tilt_deg
+                        hdr[_I["clean_moving"]] = float(moving)
+                        hdr[_I["clean_t"]] = time.time()
+                    _seq_write(hdr, _I["clean_seq"], wc)
             if int(hdr[_I["frames"]]) % 3 == 0:
                 jpg = _preview(rgb, ext.mask, est, person, pt.pan_deg, pt.tilt_deg, moving, rate)
                 if 0 < len(jpg) <= _PREVIEW_MAX:
@@ -548,6 +566,24 @@ def read_preview(shm, hdr) -> bytes | None:
             continue
         n = int(hdr[_I["preview_len"]])
         out = bytes(shm.buf[_HEADER:_HEADER + n]) if 0 < n <= _PREVIEW_MAX else None
+        if hdr[i] == s1:
+            return out
+    return None
+
+
+def read_clean(shm, hdr):
+    """The head's latest clean JPEG: (seq, jpeg bytes, pan_deg, tilt_deg,
+    moving, wall time) or None (a seqlock read)."""
+    i = _I["clean_seq"]
+    for _ in range(1000):
+        s1 = hdr[i]
+        if int(s1) % 2:
+            continue
+        n = int(hdr[_I["clean_len"]])
+        if s1 == 0 or not 0 < n <= _CLEAN_MAX:
+            return None
+        out = (int(s1), bytes(shm.buf[_CLEAN_AT:_CLEAN_AT + n]), float(hdr[_I["clean_pan"]]),
+               float(hdr[_I["clean_tilt"]]), bool(hdr[_I["clean_moving"]]), float(hdr[_I["clean_t"]]))
         if hdr[i] == s1:
             return out
     return None
@@ -682,6 +718,10 @@ class HeadFeed:
         """The latest small grey frame: (seq, (GRAY_H, GRAY_W) uint8, pan_deg,
         tilt_deg, moving), or None (robot/eye.py reads the same memory)."""
         return read_gray(self.shm, self._h)
+
+    def clean_jpeg(self):
+        """The latest clean frame (read_clean), or None."""
+        return read_clean(self.shm, self._h)
 
     def preview_jpeg(self) -> bytes | None:
         def grab():

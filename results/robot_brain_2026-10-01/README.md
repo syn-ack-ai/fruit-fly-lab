@@ -78,3 +78,51 @@ What had to change for the trimmed brain:
 The rover (`brain_client --rover`) now runs the trimmed brain by default
 (`FLY_TRIM=` keeps the whole brain; `--eye` needs it). Habitat, the exam and
 the lab keep the whole brain unless `FLY_TRIM=robot` is set.
+
+## 3. Fear from meaning, not geometry
+
+`FLY_LOOM=meaning` (the default now, `robot/threat.py`): the looming neurons
+LC4 / LPLC2 are driven only by fear appraisals -- the vision-language model
+looking at the camera (`robot/appraise.py`, `brain_client --see-danger`) and
+the personality's `fear` -- not by the person growing in the camera or by
+things approaching on the lidar.
+
+Calibration (`experiments/fear_levels.py`, trimmed brain, 3 seeds, 1 s held;
+`fear_levels_merged_robot.json`): level 1 ("danger") keeps the escape command
+above 0.5 in 100% of 50 ms windows at 0 and +-45 deg; level 0.2 peaks at
+0.25 and never crosses; 0.25 is "wary".
+
+On the robot (Orin, real camera; Gemma 4 E4B on the Mac through PAIR, 0.42 s
+a look):
+- 2 minutes, a person in view, the whole stack (`--rover fake`, real lidar
+  and camera, neocortex, personality): 109 looks, 0 fear; loop 38.7 ms mean,
+  no late steps.
+- The knife test (`python -m robot.appraise`, 80 s, by the user): sitting,
+  standing, walking up, a hand at the camera, the empty room and hallway: 0
+  throughout; a kitchen knife pointed at the camera: 2, held upright: 1. The
+  answers flicker (2, 1, 0, 1, 1, 0, 1, a second apart), so fear fades (2 s
+  for a look) instead of switching off. Replayed into the trimmed brain
+  (`fear_knife_replay.txt`): one startle, ~1 s of escape command, then a
+  fading wariness without more escapes.
+
+Habitat held-out (`score_heldout_meaning.txt`, `stats_geometry_vs_meaning.txt`;
+trimmed brain, petsteer; no appraiser in Habitat, so no fear at all): no
+significant difference in any metric.
+
+| | geometry | meaning |
+|---|---|---|
+| total | 80.5% [75-88] | 77.4% [75-79] |
+| aliveness | 94.3% | 92.2% |
+| steps with escape neurons >= 40 Hz | 1.5% | 0.0% |
+| person contacts (all) | 58 | 45 |
+| of them the pet's fault, per day | 0.40 | 0.57 (p = 0.25) |
+| walked m/day | 21.5 | 22.2 |
+| s/day near the person | 13.9 | 17.0 |
+| turns toward the person | 87% | 80% |
+
+The lower total is mostly the person-bump score (0 .. 0.5 a day): 17 vs 12
+contacts in 30 days counted as the pet's fault, nearly all at 0.08 m/s (the
+near-person speed limit) while it wanted company -- the pet nudging up to its
+person. The fly's looming had been an accidental "personal space" brake: the
+person's growing image slowed or turned it. That job belongs to the robot's
+social manners (keeping a little distance unless invited), not to fear.

@@ -140,6 +140,7 @@ eye model, `robot/eye.py`; `experiments/vision_ab`).
 | `FLY_DYNAMICS` | `published` (Session default) or `calibrated` (the robot, exam and lab use calibrated) |
 | `FLY_ENGINE`, `FLY_NATIVE_LIB`, `FLY_THREADS` | engine choice, the CUDA library (`native/liblif_cuda.so`), threads |
 | `FLY_TRIM` | `robot`: the robot's brain without the optic lobes and the nerve cord (51,268 of 165,122 neurons; the rover's default, `results/robot_brain_2026-10-01`); unset or empty: the whole brain |
+| `FLY_LOOM` | `meaning` (default): the looming neurons LC4 / LPLC2 are driven by fear appraisals from the vision and language models (`robot/threat.py`; `brain_client --see-danger`), not by things approaching; `geometry`: the fly's own looming from the camera and the lidar |
 | `FLY_GAIN` | override the dataset's calibrated synaptic gain (`calibration_<dataset>.json`) |
 | `FLY_TORCH_DEVICE` | the neocortex's small networks (`cuda` if available; `cpu` on the rover) |
 | `FLY_CUDA_NO_GRAPH` | CUDA engine: launch directly, not through CUDA graphs (for Nsight Compute) |

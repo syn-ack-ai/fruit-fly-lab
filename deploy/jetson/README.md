@@ -110,6 +110,14 @@ uv pip install --python .venv/bin/python sherpa-onnx
 .venv/bin/python -m robot.voice --say "Hello, I am Milo."
 ```
 
+- `--see-danger` (with `--personality` and the camera): Gemma looks at the
+  camera about once a second and says whether something is a real danger to
+  Milo (`robot/appraise.py`); only that -- and the personality's `fear` for
+  words like "watch out!" -- drives the fly's looming neurons, aimed at the
+  danger's side (`robot/threat.py`). People and things coming closer are not
+  danger. To watch the appraisals live and try things in front of the camera:
+  `.venv/bin/python -m robot.appraise --camera /dev/video0 --seconds 120 --save /tmp/fear`.
+
 The language model runs on the Mac Studio (PAIR); until PAIR runs on the
 Jetson, a reverse tunnel from the Mac gives the Jetson's 127.0.0.1:1234:
 `ssh -f -N -R 127.0.0.1:1234:127.0.0.1:1234 milo` (on the Mac).

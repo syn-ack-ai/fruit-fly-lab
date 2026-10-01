@@ -132,6 +132,7 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
     from brain.sensory.encoders import LoomingEncoder
     from brain.sensory.retinotopy import load_retinotopy
     from fly.body.foraging_body import ForagingBody
+    from robot.threat import LOOM_MODE, Fear
     from simulation.engine.session import Session
     clock = SimClock()
     rh.time = clock                     # robot.head's motion estimate runs on simulated time
@@ -141,7 +142,12 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
     loom = LoomingEncoder(c, load_retinotopy(c))
     obj = rh.ObjectEncoder(c, feed)
     rest = rh.RestingOlfaction(c)
-    parts = [(loom, rh.HeadLoomingStimulus(feed)), (obj, obj)]
+    # LC4 / LPLC2 (looming -> escape): driven by meaning -- the vision and
+    # language models' fear appraisal (robot/threat.py) -- not by things
+    # growing in the camera or coming closer on the lidar; FLY_LOOM=geometry
+    # gives back the fly's own looming (the fly lab, ablations)
+    ses.fear = Fear()
+    parts = [(loom, rh.HeadLoomingStimulus(feed) if LOOM_MODE == "geometry" else ses.fear), (obj, obj)]
     ses.lidar = None
     if lidar:
         # 2D lidar as looming (LC4/LPLC2) and antennal touch (robot/lidar.py)
@@ -151,7 +157,9 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
         scan = LidarScan(ang, body_profile(ang, BODIES[body]))   # the robot's body, seen from its lidar
         lloom, ltouch = LidarLooming(scan), LidarTouch(c, scan)
         if lidar_senses:
-            parts += [(LoomingEncoder(c, load_retinotopy(c)), lloom), (ltouch, ltouch)]
+            parts.append((ltouch, ltouch))
+            if LOOM_MODE == "geometry":
+                parts.append((LoomingEncoder(c, load_retinotopy(c)), lloom))
         ses.lidar = (scan, lloom, ltouch)
         ses.lidar_limit = True
         ses.body_dims = (BODIES[body]["half_len"], BODIES[body]["half_wid"])
@@ -199,7 +207,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 seed: int, video_dir: str | None, brain=None, home=None, cortex=None,
                 safe_speed: bool = True, person=None, personality=None, voice=None,
                 checkpoint=None, checkpoint_s: float = 600.0, social=None, ears=None,
-                dashboard=None, eye=None) -> dict:
+                dashboard=None, eye=None, appraiser=None) -> dict:
     from fly.body.foraging_body import ForagingBody
     from robot.safety import ProximityGovernor
     governor = ProximityGovernor() if safe_speed else None
@@ -227,6 +235,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             ses.lidar[1].reset()
             if hasattr(ses.lidar[2], "reset"):
                 ses.lidar[2].reset()                 # touch adaptation
+        ses.fear.reset()
         if getattr(ses, "cmon", None) is not None:
             ses.cmon.reset()
         if getattr(ses, "avoid", None) is not None:
@@ -294,6 +303,10 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             if personality is not None and cortex is not None:
                 pout = personality.step(t_sim, _digest(cortex, ses, obs, home, fr_prev))
                 cortex.set_personality(pout["intent"], pout["feedback"] if pout["new"] else 0)
+                if pout["new"] and mode == "brain":
+                    from robot.threat import llm_level
+                    # words of warning ("watch out!") or what it was told it sees
+                    ses.fear.appraise("llm", llm_level(pout.get("fear", 0)), t_sim, what=pout.get("mood", ""))
                 if pout["new"]:
                     said.append((round(t_sim, 1), {k: pout[k] for k in ("intent", "sound", "say", "mood", "feedback")}))
             if cortex is not None:
@@ -353,6 +366,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                             # the pivot reflex must turn the same way (review 2026-09-28)
                             ses.avoid.last.update(active=True, chosen=round(uaz, 1), source="unstick")
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)
+            if appraiser is not None:
+                appraiser.step(t_sim, ses.fear, personality)
+            ses.fear.update(t_sim)
             fr = fr_prev = ses.advance(period_ms)[-1]
             # the song channel over the whole step (every 1 ms block's 50 ms
             # window, Session.STEP_MEAN_KEYS): pIP10 is one cell per side, and a
@@ -494,6 +510,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 tel = {"t": round(t_sim, 1), "error": str(ex)[:200]}
             if eye is not None:
                 tel["eye"] = eye.status()
+            tel["fear"] = dict(ses.fear.last, looks=appraiser.summary() if appraiser is not None else None)
             dashboard.publish(tel, ses.engine.spike_counts)
         if bumped:
             hs = math.hypot(obs["human"][0] - prev_obs["human"][0],
@@ -511,6 +528,10 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                     "az": round(obs["az"], 1), "v": round(v, 3), "w_deg": round(math.degrees(w), 1),
                     "turn_bias": tb, "dn": dn,
                     "lc10a_hz": (obj.last.get("drive_hz") if mode == "brain" else None)})
+        if mode == "brain" and ses.fear.last["active"]:
+            F = ses.fear.last
+            log[-1]["fear"] = {"source": F["source"], "level": F["level"], "az": round(F["azimuth_deg"]),
+                               "what": F["what"]}
         if mode == "brain" and getattr(ses, "lidar", None) is not None:
             L = ses.lidar
             log[-1]["lidar"] = {"loom": L[1].last.get("active", False), "loom_az": round(L[1].last.get("azimuth_deg", 0.0)),
@@ -564,6 +585,12 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["social"] = {"stats": dict(social.stats), "met": sorted(social.met)}
     if eye is not None and hasattr(eye, "status"):
         res["eye"] = eye.status()
+    if mode == "brain":
+        res["fear"] = {"mode": __import__("robot.threat", fromlist=["LOOM_MODE"]).LOOM_MODE,
+                       "appraisals": ses.fear.count,
+                       "steps_afraid": sum(1 for e in log if "fear" in e)}
+        if appraiser is not None:
+            res["fear"]["looks"] = appraiser.summary()
     if ears is not None:
         res["ears"] = {"utterances": ears.stats["utterances"], "alive": ears.alive}
     if personality is not None:
@@ -850,6 +877,10 @@ def main():
                     help="what the camera and the lidar see goes through the fly's optic lobes (robot/eye.py: "
                          "the flyvis eye model; --rover: on the GPU in its own process; in Habitat: the "
                          "server's pet camera (habitat_server --eye-camera), in simulated time)")
+    ap.add_argument("--see-danger", action="store_true",
+                    help="--rover with --personality and the camera: the vision-language model looks at the "
+                         "camera about once a second and its fear appraisal drives the fly's looming circuit "
+                         "(robot/appraise.py, robot/threat.py)")
     ap.add_argument("--voice", action="store_true",
                     help="--rover: Milo speaks from the rover's speaker (robot/voice.py): the personality's "
                          "words and sounds, greetings and questions")
@@ -984,7 +1015,7 @@ def main():
         getattr(mb.e, "commit_plastic", lambda *_: None)(mb.edge_pos)
         print("loaded mushroom-body weights from", a.weights, flush=True)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    person = personality = voice = dashboard = eye = None
+    person = personality = voice = dashboard = eye = appraiser = None
     if a.speech:
         from sim.habitat_bridge.speech import ScriptedPerson
         person = ScriptedPerson(name=a.pet_name, seed=a.seed)
@@ -1061,6 +1092,13 @@ def main():
                 del bm
             import socket
             print(f"dashboard: http://{socket.gethostname()}:{a.dashboard}/?key={dashboard.key}", flush=True)
+        if a.see_danger:
+            if not (a.personality and brain is not None and hasattr(world.camera, "clean_jpeg")):
+                raise SystemExit("--see-danger needs --personality, --mode brain and the camera")
+            from robot.appraise import VisionAppraiser
+            appraiser = VisionAppraiser(a.personality, a.llm_model, world.camera.clean_jpeg, a.hfov,
+                                        name=a.pet_name)
+            print(f"see-danger: {a.llm_model} looks at the camera every {appraiser.period:.0f} s", flush=True)
         connection = LocalConn(world)
     else:
         from sim.habitat_bridge.authkey import authkey
@@ -1103,7 +1141,7 @@ def main():
                                 a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,
                                 person=person, personality=personality, voice=voice,
                                 checkpoint=save_learning if a.rover else None, social=social, ears=ears,
-                                dashboard=dashboard, eye=eye)
+                                dashboard=dashboard, eye=eye, appraiser=appraiser)
             except BaseException:
                 if a.rover:
                     save_learning()               # stopped or crashed: keep what was learned

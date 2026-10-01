@@ -6,7 +6,7 @@ from sim.habitat_bridge.speech import ScriptedPerson
 
 def test_parse_keeps_only_allowed_values():
     r = parse('sure! {"intent": "eat", "sound": "whirr", "say": "yum", "mood": "happy", "feedback": 3, "note": null}')
-    assert r == {"intent": "eat", "sound": "whirr", "say": "yum", "mood": "happy", "feedback": 1, "note": None}
+    assert r == {"intent": "eat", "sound": "whirr", "say": "yum", "mood": "happy", "feedback": 1, "fear": 0, "note": None}
     r = parse('{"intent": "drive_to_kitchen_at_full_speed", "sound": "roar", "mood": "evil"}')
     assert r["intent"] == "none" and r["sound"] == "none" and r["mood"] == "calm"
     assert parse("no json here") is None

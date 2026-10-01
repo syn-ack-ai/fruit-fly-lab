@@ -47,6 +47,7 @@ What the fly brain loses (165,122 neurons simulated today):
 | nerve cord (legs, flight) | 9% | Milo has wheels; a small body model sends back the ascending "body signals" |
 | smell, taste | 3.6% | a few kept as drive inputs (the dock is "food"), the rest silent |
 | escape takeoff | - | becomes a startle (stop, back off, look, a beep), from real threats only |
+| looming from geometry | - | something growing in the camera or closing in on the lidar is not fear: a person walking up, the dock, walls as Milo drives. Fear comes from meaning (below) |
 
 What AI adds (PyTorch / TensorRT on the Orin, into the fly's own neurons):
 
@@ -54,7 +55,10 @@ What AI adds (PyTorch / TensorRT on the Orin, into the fly's own neurons):
    depth (a small monocular model) fused with the lidar for true
    time-to-collision of things moving by themselves; an embedding model
    (CLIP / SigLIP) for "what is this, have I seen it". Into the fly: a person
-   or toy to pursue -> LC10a, real looming -> LC4 / LPLC2, novelty -> arousal.
+   or toy to pursue -> LC10a, novelty -> arousal, and **fear from meaning ->
+   LC4 / LPLC2**: the vision-language model (Gemma, which reads images) looks
+   at the camera and says whether something is a real danger; the
+   personality says so for words ("watch out!"). Geometry only aims it.
 2. **Memory** (a hippocampus): lidar SLAM (the user's hands-on lidar
    project), a semantic map ("the kitchen", "Ben's chair"), episodic memory of
    people, places and things as embeddings.
@@ -75,12 +79,31 @@ Steps:
   31/32 as the whole brain, Habitat held-out 80.5% vs 80.1% (no significant
   difference), the Orin's whole robot step 58 -> 36 ms
   (`results/robot_brain_2026-10-01`).
-- **now** Vision into the fly (below), starting with the camera.
-- **next** Startle instead of escape: the takeoff command becomes a startle,
-  driven only by real threats (time-to-collision of something approaching
-  by itself, being lifted or knocked).
-- **next** Vision into the fly: depth + lidar time-to-collision, the
-  embedding model for novelty and recognition.
+- **done 2026-10-01** Fear from meaning, not geometry (`robot/threat.py`,
+  `robot/appraise.py`, `--see-danger`): the looming neurons LC4 / LPLC2 are
+  driven only by fear appraisals -- Gemma looking at the camera about once a
+  second (0.4 s a look from the Orin through the tunnel) and the
+  personality's new `fear` field -- as a virtual looming disc at the danger's
+  bearing; things growing in the camera or approaching on the lidar no
+  longer are (`FLY_LOOM=geometry` gives the fly's own back). Calibrated on
+  the trimmed brain (`experiments/fear_levels.py`): "danger" holds the escape
+  command above threshold for the whole second at every bearing, "wary"
+  stays below it. Live on the Orin, 2 minutes with a person in view: 109
+  looks, no false fear; the knife test (`robot.appraise` live, 80 s): a
+  person sitting, standing, walking up, a hand at the camera, the empty
+  room: all 0; a knife pointed at the camera "danger", held up "wary".
+  Gemma's answers flicker (2, 1, 0, 1, 1, 0, 1 a second apart), so fear
+  lingers and fades (2 s for a look, 4 s for words) instead of switching:
+  replayed into the trimmed brain, one startle (~1 s of escape command),
+  then a fading wariness without more escapes
+  (`experiments/fear_levels.py --knife`). Habitat: `results/robot_brain_2026-10-01`.
+- **now** Vision into the fly, the rest: toys as well as people to pursue
+  (LC10a), the embedding model for novelty (arousal) and recognition, the
+  fast route for danger (depth + lidar time-to-collision of something
+  approaching by itself, appraised by meaning).
+- **next** Startle instead of escape: the takeoff command becomes a startle
+  (stop, back off, look, a beep) for the wheeled body; being lifted or
+  knocked (IMU) as a danger of its own.
 - **later** Memory and SLAM (with the user, step by step), then curiosity and
   the social reward loop.
 - The flyvis eye stays an option (`--eye`, for watching the optic lobes on

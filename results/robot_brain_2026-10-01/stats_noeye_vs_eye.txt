@@ -1,5 +1,5 @@
-A = /private/tmp/claude-501/-Users-benjaminbabeshkin-fly-lab/33bcc219-2545-4de6-a736-43fec192f9ae/scratchpad/stats/noeye
-B = /private/tmp/claude-501/-Users-benjaminbabeshkin-fly-lab/33bcc219-2545-4de6-a736-43fec192f9ae/scratchpad/stats/eye
+A = heldout (petsteer, whole brain, no eye)
+B = heldout_eye (petsteereye, whole brain, flyvis eye)
 REAL: p(days) < 0.0045 (Bonferroni) and all seeds apart
 == petsteer
   furniture  A    0.30  B    0.10  p(days)=0.943  

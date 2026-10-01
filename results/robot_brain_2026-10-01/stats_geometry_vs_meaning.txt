@@ -1,0 +1,15 @@
+A = heldout_trim (geometry)
+B = simulation/outputs/habitat/heldout_meaning
+REAL: p(days) < 0.0045 (Bonferroni) and all seeds apart
+== petsteer
+  furniture  A    0.23  B    0.47  p(days)=0.19  
+  person     A    0.40  B    0.57  p(days)=0.248  
+  brake      A   26.45  B   29.38  p(days)=0.79  
+  pinned     A   15.53  B   11.88  p(days)=0.128  
+  walked     A   21.52  B   22.18  p(days)=0.784  
+  company    A   13.91  B   17.02  p(days)=0.482  
+  speed_cv   A    0.60  B    0.58  p(days)=0.326  seeds apart only
+  reversals  A    1.60  B    1.79  p(days)=0.487  
+  bouts      A    4.12  B    3.95  p(days)=0.771  
+  orient     A    0.85  B    0.79  p(days)=0.312  
+  eating_s   A    6.10  B    5.83  p(days)=0.907  

@@ -78,6 +78,8 @@ Reply with ONLY one JSON object, no other text:
   "mood": one of {moods},
   "feedback": -1 if the person just scolded you in words, +1 if they praised you in words, else 0
               (being petted or given a treat is not praise: those are rewarded already),
+  "fear": 2 if you are in real danger right now (warned of it, or your camera saw danger), 1 if
+          something is worth being wary of, else 0; people coming close are not danger,
   "note": a few words for your diary, or null}}"""
 
 DEFAULT_CHARACTER = ("affectionate but independent, endlessly curious about new places and things, "
@@ -122,7 +124,7 @@ class Personality:
             self._reply = None
         self.day = day
         self.current = {"intent": "none", "sound": "none", "say": None, "mood": "calm",
-                        "feedback": 0, "t": -1e9}
+                        "feedback": 0, "fear": 0, "t": -1e9}
         self.last_call_t = -1e9
         self._fresh = None                   # the newest reply, until the face takes it
         self.events = []                     # (t, text) since the last call
@@ -261,6 +263,14 @@ def request_body(model: str, system: str, msg: str) -> dict:
             "messages": messages}
 
 
+def _int_in(x, allowed, default=0):
+    try:
+        v = int(x)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return v if v in allowed else default
+
+
 def parse(text: str) -> dict | None:
     """The model's JSON, validated; anything outside the allowed values is dropped."""
     a = text.find("{")
@@ -284,4 +294,5 @@ def parse(text: str) -> dict | None:
             "say": say,
             "mood": r.get("mood") if r.get("mood") in MOODS else "calm",
             "feedback": max(-1, min(1, fb)),
+            "fear": _int_in(r.get("fear"), (0, 1, 2)),
             "note": str(note)[:80] if note not in (None, "", "null") else None}

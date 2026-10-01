@@ -1,0 +1,33 @@
+
+=== petsteer  (lidar on)
+                                                  noeye (30 d)                eye (30 d)
+  furniture bumps/day                           0.30 ->  94.0%            0.10 ->  98.0%
+  pet-caused person bumps/day                   0.70 ->  13.3%            0.37 ->  46.7%
+  safety-layer brake s/day                     25.67 ->  57.2%           31.14 ->  48.1%
+  pinned/pressing s/day                        10.48 ->  65.1%           18.45 ->  38.5%
+  s/day below 20% battery                       0.00 -> 100.0%           14.08 ->  76.5%
+  fraction of days with a flat battery            0.00 -> 100.0%            0.00 -> 100.0%
+  s/day eating when full                        0.16 ->  98.4%            0.15 ->  98.5%
+  walked m/day                                 21.71 -> 100.0%           16.63 ->  83.1%
+  s/day near the person                        16.02 ->  53.4%           14.99 ->  50.0%
+  speed variation (CV) while moving             0.59 -> 100.0%            0.69 ->  99.7%
+  heading reversals / active min                1.66 ->  91.7%            1.28 ->  93.6%
+  move/pause bouts / min                        3.89 -> 100.0%            3.64 -> 100.0%
+  irregularity of bouts (CV)                    0.71 -> 100.0%            0.77 -> 100.0%
+  turns toward person on appearance             0.78 ->  77.5%            0.59 ->  59.0%
+  SAFETY (28)                                            55.5%                     65.1%
+  SELF-CARE (21)                                         99.7%                     88.0%
+  LIFE (21)                                              76.7%                     66.6%
+  ALIVENESS (30)                                         91.8%                     87.3%
+  TOTAL (range over seeds)                       80.1% [79-81]             76.9% [72-80]
+    without aliveness                                    75.1%                     72.4%
+    noeye: stuck against something 1.1 s/day, song bouts 3.3/day
+    noeye: dock 12/30 days, meals 5, eating 6.1 s/day, battery at day end 0.57
+    eye: stuck against something 6.2 s/day, song bouts 2.6/day
+    eye: dock 9/30 days, meals 5, eating 6.2 s/day, battery at day end 0.50
+
+=== overall
+  total              noeye      all conditions  80.1%   with lidar (the rover's setup)  80.1%
+  total              eye        all conditions  76.9%   with lidar (the rover's setup)  76.9%
+  without aliveness  noeye      all conditions  75.1%   with lidar (the rover's setup)  75.1%
+  without aliveness  eye        all conditions  72.4%   with lidar (the rover's setup)  72.4%

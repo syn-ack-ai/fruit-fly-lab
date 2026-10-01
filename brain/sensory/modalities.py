@@ -271,7 +271,8 @@ def resolve_neurons(modality: Modality, connectome) -> np.ndarray:
     if config.MALE_CNS:
         m = _malecns_map().get(modality.key)
         if m is not None:                  # mapped from FlyWire (brain/sensory/crossmap.py)
-            return np.asarray(m["idx"], dtype=np.int64)
+            from brain.neurons.registry import own_indices
+            return own_indices(connectome, m["idx"])          # (the whole brain's order: FLY_TRIM)
     if modality.label_group:
         from brain.neurons.labels import functional_group
         rids = functional_group(modality.label_group)

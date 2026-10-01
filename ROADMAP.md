@@ -18,6 +18,74 @@ camera and a microphone, with an iPad or iPhone as its face.
 Status tags: **now** = in progress, **next** = queued, **later** = planned,
 **idea** = worth exploring.
 
+## 0. A robot's brain, not a fly's (plan of 2026-10-01)
+
+The fly brain is Milo's brainstem and limbic system: what a blank network
+lacks and our scores show it gives: self-driven, lifelike timing (bouts,
+pauses, varied speed; aliveness ~92%), choosing between drives (explore, a
+person, the dock, rest), learning what is good or bad (dopamine, mushroom
+body), habituation and surprise, heading (central complex). It is poor at
+seeing, remembering particular things, planning and language. So: AI models
+supply the meaning, the fly brain decides when and how to act, the language
+model gives long-term goals and words. Signals go into the fly brain as the
+fly's own (which neurons mean what) and come out through its descending
+neurons.
+
+Why: the flyvis eye (`experiments/vision_ab`) drives the optic lobes with the
+real camera and lidar, but in Habitat (seeds 41-43, 10 days, rover with lidar
+steering) Milo's own movement made walls sweep and expand across the eye;
+the looming circuits read it as attack and the brain spent ~46% of the time
+in escape / flight states (2% without): total 80.1% -> 76.9%, walking 21.7 ->
+16.6 m/day (significant), turns toward the person 78% -> 59%. A robot should
+startle only at real danger, and a wheeled robot cannot fly.
+
+What the fly brain loses (165,122 neurons simulated today):
+
+| part | share | |
+|---|---|---|
+| optic lobes | 62% | fly-resolution motion vision: AI vision does it better; costs ~23 ms a step on the Orin |
+| nerve cord (legs, flight) | 9% | Milo has wheels; a small body model sends back the ascending "body signals" |
+| smell, taste | 3.6% | a few kept as drive inputs (the dock is "food"), the rest silent |
+| escape takeoff | - | becomes a startle (stop, back off, look, a beep), from real threats only |
+
+What AI adds (PyTorch / TensorRT on the Orin, into the fly's own neurons):
+
+1. **Vision** (in place of the optic lobes): person and face detection (done);
+   depth (a small monocular model) fused with the lidar for true
+   time-to-collision of things moving by themselves; an embedding model
+   (CLIP / SigLIP) for "what is this, have I seen it". Into the fly: a person
+   or toy to pursue -> LC10a, real looming -> LC4 / LPLC2, novelty -> arousal.
+2. **Memory** (a hippocampus): lidar SLAM (the user's hands-on lidar
+   project), a semantic map ("the kitchen", "Ben's chair"), episodic memory of
+   people, places and things as embeddings.
+3. **Social sense**: who is there, whether they look at Milo, facial
+   expression, tone of voice -> dopamine (the mushroom body learns that praise
+   and attention are good).
+4. **Curiosity**: a small world model predicting the next sensations; its
+   surprise drives exploring (Johnny 5's "need input!").
+5. **Language and personality**: Gemma via PAIR (done), for conversation,
+   intentions and remembering, never motor control.
+6. **Expression**: voice (done), head gaze to people, approach / withdraw,
+   hesitation (the fly's action choices with the motor lag).
+
+Steps:
+
+- **done 2026-10-01** Trim the brain (`FLY_TRIM=robot`, the rover's default):
+  the optic lobes and the nerve cord out, 165,122 -> 51,268 neurons. Fly exam
+  31/32 as the whole brain, Habitat held-out 80.5% vs 80.1% (no significant
+  difference), the Orin's whole robot step 58 -> 36 ms
+  (`results/robot_brain_2026-10-01`).
+- **now** Vision into the fly (below), starting with the camera.
+- **next** Startle instead of escape: the takeoff command becomes a startle,
+  driven only by real threats (time-to-collision of something approaching
+  by itself, being lifted or knocked).
+- **next** Vision into the fly: depth + lidar time-to-collision, the
+  embedding model for novelty and recognition.
+- **later** Memory and SLAM (with the user, step by step), then curiosity and
+  the social reward loop.
+- The flyvis eye stays an option (`--eye`, for watching the optic lobes on
+  the dashboard), not the robot's default.
+
 ## 1. Moving like something alive
 
 - **done** Motor dynamics (`robot/motion.py`): a 0.3 s speed / 1.5 s turn lag
@@ -183,9 +251,10 @@ decides the *words*.
   the published flyvis eye model (B) does (T4/T5 direction selective, HS
   follows yaw). B is wired up on the robot (`--eye`, `robot/eye.py`): camera
   and lidar into ~61,000 optic-lobe neurons, in real time on the Orin.
-- **next** The kit's 160-degree camera on the rover's pan-tilt (more of the
-  fly's field from the camera, less from the lidar); looming and small-object
-  responses through the eye (LPLC2 / LC10a stay quiet under B so far).
+- **done 2026-10-01** The eye in Habitat (`habitat_server --eye-camera`, the
+  pet camera rendered): worse, from escapes at self-made optic flow; this
+  led to section 0's plan.
+- **later** The kit's 160-degree camera on the rover's pan-tilt.
 - **done 2026-09-30** Nsight Compute profile of the engine on the Orin: the
   update is instruction-issue bound (per-neuron branch bookkeeping; only ~11%
   of instructions are floating point). Six further layouts and schedules did

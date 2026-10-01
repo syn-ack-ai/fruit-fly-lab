@@ -136,8 +136,10 @@ class Connectome:
 
 
 @lru_cache(maxsize=1)
-def load_connectome() -> Connectome:
-    """Load the built connectome. Raises if the build has not been run."""
+def load_connectome(trim: str | None = None) -> Connectome:
+    """Load the built connectome. Raises if the build has not been run.
+    trim: the brain without some parts (trim_connectome); default FLY_TRIM,
+    "" for the whole brain."""
     if not all(p.exists() for p in (config.CONNECTOME_NPZ, config.NEURON_INDEX, config.BUILD_MANIFEST)):
         build = {
             "fafb": "python -m brain.connectivity.build_connectome",
@@ -155,7 +157,52 @@ def load_connectome() -> Connectome:
     manifest = json.loads(config.BUILD_MANIFEST.read_text())
     if config.MALE_CNS:
         neurons = harmonize_malecns(neurons)
-    return Connectome(neurons, w, manifest)
+    c = Connectome(neurons, w, manifest)
+    trim = config.TRIM if trim is None else trim
+    return trim_connectome(c, trim) if trim else c
+
+
+# What the robot's brain leaves out (FLY_TRIM=robot; ROADMAP.md section 0), by
+# super class. The optic lobes (fly-resolution vision: AI vision feeds the
+# visual projection neurons instead, LC4 / LPLC2 / LC10a / LPTCs, which stay)
+# and the nerve cord (legs and flight: Milo has wheels; the descending
+# neurons are read out, the ascending neurons stay as inputs for a body
+# model). Merged brain: 165,122 -> ~51,300 neurons.
+TRIM_DROP = {
+    "robot": ("ol_intrinsic", "ol_sensory", "vnc_intrinsic", "vnc_sensory", "vnc_sensory_tbc", "vnc_motor",
+              "vnc_efferent", "vnc_endocrine", "vnc_tbc"),
+}
+
+
+def trim_connectome(c: Connectome, kind: str) -> Connectome:
+    """The connectome without the super classes TRIM_DROP[kind]: the rest
+    keeps its order (renumbered 0..n-1, so arrays indexed by neuron, such as
+    the mushroom body's KC->MBON weights, keep their order too) and every
+    synapse between kept neurons."""
+    sc = c.neurons["super_class"].fillna("").astype(str)
+    keep = ~sc.isin(TRIM_DROP[kind]).to_numpy()
+    ix = np.flatnonzero(keep)
+    w = c.w.tocsr()[ix][:, ix].tocsr()
+    neurons = c.neurons.iloc[ix].reset_index(drop=True)
+    neurons["idx"] = np.arange(len(neurons))
+    manifest = dict(c.manifest, trim=kind, trim_dropped=int((~keep).sum()), trim_full_n=int(c.n))
+    out = Connectome(neurons, w, manifest)
+    # indices saved in the whole brain's order (the sensory modality map):
+    # out.from_full[i] is neuron i's index here, -1 if it was left out
+    out.from_full = np.full(c.n, -1, np.int64)
+    out.from_full[ix] = np.arange(len(ix))
+    return out
+
+
+def own_indices(connectome, full_idx) -> np.ndarray:
+    """Indices saved in the whole brain's order -> this connectome's (those
+    left out by trim_connectome dropped); unchanged for a whole brain."""
+    full_idx = np.asarray(full_idx, dtype=np.int64)
+    f = getattr(connectome, "from_full", None)
+    if f is None:
+        return full_idx
+    out = f[full_idx]
+    return out[out >= 0]
 
 
 def harmonize_malecns(neurons: pd.DataFrame) -> pd.DataFrame:

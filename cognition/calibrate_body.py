@@ -106,7 +106,7 @@ def main():
     phz, pse = sugar_proboscis_hz()
     print(f"{config.DATASET_KEY}: proboscis motor neurons under sustained sugar {phz:.2f} +- {pse:.2f} Hz (SE)")
     if a.write:
-        p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"
+        p = config.METADATA_DIR / f"body_readout_{config.BRAIN_KEY}.json"
         p.write_text(json.dumps({"dataset": config.DATASET_KEY, "dng100_rest_hz": round(hz, 2), "se_hz": round(se, 2),
                                  "proboscis_sugar_hz": round(phz, 2), "proboscis_se_hz": round(pse, 2),
                                  "dynamics_sha256_16": dynamics_hash(),

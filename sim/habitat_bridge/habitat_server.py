@@ -59,8 +59,11 @@ CAM_HEIGHT_M = 0.35             # the pet's head camera above the floor
 VIDEO_SENSORS = {"agent_0": ("head_rgb_sensor",)}
 
 
+EYE_CAM_W, EYE_CAM_H = 256, 128           # --eye-camera: the rendered pet camera (grey, halved for the eye)
+
+
 def make_env(house: str, max_seconds: float, habitat_lab_dir: str, full_sensors: bool = False,
-             video: bool = False):
+             video: bool = False, eye_cam: dict | None = None):
     import habitat
     from habitat.config import read_write
     from habitat.config.default import get_config
@@ -88,7 +91,7 @@ def make_env(house: str, max_seconds: float, habitat_lab_dir: str, full_sensors:
                 if "humanoid_detector" in k or "stereo_depth" in k:
                     del ls[k]
             for agent in ("agent_0", "agent_1"):
-                keep = VIDEO_SENSORS.get(agent, ()) if video else ()
+                keep = VIDEO_SENSORS.get(agent, ()) if (video or eye_cam) else ()
                 sens = cfg.habitat.simulator.agents[agent].sim_sensors
                 for k in list(sens.keys()):
                     if k not in keep:
@@ -96,6 +99,15 @@ def make_env(house: str, max_seconds: float, habitat_lab_dir: str, full_sensors:
                 missing = [k for k in keep if k not in sens]
                 if missing:
                     raise KeyError("camera sensors not in the config: %s (have %s)" % (missing, list(sens.keys())))
+        if eye_cam:
+            # the head camera becomes the pet's: where summary()'s virtual camera
+            # is (CAM_HEIGHT above the floor, pitched up, the brain's field of
+            # view), for the fly's eyes (brain client --eye: robot/eye.py)
+            h = cfg.habitat.simulator.agents["agent_0"].sim_sensors["head_rgb_sensor"]
+            h.position = [0.0, float(eye_cam["height"]), 0.0]
+            h.orientation = [math.radians(eye_cam["pitch"]), 0.0, 0.0]
+            h.hfov = int(round(eye_cam["hfov"]))                       # (the config takes whole degrees)
+            h.width, h.height = EYE_CAM_W, EYE_CAM_H
     return habitat.Env(config=cfg)
 
 
@@ -127,8 +139,9 @@ class Server:
 
     def __init__(self, house: str, max_seconds: float, hfov_deg: float, habitat_lab_dir: str,
                  cam_height: float = CAM_HEIGHT_M, cam_pitch: float = 20.0, body: str = "spot",
-                 full_sensors: bool = False, video: bool = False):
-        self.env = make_env(house, max_seconds, habitat_lab_dir, full_sensors, video)
+                 full_sensors: bool = False, video: bool = False, eye_camera: bool = False):
+        self.eye_cam = ({"hfov": hfov_deg, "pitch": cam_pitch, "height": cam_height} if eye_camera else None)
+        self.env = make_env(house, max_seconds, habitat_lab_dir, full_sensors, video, self.eye_cam)
         self.video = video or full_sensors
         self.body = body
         self.rover_pf, self._rover_scene = None, None
@@ -319,7 +332,7 @@ class Server:
             self._rover_setup()
         return self.summary()
 
-    def step(self, v: float, w: float, n: int, frame: bool = False) -> dict:
+    def step(self, v: float, w: float, n: int, frame: bool = False, gray: bool = False) -> dict:
         act = {"action": ("agent_0_base_velocity", "agent_1_oracle_nav_randcoord_action"),
                "action_args": {"agent_0_base_vel": np.array([v / BASE_SPEED, w / BASE_SPEED], np.float32),
                                "agent_1_oracle_nav_randcoord_action": np.array([1.0], np.float32)}}
@@ -345,7 +358,16 @@ class Server:
             if "agent_0_head_rgb" not in obs:
                 raise RuntimeError("video frames need the head camera: start the server with --video")
             self.frames.append(np.asarray(obs["agent_0_head_rgb"])[..., :3].copy())
-        return self.summary()
+        out = self.summary()
+        if gray and obs is not None:
+            if self.eye_cam is None or "agent_0_head_rgb" not in obs:
+                raise RuntimeError("grey frames need the pet camera: start the server with --eye-camera")
+            g = np.asarray(obs["agent_0_head_rgb"])[..., :3].astype(np.float32).mean(2)
+            g = g.reshape(g.shape[0] // 2, 2, g.shape[1] // 2, 2).mean((1, 3))    # 2 x 2 average
+            out["gray"] = np.clip(g, 0, 255).astype(np.uint8).tobytes()
+            out["gray_shape"] = list(g.shape)
+            out["eye_cam"] = self.eye_cam
+        return out
 
     def topdown(self, path: str, mpp: float = 0.03) -> dict:
         """The house's navigable area from above, for drawing trajectories:
@@ -406,11 +428,13 @@ def main():
     ap.add_argument("--full-sensors", action="store_true",
                     help="keep all of the task's cameras (5x slower; nothing reads them)")
     ap.add_argument("--video", action="store_true", help="keep the robot's head camera for videos")
+    ap.add_argument("--eye-camera", action="store_true",
+                    help="render the pet's camera (CAM_HEIGHT, --cam-pitch, --hfov) for the fly's eyes (--eye)")
     ap.add_argument("--body", choices=list(BODIES), default="spot",
                     help="the robot's footprint (sim/habitat_bridge/bodies.py)")
     a = ap.parse_args()
     srv = Server(a.house, a.max_seconds, a.hfov, a.habitat_lab, cam_pitch=a.cam_pitch, body=a.body,
-                 full_sensors=a.full_sensors, video=a.video)
+                 full_sensors=a.full_sensors, video=a.video, eye_camera=a.eye_camera)
     print("habitat server ready on port", a.port, flush=True)
     with Listener(("127.0.0.1", a.port), authkey=authkey()) as lst:
         while True:
@@ -437,7 +461,7 @@ def handle(srv, msg, conn):
     if cmd == "reset":
         return srv.reset(msg.get("episode"))
     if cmd == "step":
-        return srv.step(msg["v"], msg["w"], msg.get("n", 12), msg.get("frame", False))
+        return srv.step(msg["v"], msg["w"], msg.get("n", 12), msg.get("frame", False), msg.get("gray", False))
     if cmd == "lidar":
         return srv.set_lidar(msg.get("beams", 90))
     if cmd == "body":

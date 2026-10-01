@@ -1,0 +1,15 @@
+A = /private/tmp/claude-501/-Users-benjaminbabeshkin-fly-lab/33bcc219-2545-4de6-a736-43fec192f9ae/scratchpad/stats/noeye
+B = /private/tmp/claude-501/-Users-benjaminbabeshkin-fly-lab/33bcc219-2545-4de6-a736-43fec192f9ae/scratchpad/stats/eye
+REAL: p(days) < 0.0045 (Bonferroni) and all seeds apart
+== petsteer
+  furniture  A    0.30  B    0.10  p(days)=0.943  
+  person     A    0.70  B    0.37  p(days)=0.142  
+  brake      A   25.67  B   31.14  p(days)=0.186  
+  pinned     A   10.48  B   18.45  p(days)=0.139  seeds apart only
+  walked     A   21.71  B   16.63  p(days)=0.00177  REAL
+  company    A   16.02  B   14.99  p(days)=0.399  
+  speed_cv   A    0.59  B    0.69  p(days)=4.42e-06  REAL
+  reversals  A    1.66  B    1.28  p(days)=0.139  
+  bouts      A    3.89  B    3.64  p(days)=0.101  
+  orient     A    0.77  B    0.59  p(days)=0.122  seeds apart only
+  eating_s   A    6.14  B    6.15  p(days)=0.712  

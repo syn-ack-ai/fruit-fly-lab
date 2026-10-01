@@ -16,6 +16,8 @@
 #   petttc   lidar senses + a footprint time-to-collision filter (Nav2 Collision Monitor "approach")
 #   petsteer petlidar + steering toward open space before obstacles (robot/avoid.py)
 #   petroute petsteer + the neocortex's obstacle map and routes around it (cortex/obstacle_map.py)
+#   petsteereye petsteer + the fly's eyes: the server renders the pet camera, which with
+#            the lidar goes through flyvis into the optic lobes (--eye, robot/eye.py)
 #   pettalk  the battery pet + personality + scripted talking person
 # The robot's near-person speed limit (robot/safety.py) is on in every condition; SAFE_SPEED=0 turns it off.
 # SPEECH=1 lets the scripted person talk in every condition (only "talk" listens).
@@ -68,7 +70,8 @@ if [ -n "${HAB_HOST:-}" ]; then
   # (journalctl keeps the lines of every earlier run of the same unit)
   T0=$(ssh -o BatchMode=yes $HAB_HOST "date +%s")
   for j in "${JOBS[@]}"; do set -- $j
-    ssh -o BatchMode=yes $HAB_HOST "cd $HAB_ABS && systemd-run --user --quiet --unit hab-split-$1 --working-directory=$HAB_ABS $KEYENV \$HOME/miniforge3/envs/habitat/bin/python -m sim.habitat_bridge.habitat_server --port $1 $SERVER_ARGS"
+    SA="$SERVER_ARGS"; case $2 in *eye) SA="$SA --eye-camera";; esac
+    ssh -o BatchMode=yes $HAB_HOST "cd $HAB_ABS && systemd-run --user --quiet --unit hab-split-$1 --working-directory=$HAB_ABS $KEYENV \$HOME/miniforge3/envs/habitat/bin/python -m sim.habitat_bridge.habitat_server --port $1 $SA"
   done
   for j in "${JOBS[@]}"; do set -- $j
     ready=0
@@ -87,7 +90,8 @@ else
   trap stop EXIT
   stop; sleep 1
   for j in "${JOBS[@]}"; do set -- $j
-    nohup $HAB -m sim.habitat_bridge.habitat_server --port $1 $SERVER_ARGS > /tmp/hserver_$1.log 2>&1 &
+    SA="$SERVER_ARGS"; case $2 in *eye) SA="$SA --eye-camera";; esac
+    nohup $HAB -m sim.habitat_bridge.habitat_server --port $1 $SA > /tmp/hserver_$1.log 2>&1 &
   done
   for j in "${JOBS[@]}"; do set -- $j; for i in $(seq 1 240); do grep -q "server ready" /tmp/hserver_$1.log && break; sleep 1; done; done
 fi
@@ -108,6 +112,7 @@ life() {  # port condition seed
   [ $2 = petsense ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --lidar-use senses"
   [ $2 = petsteer ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --avoid"
   [ $2 = petroute ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --avoid --route"
+  [ $2 = petsteereye ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --avoid --eye"
   [ $2 = petttc ] && cx=pet && extra="--battery ${BATTERY:-0.7} --lidar --lidar-use ttc"
   [ $2 = pettalk ] && cx=pet && extra="--battery ${BATTERY:-0.7} --personality $LLM_URL --speech"
   [ "$SEEDS" != "1" ] && d=$OUT/seed$3/$2

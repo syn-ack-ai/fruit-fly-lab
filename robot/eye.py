@@ -85,6 +85,8 @@ _LIDAR_AT = _HEADER
 
 
 def map_path(dataset: str | None = None) -> str:
+    if os.environ.get("FLY_TRIM"):
+        raise SystemExit("--eye drives the optic lobes, which FLY_TRIM leaves out: unset FLY_TRIM")
     return MAP_PATH % (dataset or os.environ.get("FLY_DATASET", "flywire"))
 
 
@@ -103,9 +105,33 @@ def area_resize(a, w, h):
     return (s / ((y1 - y0)[:, None] * (x1 - x0)[None, :])).astype(np.float32)
 
 
-def compose(gray=None, pan_deg=0.0, tilt_deg=0.0, ranges=None, hfov_deg=None) -> np.ndarray:
+def _pinhole_map(shape, pan_deg, tilt_deg, hfov_deg):
+    """Panorama pixels a pinhole camera sees: (flat panorama indices, flat
+    camera indices), nearest pixel (Habitat's rendered camera: 150 deg wide,
+    too wide to paste linearly)."""
+    h, w = shape
+    f = (w / 2.0) / math.tan(math.radians(hfov_deg) / 2.0)
+    az = np.radians(AZ - pan_deg)[None, :]
+    el = np.radians(EL)[:, None]
+    x, y, z = np.cos(el) * np.sin(az), np.sin(el) * np.ones_like(az), np.cos(el) * np.cos(az)
+    p = math.radians(tilt_deg)                          # the camera pitched up: into its frame
+    yc, zc = y * math.cos(p) - z * math.sin(p), y * math.sin(p) + z * math.cos(p)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        u = np.floor(w / 2.0 + f * x / zc).astype(np.int64)
+        v = np.floor(h / 2.0 - f * yc / zc).astype(np.int64)
+    ok = (zc > 1e-6) & (u >= 0) & (u < w) & (v >= 0) & (v < h)
+    return np.flatnonzero(ok), (v * w + u)[ok]
+
+
+_PINHOLE = {}
+
+
+def compose(gray=None, pan_deg=0.0, tilt_deg=0.0, ranges=None, hfov_deg=None,
+            projection: str = "linear") -> np.ndarray:
     """The panorama the eyes see: plain sky and floor, the lidar's obstacles
-    all around, the camera's image where the head points."""
+    all around, the camera's image where the head points (projection
+    "linear": a narrow camera pasted by angle, the robot's 53 deg head;
+    "pinhole": a wide rendered camera, Habitat's)."""
     img = np.where(EL[:, None] > 0, SKY, FLOOR).astype(np.float32) * np.ones((1, PANO_W), np.float32)
     if ranges is not None and len(ranges):
         r = np.asarray(ranges, np.float32)
@@ -117,7 +143,13 @@ def compose(gray=None, pan_deg=0.0, tilt_deg=0.0, ranges=None, hfov_deg=None) ->
         shade = 0.1 + 0.35 * np.clip(rc / 4.0, 0.0, 1.0)                    # nearer = darker
         m = hit[None, :] & (EL[:, None] <= top[None, :]) & (EL[:, None] >= bot[None, :])
         img = np.where(m, shade[None, :], img)
-    if gray is not None:
+    if gray is not None and projection == "pinhole":
+        key = (gray.shape, round(pan_deg, 2), round(tilt_deg, 2), round(hfov_deg, 2))
+        if key not in _PINHOLE:
+            _PINHOLE[key] = _pinhole_map(gray.shape, pan_deg, tilt_deg, hfov_deg)
+        dst, src = _PINHOLE[key]
+        img.reshape(-1)[dst] = np.asarray(gray, np.float32).reshape(-1)[src] / 255.0
+    elif gray is not None:
         from robot.head import HFOV_DEG
         hf = hfov_deg or HFOV_DEG
         h, w = gray.shape
@@ -253,6 +285,45 @@ class LidarSteadier:
         return self.out
 
 
+class HabitatEye:
+    """The eye in Habitat (brain client --eye without --rover): the server's
+    rendered pet camera (habitat_server --eye-camera) and its lidar, in
+    simulated time, flyvis in the brain's own process (the same model,
+    mapping and settings as the robot's eye process)."""
+
+    wants_gray = True
+
+    def __init__(self, map_file: str | None = None):
+        import torch
+        torch.set_num_threads(int(os.environ.get("FLY_EYE_THREADS", 1)))
+        from robot.flyvis_eye import FlyvisEncoder
+        self.enc = FlyvisEncoder(None, None, self.source, saved=map_file or map_path())
+        self.gray = self.cam = None
+        self.lidar = None
+        self.k = self.frames = 0
+        self._pano = (None, None)
+
+    def see_obs(self, obs: dict) -> None:
+        if obs.get("gray") is not None:
+            self.gray = np.frombuffer(obs["gray"], np.uint8).reshape(obs["gray_shape"])
+            self.cam = obs.get("eye_cam") or {}
+            self.frames += 1
+        if obs.get("lidar"):
+            self.lidar = np.asarray(obs["lidar"], np.float32)
+        self.k += 1
+
+    def source(self, t_ms: float):
+        if self._pano[0] != self.k:
+            c = self.cam or {}
+            self._pano = (self.k, compose(self.gray, 0.0, c.get("pitch", 0.0), self.lidar,
+                                          hfov_deg=c.get("hfov", 90.0), projection="pinhole"))
+        return self._pano
+
+    def status(self) -> dict:
+        return {"steps": self.enc.steps, "camera_frames": self.frames,
+                "mean_hz": round(float(self.enc._rates.mean()), 2)}
+
+
 class EyeFeed:
     """Starts the eye process; passes it the lidar; reads its rates."""
 
@@ -281,6 +352,11 @@ class EyeFeed:
     @property
     def alive(self) -> bool:
         return self.proc.poll() is None and not self._h[_I["error"]]
+
+    def see_obs(self, obs: dict) -> None:
+        """The rover's step: its 1-degree lidar scan (the camera frames come
+        from the head process directly)."""
+        self.put_lidar(obs.get("lidar_fine"))
 
     def put_lidar(self, ranges) -> None:
         """The lidar's 1-degree scan (m, + = right, from -180)."""

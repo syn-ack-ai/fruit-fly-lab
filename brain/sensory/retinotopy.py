@@ -61,6 +61,20 @@ class Retinotopy:
         self.c = connectome
         self.columns = self._build_columns()
         self._cache: dict = {}
+        # A trimmed brain (FLY_TRIM) has no optic lobes, but receptive fields
+        # are anatomy: they come from the whole brain, matched by root id
+        self._full = None
+        if getattr(connectome, "from_full", None) is not None:
+            from brain.neurons.registry import load_connectome
+            self._full = Retinotopy(load_connectome(trim=""))
+
+    def _own(self, df: pd.DataFrame) -> pd.DataFrame:
+        """The whole brain's receptive fields, indexed in this (trimmed) brain."""
+        df = df.copy()
+        df["idx"] = df["root_id"].map(dict(zip(self.c.neurons["root_id"], self.c.neurons["idx"])))
+        df = df.dropna(subset=["idx"])
+        df["idx"] = df["idx"].astype(np.int64)
+        return df.reset_index(drop=True)
 
     # ------------------------------------------------------------------ build
     def _build_columns(self) -> pd.DataFrame:
@@ -114,6 +128,9 @@ class Retinotopy:
                          rf_radius_deg, n_input_columns, input_synapses
         """
         if cell_type in self._cache:
+            return self._cache[cell_type]
+        if self._full is not None:
+            self._cache[cell_type] = self._own(self._full.receptive_fields(cell_type))
             return self._cache[cell_type]
 
         c = self.c
@@ -189,6 +206,10 @@ def receptive_fields_2hop(rt: "Retinotopy", cell_type: str, min_direct_columns: 
     """Two-synapse receptive-field estimate (see module docstring, C)."""
     key = ("2hop", cell_type)
     if key in rt._cache:
+        return rt._cache[key]
+    if rt._full is not None:                     # a trimmed brain: the whole brain's anatomy
+        rt._cache[key] = rt._own(receptive_fields_2hop(rt._full, cell_type, min_direct_columns,
+                                                        max_partner_radius))
         return rt._cache[key]
     c = rt.c
     direct = rt.receptive_fields(cell_type)

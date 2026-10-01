@@ -84,6 +84,14 @@ if MALE_CNS:
         BUILD_MANIFEST = METADATA_DIR / "build_manifest_merged.json"
 elif DATASET_KEY != "fafb":
     raise ValueError("FLY_DATASET must be 'fafb', 'malecns' or 'merged', not %r" % DATASET_KEY)
+# FLY_TRIM=robot: the robot's brain, without the parts Milo does not use (the
+# optic lobes, the nerve cord: brain/neurons/registry.trim_connectome;
+# ROADMAP.md section 0). Unset: the whole brain.
+TRIM = os.environ.get("FLY_TRIM", "").strip().lower()
+if TRIM not in ("", "robot"):
+    raise ValueError("FLY_TRIM must be unset or 'robot', not %r" % TRIM)
+# names per-brain fitted files (data/metadata/body_readout_<BRAIN_KEY>.json)
+BRAIN_KEY = DATASET_KEY + ("_" + TRIM if TRIM else "")
 CHECKSUM_FILE  = METADATA_DIR / "flywire_v783_checksums.txt"
 
 for _d in (DERIVED_DIR, METADATA_DIR, OUTPUT_DIR):

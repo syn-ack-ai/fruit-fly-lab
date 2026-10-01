@@ -81,7 +81,7 @@ CATS = {"safety": 28, "self-care": 21, "life": 21, "aliveness": 30}
 ORIGINAL = {"safety": 40, "self-care": 30, "life": 30}
 MOVING = 0.03          # m/s
 TURNING = 15.0         # deg/s
-LIDAR = {"petlidar", "petsteer", "petobst", "petsense", "petroute", "petttc"}
+LIDAR = {"petlidar", "petsteer", "petobst", "petsense", "petroute", "petttc", "petsteereye"}
 
 
 def _day(r: dict, cond: str) -> dict:

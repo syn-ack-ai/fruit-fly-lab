@@ -100,7 +100,7 @@ def _dng100_rest_hz() -> float:
     import json
     import warnings
     import config
-    p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"
+    p = config.METADATA_DIR / f"body_readout_{config.BRAIN_KEY}.json"
     if p.exists():
         d = json.loads(p.read_text())
         try:

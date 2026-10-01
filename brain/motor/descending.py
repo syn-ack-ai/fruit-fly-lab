@@ -305,7 +305,7 @@ def proboscis_gain() -> float:
     import config
     if not config.env_flag("FLY_PROBOSCIS_HOLD", True):
         return 1.0
-    p = config.METADATA_DIR / f"body_readout_{config.DATASET_KEY}.json"
+    p = config.METADATA_DIR / f"body_readout_{config.BRAIN_KEY}.json"
     if not p.exists():
         return 1.0
     hz = json.loads(p.read_text()).get("proboscis_sugar_hz")

@@ -345,8 +345,8 @@ class FlyvisEncoder:
 
     # ------------------------------------------------------------ encoder
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
-        if self._t_ms is None:
-            self._t_ms = t_ms
+        if self._t_ms is None or t_ms < self._t_ms:
+            self._t_ms = t_ms                                                   # (a new day: the clock restarts)
         n = int((t_ms - self._t_ms) // (DT * 1000.0))
         if n <= 0:
             return self._rates

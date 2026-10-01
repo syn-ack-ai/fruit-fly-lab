@@ -1,0 +1,33 @@
+
+=== petsteer  (lidar on)
+                                                   full (30 d)            trimmed (30 d)
+  furniture bumps/day                           0.30 ->  94.0%            0.23 ->  95.3%
+  pet-caused person bumps/day                   0.70 ->  13.3%            0.40 ->  26.7%
+  safety-layer brake s/day                     25.67 ->  57.2%           26.45 ->  55.9%
+  pinned/pressing s/day                        10.48 ->  65.1%           15.53 ->  48.2%
+  s/day below 20% battery                       0.00 -> 100.0%            3.16 ->  94.7%
+  fraction of days with a flat battery            0.00 -> 100.0%            0.00 -> 100.0%
+  s/day eating when full                        0.16 ->  98.4%            0.15 ->  98.5%
+  walked m/day                                 21.71 -> 100.0%           21.52 ->  99.8%
+  s/day near the person                        16.02 ->  53.4%           13.91 ->  46.4%
+  speed variation (CV) while moving             0.59 -> 100.0%            0.60 -> 100.0%
+  heading reversals / active min                1.66 ->  91.7%            1.60 ->  92.0%
+  move/pause bouts / min                        3.89 -> 100.0%            4.12 -> 100.0%
+  irregularity of bouts (CV)                    0.71 -> 100.0%            0.77 -> 100.0%
+  turns toward person on appearance             0.78 ->  77.5%            0.87 ->  86.7%
+  SAFETY (28)                                            55.5%                     58.8%
+  SELF-CARE (21)                                         99.7%                     97.1%
+  LIFE (21)                                              76.7%                     73.1%
+  ALIVENESS (30)                                         91.8%                     94.3%
+  TOTAL (range over seeds)                       80.1% [79-81]             80.5% [75-88]
+    without aliveness                                    75.1%                     74.6%
+    full: stuck against something 1.1 s/day, song bouts 3.3/day
+    full: dock 12/30 days, meals 5, eating 6.1 s/day, battery at day end 0.57
+    trimmed: stuck against something 1.9 s/day, song bouts 3.6/day
+    trimmed: dock 12/30 days, meals 5, eating 6.1 s/day, battery at day end 0.59
+
+=== overall
+  total              full       all conditions  80.1%   with lidar (the rover's setup)  80.1%
+  total              trimmed    all conditions  80.5%   with lidar (the rover's setup)  80.5%
+  without aliveness  full       all conditions  75.1%   with lidar (the rover's setup)  75.1%
+  without aliveness  trimmed    all conditions  74.6%   with lidar (the rover's setup)  74.6%

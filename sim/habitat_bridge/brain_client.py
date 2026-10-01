@@ -417,10 +417,11 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         last_v = v
         prev_obs = obs
         obs = _call(conn, {"cmd": "step", "v": v, "w": w, "n": n_env,
-                           "frame": bool(video_dir) and k % 5 == 0})
+                           "frame": bool(video_dir) and k % 5 == 0,
+                           "gray": bool(getattr(eye, "wants_gray", False))})
         bumped = obs.get("collisions", 0) > prev_obs.get("collisions", 0)
         if eye is not None:
-            eye.put_lidar(obs.get("lidar_fine"))  # the eye draws the lidar's obstacles around the camera's view
+            eye.see_obs(obs)                      # the camera and lidar the eye draws (robot/eye.py)
         if person is not None:
             heard = person.step(t_sim, period_ms / 1000.0, obs, prev_obs, bumped, v)
             if heard and personality is not None:
@@ -561,6 +562,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["speech"] = person.summary()
     if social is not None:
         res["social"] = {"stats": dict(social.stats), "met": sorted(social.met)}
+    if eye is not None and hasattr(eye, "status"):
+        res["eye"] = eye.status()
     if ears is not None:
         res["ears"] = {"utterances": ears.stats["utterances"], "alive": ears.alive}
     if personality is not None:
@@ -844,8 +847,9 @@ def main():
     ap.add_argument("--dashboard", type=int, default=None, metavar="PORT",
                     help="--rover: serve Milo's read-only dashboard on this port (robot/dashboard.py), e.g. 8080")
     ap.add_argument("--eye", action="store_true",
-                    help="--rover: what the camera and the lidar see goes through the fly's optic lobes "
-                         "(robot/eye.py: the flyvis eye model, on the GPU, in its own process)")
+                    help="what the camera and the lidar see goes through the fly's optic lobes (robot/eye.py: "
+                         "the flyvis eye model; --rover: on the GPU in its own process; in Habitat: the "
+                         "server's pet camera (habitat_server --eye-camera), in simulated time)")
     ap.add_argument("--voice", action="store_true",
                     help="--rover: Milo speaks from the rover's speaker (robot/voice.py): the personality's "
                          "words and sounds, greetings and questions")
@@ -904,6 +908,12 @@ def main():
         os.environ.setdefault("FLY_TORCH_DEVICE", "cpu")   # the neocortex's small nets; the brain has the GPU
         os.environ.setdefault("FLY_TORCH_THREADS", "1")    # ...on one core (Jetson: same speed, the rest free)
         os.environ.setdefault("FLY_CRITIC", "numpy")       # ...or rather numpy: PyTorch's overhead was ~10 ms a step
+        if not a.eye:
+            # the robot's brain: without the optic lobes and the nerve cord
+            # (brain/neurons/registry.trim_connectome; Habitat held-out 2026-10-01:
+            # no difference in any score, 80.5% vs 80.1%; Orin 58 -> 36 ms a step).
+            # FLY_TRIM= (empty) keeps the whole brain; --eye needs the optic lobes.
+            os.environ.setdefault("FLY_TRIM", "robot")
     home = None
     if a.home:
         from sim.habitat_bridge.home import HomeWorld
@@ -929,6 +939,11 @@ def main():
     brain = (build_brain(a.seed, home=home, learning=learning, nav=a.nav, topdown=chans, lidar=a.lidar,
                          lidar_senses=a.lidar_use in ("both", "senses", "ttc"), body=a.body)
              if a.mode == "brain" else None)
+    if brain is not None:
+        m = brain[0].c.manifest
+        print(f"brain: {brain[0].c.n} neurons"
+              + (f" (trimmed for the robot: {m['trim_dropped']} of {m['trim_full_n']} left out)" if m.get("trim") else ""),
+              flush=True)
     if brain is not None and a.rover:
         # real time on the Jetson: the mushroom body's engine writes wait for
         # the gap between 1 ms blocks, so blocks pipeline (Session.advance)
@@ -1050,6 +1065,14 @@ def main():
     else:
         from sim.habitat_bridge.authkey import authkey
         connection = Client(("127.0.0.1", a.port), authkey=authkey())
+        if a.eye:
+            if brain is None:
+                raise SystemExit("--eye: the fly brain's optic lobes, with --mode brain")
+            from robot.eye import HabitatEye
+            eye = HabitatEye()
+            brain[4].append((eye.enc, eye.enc))       # attached with the other senses each day
+            print(f"eye: flyvis drives {len(eye.enc.indices)} optic-lobe neurons (Habitat's pet camera "
+                  f"and lidar, simulated time)", flush=True)
     with connection as conn:
         srv_body = _call(conn, {"cmd": "body"}).get("name", "spot")
         if srv_body != a.body:
@@ -1089,7 +1112,7 @@ def main():
                 if voice is not None:
                     voice.close(wait_s=1.0)
                 if dashboard is not None:
-                    dashboard[0].close()
+                    dashboard.close()
                 raise
             r["day"] = day
             (out / f"{a.mode}_day{day}_ep{ep}.json" if a.home else out / f"{a.mode}_ep{ep}.json").write_text(json.dumps(r))
@@ -1131,7 +1154,7 @@ def main():
     if voice is not None:
         voice.close()
     if dashboard is not None:
-        dashboard[0].close()
+        dashboard.close()
 
 
 if __name__ == "__main__":

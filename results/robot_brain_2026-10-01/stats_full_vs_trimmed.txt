@@ -1,0 +1,13 @@
+REAL: p(days) < 0.0045 (Bonferroni) and all seeds apart
+== petsteer
+  furniture  A    0.30  B    0.23  p(days)=0.989  
+  person     A    0.70  B    0.40  p(days)=0.154  
+  brake      A   25.67  B   26.45  p(days)=0.853  
+  pinned     A   10.48  B   15.53  p(days)=0.0364  
+  walked     A   21.71  B   21.52  p(days)=0.807  
+  company    A   16.02  B   13.91  p(days)=0.183  
+  speed_cv   A    0.59  B    0.60  p(days)=0.6  
+  reversals  A    1.66  B    1.60  p(days)=0.446  
+  bouts      A    3.89  B    4.12  p(days)=0.58  
+  orient     A    0.77  B    0.85  p(days)=0.254  
+  eating_s   A    6.14  B    6.10  p(days)=0.668  

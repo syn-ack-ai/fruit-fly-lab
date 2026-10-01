@@ -120,6 +120,14 @@ everything at once (real lidar, camera, person and face recognition, ears,
 voice, dashboard with the 3D brain, neocortex, learning): ~62 ms a 100 ms
 step, none late.
 
+### The robot's brain
+
+The rover runs the fly brain without the optic lobes and the nerve cord
+(`FLY_TRIM=robot`, set by `--rover`; 51,268 of 165,122 neurons): the whole
+robot stack ~36 ms a 100 ms step instead of ~58 (`results/robot_brain_2026-10-01`).
+`FLY_TRIM=` (empty) runs the whole brain; `--eye` needs it. Copy
+`data/metadata/body_readout_merged_robot.json` with the rest of `data/metadata`.
+
 ### The eye: camera and lidar through the fly's optic lobes
 
 `--eye`: what the camera and the lidar see goes through flyvis, the published

@@ -1,0 +1,9 @@
+{
+  "dataset": "merged",
+  "dng100_rest_hz": 3.54,
+  "se_hz": 0.52,
+  "proboscis_sugar_hz": 9.43,
+  "proboscis_se_hz": 0.39,
+  "dynamics_sha256_16": "7bac7f2ea237e2cd",
+  "method": "cognition/calibrate_body.py: DNg100 under the resting receptor input, calibrated dynamics, 12 seeds x 2 s after a 1 s warm-up; proboscis motor neurons under 120 Hz sugar, 6 seeds, seconds 2-10 after onset"
+}

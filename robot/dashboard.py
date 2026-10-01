@@ -3,8 +3,14 @@ Milo's dashboard: what the robot sees and does, in a browser (an iPad on the
 home network, or anywhere through Tailscale). Read-only: it shows, it does
 not control.
 
-    brain client --(telemetry ~5 Hz, camera JPEG ~5 Hz; localhost)--> this server
+    brain client --(shared memory: telemetry and spike counts, ~5 Hz)--> this server
+    head camera  --(shared memory: its preview JPEG)--------------------> this server
     browser <--(page, WebSocket, camera frames; needs the key)-- this server
+
+The brain's process only copies (a JSON dump and its spike counts, ~0.5 ms a
+copy, 5 times a second; no thread, no HTTP): the activity, levels and wiring
+(robot/brainmap.ActivityMap) and everything served are this process's work,
+on another core, without the brain's Python lock.
 
 Panels: the camera (with the person detector's box), the lidar scan around
 the robot, the fly brain's descending channels, the neocortex's drives and
@@ -14,10 +20,9 @@ control loop's timing.
 The page shows the camera, so it needs the key: open
     http://<robot>:8080/?key=<key>
 (the key: $FLY_DASHBOARD_KEY, else ~/.milo_dashboard_key, created mode 600 on
-first use; the brain client prints the address). The brain client posts from
-127.0.0.1 only, with the same key.
+first use; the brain client prints the address).
 
-    python -m robot.dashboard --port 8080          # run by the brain client (--dashboard)
+    python -m robot.dashboard --port 8080 --shm NAME   # run by the brain client (--dashboard)
 """
 from __future__ import annotations
 
@@ -26,24 +31,33 @@ import asyncio
 import hmac
 import json
 import os
-import queue
 import secrets
+import sys
 import threading
 import time
-import urllib.request
+from multiprocessing import shared_memory
 from pathlib import Path
 
+import numpy as np
+
 try:            # module level: FastAPI resolves the handlers' (postponed) annotations here
-    from fastapi import Request, WebSocket, WebSocketDisconnect
-except ImportError:                     # the brain client's publisher needs none of it
-    Request = WebSocket = WebSocketDisconnect = None
+    from fastapi import WebSocket, WebSocketDisconnect
+except ImportError:                     # the brain client's side needs none of it
+    WebSocket = WebSocketDisconnect = None
 
 HERE = Path(__file__).resolve().parent
 KEY_PATH = os.path.expanduser("~/.milo_dashboard_key")
+STATIC_DIR = os.path.expanduser("~/.milo_dashboard")    # the brain's geometry and circuit (once a run)
 MAX_TELEMETRY = 64 * 1024
-MAX_JPEG = 512 * 1024
-MAX_BLOB = 4 * 1024 * 1024                   # the brain's geometry (~1 MB), activity (~70 KB), flow
-MAX_CIRCUIT = 128 * 1024 * 1024              # every neuron's strongest inputs and outputs (once)
+POLL_S = 0.1
+# shared memory: a float64 header, the telemetry JSON, the head camera's
+# shared-memory name, the spike counts (int32)
+_F = ["seq", "t", "tel_len", "n", "static_v", "head_len", "head_v"]
+_I = {k: i for i, k in enumerate(_F)}
+_HEADER = 256
+_TEL_AT = _HEADER
+_HEAD_AT = _TEL_AT + MAX_TELEMETRY
+_COUNTS_AT = _HEAD_AT + 256
 
 
 def dashboard_key() -> str:
@@ -65,24 +79,26 @@ def dashboard_key() -> str:
     return k
 
 
-def make_app(key: str):
+def make_app(key: str, shm_name: str | None = None):
     from fastapi import FastAPI
     from fastapi.responses import FileResponse, JSONResponse, Response
 
     app = FastAPI(title="Milo dashboard", docs_url=None, redoc_url=None, openapi_url=None)
-    boot = secrets.token_hex(8)                  # changes when the server restarts (DashboardPublisher)
     # three.js for the 3D brain (MIT; vendored for the lab's views): public library code, no key
     from fastapi.staticfiles import StaticFiles
     app.mount("/vendor/three", StaticFiles(directory=HERE.parent / "visualization" / "static" / "vendor" / "three"),
               name="three")
     state = {"telemetry": None, "tv": 0, "jpeg": None, "jv": 0,
              "geometry": None, "gv": 0, "activity": None, "av": 0, "flow": None, "fv": 0, "circuit": None}
+    if shm_name:
+        reader = BrainReader(shm_name, state)
+
+        @app.on_event("startup")
+        async def _start():
+            asyncio.get_running_loop().create_task(reader.run())
 
     def ok_key(k) -> bool:
         return isinstance(k, str) and hmac.compare_digest(k.encode(), key.encode())
-
-    def local(req) -> bool:
-        return req.client is not None and req.client.host in ("127.0.0.1", "::1")
 
     @app.get("/")
     def page(key: str = ""):
@@ -98,62 +114,6 @@ def make_app(key: str):
         if state["jpeg"] is None:
             return Response(status_code=204)
         return Response(state["jpeg"], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
-
-    @app.post("/telemetry")
-    async def post_telemetry(req: Request):
-        if not local(req) or not ok_key(req.headers.get("x-key", "")):
-            return JSONResponse({"ok": False}, status_code=403)
-        body = await req.body()
-        if len(body) > MAX_TELEMETRY:
-            return JSONResponse({"ok": False}, status_code=413)
-        try:
-            state["telemetry"] = json.loads(body)
-        except ValueError:
-            return JSONResponse({"ok": False}, status_code=400)
-        state["tv"] += 1
-        return {"ok": True, "boot": boot, "circuit": state["circuit"] is not None, "geometry": state["geometry"] is not None}
-
-    @app.post("/camera")
-    async def post_camera(req: Request):
-        if not local(req) or not ok_key(req.headers.get("x-key", "")):
-            return JSONResponse({"ok": False}, status_code=403)
-        body = await req.body()
-        if len(body) > MAX_JPEG or not body.startswith(b"\xff\xd8"):
-            return JSONResponse({"ok": False}, status_code=400)
-        state["jpeg"] = body
-        state["jv"] += 1
-        return {"ok": True}
-
-    @app.post("/geometry")
-    async def post_geometry(req: Request):
-        return await _blob(req, "geometry", "gv", b"FLYG")
-
-    @app.post("/activity")
-    async def post_activity(req: Request):
-        return await _blob(req, "activity", "av", None)
-
-    @app.post("/flow")
-    async def post_flow(req: Request):
-        return await _blob(req, "flow", "fv", None)
-
-    @app.post("/circuit")
-    async def post_circuit(req: Request):
-        """robot/brainmap.BrainActivity.circuit(): kept to answer /neuron."""
-        import io
-        import numpy as np
-        if not local(req) or not ok_key(req.headers.get("x-key", "")):
-            return JSONResponse({"ok": False}, status_code=403)
-        body = await req.body()
-        if len(body) > MAX_CIRCUIT:
-            return JSONResponse({"ok": False}, status_code=413)
-        def load():
-            z = np.load(io.BytesIO(body), allow_pickle=False)
-            return {k: z[k] for k in z.files}
-        try:
-            state["circuit"] = await asyncio.to_thread(load)      # not on the event loop
-        except Exception:
-            return JSONResponse({"ok": False}, status_code=400)
-        return {"ok": True}
 
     @app.get("/neuron")
     def neuron(key: str = "", i: int = -1):
@@ -179,16 +139,6 @@ def make_app(key: str):
         return {"ok": True, "i": i, "type": str(c["types"][c["type_id"][n]]) or "untyped",
                 "system": str(c["systems"][c["system"][n]]),
                 "outputs": partners(c["out_idx"], c["out_w"]), "inputs": partners(c["in_idx"], c["in_w"])}
-
-    async def _blob(req, name, ver, magic):
-        if not local(req) or not ok_key(req.headers.get("x-key", "")):
-            return JSONResponse({"ok": False}, status_code=403)
-        body = await req.body()
-        if len(body) > MAX_BLOB or (magic and not body.startswith(magic)):
-            return JSONResponse({"ok": False}, status_code=400)
-        state[name] = body
-        state[ver] += 1
-        return {"ok": True}
 
     @app.get("/geometry.bin")
     def geometry(key: str = ""):
@@ -249,77 +199,179 @@ def _clean(x):
     return x
 
 
-class DashboardPublisher:
-    """Posts telemetry and camera frames to the dashboard server from a
-    background thread; the latest wins, the brain loop never waits."""
+def _attach(name):
+    if sys.version_info >= (3, 13):
+        return shared_memory.SharedMemory(name=name, track=False)
+    from multiprocessing import resource_tracker
+    shm = shared_memory.SharedMemory(name=name)
+    resource_tracker.unregister(shm._name, "shared_memory")     # the brain client owns unlink()
+    return shm
 
-    def __init__(self, port: int = 8080, key: str | None = None, start_server: bool = True):
+
+class BrainReader:
+    """In the server: picks up what the brain client shares (DashboardShare)
+    and the head camera's preview, and computes the brain's activity
+    (robot/brainmap.ActivityMap) here, off the brain's process."""
+
+    def __init__(self, shm_name: str, state: dict):
+        self.name, self.state = shm_name, state
+        self.shm = self.h = None
+        self.seq = self.static_v = self.head_v = None
+        self.head = self.head_h = None
+        self.preview_seq = None
+        self.amap = None
+
+    def _snapshot(self):
+        """(t, telemetry bytes, counts) under the seqlock, or None."""
+        h = self.h
+        for _ in range(100):
+            s1 = h[_I["seq"]]
+            if int(s1) % 2:
+                time.sleep(0.0005)
+                continue
+            tl, n = int(h[_I["tel_len"]]), int(h[_I["n"]])
+            tel = bytes(self.shm.buf[_TEL_AT:_TEL_AT + tl])
+            counts = np.frombuffer(self.shm.buf, np.int32, n, _COUNTS_AT).copy() if n else None
+            t = float(h[_I["t"]])
+            if h[_I["seq"]] == s1:
+                return int(s1), t, tel, counts
+        return None
+
+    def _load_static(self):
+        st = self.state
+        with open(os.path.join(STATIC_DIR, "geometry.bin"), "rb") as fh:
+            g = fh.read()
+        z = np.load(os.path.join(STATIC_DIR, "circuit.npz"), allow_pickle=False)
+        c = {k: z[k] for k in z.files}
+        from robot.brainmap import ActivityMap
+        self.amap = ActivityMap.from_circuit(c)
+        st["geometry"], st["circuit"] = g, c
+        st["gv"] += 1
+
+    def _brain(self):
+        """One poll: static data, telemetry and activity (in a worker thread)."""
+        st = self.state
+        if self.static_v != self.h[_I["static_v"]] and self.h[_I["static_v"]] > 0:
+            self.static_v = self.h[_I["static_v"]]
+            self._load_static()
+        snap = self._snapshot()
+        if snap is None or snap[0] == self.seq or not snap[2]:
+            return
+        self.seq, t, tel, counts = snap
+        tel = _clean(json.loads(tel))
+        if self.amap is not None and counts is not None and len(counts) == len(self.amap.system):
+            systems, levels = self.amap.update(counts, now=t)
+            if systems is not None:
+                tel["activity"] = systems
+                st["activity"], st["flow"] = levels, self.amap.flow or b"\0" * 8
+                st["av"] += 1
+                st["fv"] += 1
+        st["telemetry"] = tel
+        st["tv"] += 1
+
+    def _camera(self):
+        from robot.head import _F as HF, read_preview
+        h = self.h
+        if self.head_v != h[_I["head_v"]]:
+            self.head_v = h[_I["head_v"]]
+            n = int(h[_I["head_len"]])
+            name = bytes(self.shm.buf[_HEAD_AT:_HEAD_AT + n]).decode() if n else None
+            if self.head is not None:
+                del self.head_h
+                self.head.close()
+                self.head = self.head_h = None
+            if name:
+                self.head = _attach(name)
+                self.head_h = np.ndarray((len(HF),), np.float64, buffer=self.head.buf)
+        if self.head is None:
+            return
+        from robot.head import _I as HI
+        ps = self.head_h[HI["preview_seq"]]
+        if ps == self.preview_seq:
+            return
+        jpg = read_preview(self.head, self.head_h)
+        if jpg and jpg.startswith(b"\xff\xd8"):
+            self.preview_seq = ps
+            self.state["jpeg"] = jpg
+            self.state["jv"] += 1
+
+    def _poll(self):
+        if self.shm is None:
+            try:
+                self.shm = _attach(self.name)
+            except FileNotFoundError:
+                return
+            self.h = np.ndarray((len(_F),), np.float64, buffer=self.shm.buf)
+        self._brain()
+        self._camera()
+
+    async def run(self):
+        while True:
+            try:
+                await asyncio.to_thread(self._poll)
+            except Exception as ex:                   # display only: keep serving
+                print("dashboard: reading the brain failed:", repr(ex)[:200], file=sys.stderr, flush=True)
+                await asyncio.sleep(1.0)
+            await asyncio.sleep(POLL_S)
+
+
+class DashboardShare:
+    """The brain client's side: starts the server and shares with it, through
+    memory: telemetry (a JSON dump) and the engine's spike counts, ~5 times
+    a second; the brain's geometry and circuit once (files); the head
+    camera's shared-memory name (the server reads the preview itself). No
+    thread and no HTTP in the brain's process."""
+
+    def __init__(self, port: int = 8080, n_counts: int = 0, key: str | None = None, start_server: bool = True):
         import subprocess
-        import sys
-        self.url = f"http://127.0.0.1:{port}"
         self.key = key or dashboard_key()
+        self.n = int(n_counts)
+        self.shm = shared_memory.SharedMemory(create=True, size=_COUNTS_AT + 4 * max(self.n, 1))
+        self.shm.buf[:_COUNTS_AT] = bytes(_COUNTS_AT)
+        self._h = np.ndarray((len(_F),), np.float64, buffer=self.shm.buf)
+        self._counts = np.ndarray((max(self.n, 1),), np.int32, buffer=self.shm.buf, offset=_COUNTS_AT)
+        self._h[_I["n"]] = self.n
         self.proc = None
+        self.dropped = 0
         if start_server:
             root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            log = open(os.path.expanduser("~/.milo_dashboard.log"), "ab")
+            self.log = open(os.path.expanduser("~/.milo_dashboard.log"), "ab")
             self.proc = subprocess.Popen([sys.executable, "-m", "robot.dashboard", "--port", str(port),
-                                          "--parent", str(os.getpid())], cwd=root, stdout=log, stderr=log)
-        self.q = queue.Queue(maxsize=1)
-        self.fails = 0
-        self.sent = 0
-        self.static = {}                          # path -> [bytes, acknowledged]: sent until the server has it
-        self.boot = None                          # the server's boot id: a new one means it restarted
-        threading.Thread(target=self._run, daemon=True).start()
+                                          "--shm", self.shm.name, "--parent", str(os.getpid())],
+                                         cwd=root, stdout=self.log, stderr=self.log)
 
-    def put_static(self, path: str, data: bytes) -> None:
-        """Data the server keeps (the brain's geometry): posted until it is
-        acknowledged, and again if the server restarts."""
-        self.static[path] = [data, False]
+    def put_static(self, geometry: bytes, circuit: bytes) -> None:
+        """The brain's geometry and circuit (robot/brainmap.BrainActivity),
+        once: written as files the server loads (atomically)."""
+        os.makedirs(STATIC_DIR, mode=0o700, exist_ok=True)
+        for name, data in (("geometry.bin", geometry), ("circuit.npz", circuit)):
+            tmp = os.path.join(STATIC_DIR, name + ".tmp")
+            with open(tmp, "wb") as fh:
+                fh.write(data)
+            os.replace(tmp, os.path.join(STATIC_DIR, name))
+        self._h[_I["static_v"]] += 1
 
-    def publish(self, telemetry: dict, jpeg_fn=None, extra_fn=None) -> None:
-        """telemetry: a JSON-able dict; jpeg_fn: returns the camera's latest
-        JPEG, extra_fn: (more telemetry, {path: bytes}), both called in the
-        background thread."""
-        try:
-            self.q.get_nowait()
-        except queue.Empty:
-            pass
-        try:
-            self.q.put_nowait((telemetry, jpeg_fn, extra_fn))
-        except queue.Full:
-            pass
+    def set_head(self, shm_name: str | None) -> None:
+        b = (shm_name or "").encode()[:255]
+        self.shm.buf[_HEAD_AT:_HEAD_AT + len(b)] = b
+        self._h[_I["head_len"]] = len(b)
+        self._h[_I["head_v"]] += 1
 
-    def _post(self, path: str, body: bytes, ctype: str) -> bytes:
-        req = urllib.request.Request(self.url + path, body, {"Content-Type": ctype, "X-Key": self.key})
-        return urllib.request.urlopen(req, timeout=max(1.0, len(body) / 2e6)).read()   # the circuit: tens of MB
-
-    def _run(self) -> None:
-        while True:
-            tel, jpeg_fn, extra_fn = self.q.get()
-            try:
-                for path, item in list(self.static.items()):
-                    if not item[1]:
-                        self._post(path, item[0], "application/octet-stream")
-                        item[1] = True
-                if extra_fn is not None:
-                    more, blobs = extra_fn()
-                    tel = dict(tel, **(more or {}))
-                    for path, data in (blobs or {}).items():
-                        if data:
-                            self._post(path, data, "application/octet-stream")
-                r = json.loads(self._post("/telemetry", json.dumps(_clean(tel), allow_nan=False).encode(),
-                                          "application/json") or b"{}")
-                if r.get("boot") != self.boot:    # a new server (or the first contact): send the static data again
-                    self.boot = r.get("boot")
-                    for item in self.static.values():
-                        item[1] = False
-                jpg = jpeg_fn() if jpeg_fn is not None else None
-                if jpg:
-                    self._post("/camera", jpg, "image/jpeg")
-                self.sent += 1
-            except Exception:
-                self.fails += 1                   # (the static data is re-sent only to a new server)
-                time.sleep(0.5)
+    def publish(self, telemetry: dict, spike_counts=None) -> None:
+        """telemetry: JSON-able (numpy scalars and NaN allowed: the server
+        cleans); spike_counts: the engine's cumulative counts."""
+        body = json.dumps(telemetry, default=_jsonable).encode()
+        if len(body) > MAX_TELEMETRY:
+            self.dropped += 1
+            return
+        h = self._h
+        h[_I["seq"]] += 1                                   # odd: writing
+        self.shm.buf[_TEL_AT:_TEL_AT + len(body)] = body
+        h[_I["tel_len"]] = len(body)
+        if spike_counts is not None and self.n:
+            np.copyto(self._counts, spike_counts, casting="unsafe")
+        h[_I["t"]] = time.monotonic()                       # system-wide clock: the server's too
+        h[_I["seq"]] += 1                                   # even: ready
 
     def close(self) -> None:
         if self.proc is not None and self.proc.poll() is None:
@@ -328,6 +380,19 @@ class DashboardPublisher:
                 self.proc.wait(timeout=3)
             except Exception:
                 self.proc.kill()
+        self.proc = None
+        if self.shm is not None:
+            del self._h, self._counts
+            self.shm.close()
+            try:
+                self.shm.unlink()
+            except FileNotFoundError:
+                pass
+            self.shm = None
+
+
+def _jsonable(o):
+    return o.item() if hasattr(o, "item") else str(o)
 
 
 def main():
@@ -336,6 +401,7 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--parent", type=int, default=0, help="exit when this process is gone (the brain client)")
+    ap.add_argument("--shm", default=None, help="the brain client's shared memory (DashboardShare)")
     a = ap.parse_args()
     if a.parent:
         def watch():
@@ -346,7 +412,7 @@ def main():
                 except OSError:
                     os._exit(0)                       # the robot stopped: stop showing its camera
         threading.Thread(target=watch, daemon=True).start()
-    uvicorn.run(make_app(dashboard_key()), host=a.host, port=a.port, log_level="warning",
+    uvicorn.run(make_app(dashboard_key(), a.shm), host=a.host, port=a.port, log_level="warning",
                 timeout_graceful_shutdown=2)
 
 

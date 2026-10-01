@@ -1,8 +1,10 @@
 """
 Which parts of the fly brain are active, for the dashboard (robot/dashboard.py).
 
-From the engine's cumulative spike counts (sampled ~5 times a second, in the
-dashboard's background thread: nothing is added to the per-millisecond loop):
+From the engine's cumulative spike counts (copied ~5 times a second into
+memory shared with the dashboard's server, which does all of the below in its
+own process: robot/dashboard.py; the brain's process only builds the static
+part once, BrainActivity):
 
   systems   mean firing rate (Hz) of named systems, by cell type and class:
             the visual neurons the camera and lidar drive (LC4, LPLC2,
@@ -73,52 +75,41 @@ def top_k_rows(m, k):
     return idx, val
 
 
-class BrainActivity:
-    def __init__(self, connectome):
-        n = connectome.neurons
-        sc = n["super_class"].fillna("").astype(str).to_numpy()
-        cl = n["class"].fillna("").astype(str).to_numpy()
-        ty = n["primary_type"].fillna("").astype(str).to_numpy()
-        self.system = np.full(len(n), -1, np.int16)
-        for k, (_, f) in enumerate(SYSTEMS):
-            m = (self.system < 0) & f(sc, cl, ty)
-            self.system[m] = k
-        self.sys_n = np.bincount(self.system, minlength=len(SYSTEMS)).astype(float)
-        xyz = np.stack([n[c].to_numpy(float) for c in ("pos_x_nm", "pos_y_nm", "pos_z_nm")], 1)
-        has = np.isfinite(xyz).all(1)
-        self.idx = np.flatnonzero(has)                       # the neurons drawn, in this order
-        p = xyz[has]
-        self.lo, self.hi = p.min(0), p.max(0)
-        self.q = np.round((p - self.lo) / np.maximum(self.hi - self.lo, 1) * 65535).astype(np.uint16)
+class ActivityMap:
+    """The per-update part: systems' rates, levels and flow from cumulative
+    spike counts. Built from the static arrays alone (the dashboard's server:
+    from_circuit(), no connectome needed)."""
+
+    def __init__(self, system, idx, pos_of, out_idx, out_w, names):
+        self.names = [str(x) for x in names]
+        self.system = np.asarray(system).astype(np.int16)
+        self.sys_n = np.bincount(self.system, minlength=len(self.names)).astype(float)
+        self.idx = np.asarray(idx)
+        self.pos_of = np.asarray(pos_of)
+        self.out_idx, self.out_w = out_idx, out_w
         self.level = np.zeros(len(self.idx), np.float32)
         self._prev = None
-        self.pos_of = np.full(len(n), -1, np.int32)
-        self.pos_of[self.idx] = np.arange(len(self.idx), dtype=np.int32)
-        self.types = n["primary_type"].fillna("").astype(str).to_numpy()
-        w = connectome.w.tocsr()
-        self.out_idx, self.out_w = top_k_rows(w, K_CIRCUIT)
-        self.in_idx, self.in_w = top_k_rows(w.T.tocsr(), K_CIRCUIT)
         self.flow = b""
 
-    def geometry(self) -> bytes:
-        """Header (b"FLYG", n, the box in micrometres as 6 float32) then n x
-        (x, y, z uint16) then n system indices (uint8)."""
-        head = b"FLYG" + struct.pack("<I6f", len(self.idx), *(self.lo / 1e3), *(self.hi / 1e3))
-        return head + self.q.tobytes() + self.system[self.idx].astype(np.uint8).tobytes()
+    @classmethod
+    def from_circuit(cls, z):
+        """From circuit()'s arrays (a loaded .npz or a dict)."""
+        return cls(z["system"], z["idx"], z["pos_of"], z["out_idx"], z["out_w"], z["systems"])
 
-    def update(self, spike_counts):
+    def update(self, spike_counts, now: float | None = None):
         """(systems JSON, activity bytes) since the previous call, from the
-        engine's cumulative counts; (None, None) on the first call."""
-        now = time.monotonic()
+        engine's cumulative counts taken at `now` (s; default: this call's
+        time); (None, None) on the first call."""
+        now = time.monotonic() if now is None else float(now)
         c = np.array(spike_counts, np.int64)                 # a snapshot (the engine keeps counting)
         prev, self._prev = self._prev, (now, c)
-        if prev is None or now - prev[0] < 0.05:
+        if prev is None or now - prev[0] < 0.05 or len(prev[1]) != len(c):
             return None, None
         dt = now - prev[0]
         d = np.clip(c - prev[1], 0, None).astype(np.float32)   # a reset (new episode) never goes negative
-        sys_rate = np.bincount(self.system, weights=d, minlength=len(SYSTEMS)) / np.maximum(self.sys_n, 1) / dt
+        sys_rate = np.bincount(self.system, weights=d, minlength=len(self.names)) / np.maximum(self.sys_n, 1) / dt
         systems = {"systems": [{"name": name, "hz": round(float(sys_rate[k]), 2), "n": int(self.sys_n[k])}
-                               for k, (name, _) in enumerate(SYSTEMS) if self.sys_n[k] > 0],
+                               for k, name in enumerate(self.names) if self.sys_n[k] > 0],
                    "spikes_per_s": int(d.sum() / dt)}
         # level: log2(1 + rate / 2 Hz) on a 0..15 scale (15 = ~200 Hz and up), held and decaying
         rate = d[self.idx] / dt
@@ -148,6 +139,40 @@ class BrainActivity:
         src, tgt, sgn = src[ok], tgt[ok], sgn[ok]
         tgt = np.where(sgn < 0, -(tgt + 1), tgt)
         return np.stack([src, tgt], 1).astype(np.int32).tobytes()
+
+
+class BrainActivity(ActivityMap):
+    """The static part, from the connectome (once, in the brain's process):
+    every neuron's system, position and strongest partners."""
+
+    def __init__(self, connectome):
+        n = connectome.neurons
+        sc = n["super_class"].fillna("").astype(str).to_numpy()
+        cl = n["class"].fillna("").astype(str).to_numpy()
+        ty = n["primary_type"].fillna("").astype(str).to_numpy()
+        system = np.full(len(n), -1, np.int16)
+        for k, (_, f) in enumerate(SYSTEMS):
+            m = (system < 0) & f(sc, cl, ty)
+            system[m] = k
+        xyz = np.stack([n[c].to_numpy(float) for c in ("pos_x_nm", "pos_y_nm", "pos_z_nm")], 1)
+        has = np.isfinite(xyz).all(1)
+        idx = np.flatnonzero(has)                            # the neurons drawn, in this order
+        p = xyz[has]
+        self.lo, self.hi = p.min(0), p.max(0)
+        self.q = np.round((p - self.lo) / np.maximum(self.hi - self.lo, 1) * 65535).astype(np.uint16)
+        pos_of = np.full(len(n), -1, np.int32)
+        pos_of[idx] = np.arange(len(idx), dtype=np.int32)
+        self.types = n["primary_type"].fillna("").astype(str).to_numpy()
+        w = connectome.w.tocsr()
+        out_idx, out_w = top_k_rows(w, K_CIRCUIT)
+        self.in_idx, self.in_w = top_k_rows(w.T.tocsr(), K_CIRCUIT)
+        super().__init__(system, idx, pos_of, out_idx, out_w, [s for s, _ in SYSTEMS])
+
+    def geometry(self) -> bytes:
+        """Header (b"FLYG", n, the box in micrometres as 6 float32) then n x
+        (x, y, z uint16) then n system indices (uint8)."""
+        head = b"FLYG" + struct.pack("<I6f", len(self.idx), *(self.lo / 1e3), *(self.hi / 1e3))
+        return head + self.q.tobytes() + self.system[self.idx].astype(np.uint8).tobytes()
 
     def circuit(self) -> bytes:
         """Everything the dashboard server needs to say what a neuron is wired

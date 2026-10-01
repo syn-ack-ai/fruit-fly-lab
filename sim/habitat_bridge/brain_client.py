@@ -485,14 +485,15 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             social.can_ask = bool(social.reader is not None and ears is not None and ears.alive
                                   and voice is not None and voice.alive)
         if dashboard is not None and mode == "brain" and k % 2 == 0:
-            pub, jpeg_fn, bm = dashboard            # 5 Hz, in the background (never waits)
+            # 5 Hz: a copy into memory the dashboard's server reads (it does
+            # the brain map and the camera itself, in its own process)
             try:
                 tel = _telemetry(t_sim, obs, ses, fr_prev, cortex, personality, social, v, w, voice_log)
             except Exception as ex:               # display only: never the end of the run
                 tel = {"t": round(t_sim, 1), "error": str(ex)[:200]}
             if eye is not None:
                 tel["eye"] = eye.status()
-            pub.publish(tel, jpeg_fn, lambda: _activity(bm, ses))
+            dashboard.publish(tel, ses.engine.spike_counts)
         if bumped:
             hs = math.hypot(obs["human"][0] - prev_obs["human"][0],
                             obs["human"][1] - prev_obs["human"][1]) / (period_ms / 1000.0)
@@ -755,20 +756,6 @@ def _speak(voice, personality, social, song=False):
     if snd and snd != "none":
         voice.sound(snd)
     return lines
-
-
-def _activity(bm, ses):
-    """The brain's activity for the dashboard (robot/brainmap.py), in its
-    background thread: the systems' rates and the 3D view's levels (the
-    neurons' positions are sent once, DashboardPublisher.put_static)."""
-    if bm is None:
-        return {}, {}
-    blobs = {}
-    systems, levels = bm.update(ses.engine.spike_counts)
-    if levels is not None:
-        blobs["/activity"] = levels
-        blobs["/flow"] = bm.flow or b"\0" * 8      # the wiring the activity travels along
-    return ({"activity": systems} if systems else {}), blobs
 
 
 def _telemetry(t, obs, ses, fr, cortex, personality, social, v, w, voice_log) -> dict:
@@ -1047,18 +1034,18 @@ def main():
             print(f"eye: flyvis drives {eye.n} optic-lobe neurons (camera {'on' if head_shm else 'off'}, "
                   f"lidar {'on' if a.lidar_port else 'off'})", flush=True)
         if a.dashboard:
-            from robot.dashboard import DashboardPublisher
-            pub = DashboardPublisher(a.dashboard)
-            atexit.register(pub.close)
-            jpeg = getattr(world.camera, "preview_jpeg", None) if world.camera is not None else None
-            from robot.brainmap import BrainActivity
-            bm = BrainActivity(brain[0].c) if brain is not None else None
-            if bm is not None:
-                pub.put_static("/geometry", bm.geometry())
-                pub.put_static("/circuit", bm.circuit())     # every neuron's strongest partners (tap one)
-            dashboard = (pub, jpeg, bm)
+            from robot.dashboard import DashboardShare
+            n = len(brain[0].engine.spike_counts) if brain is not None else 0
+            dashboard = DashboardShare(a.dashboard, n_counts=n)
+            atexit.register(dashboard.close)
+            dashboard.set_head(getattr(getattr(world.camera, "shm", None), "name", None))
+            if brain is not None:
+                from robot.brainmap import BrainActivity
+                bm = BrainActivity(brain[0].c)               # once; the server does the updates
+                dashboard.put_static(bm.geometry(), bm.circuit())
+                del bm
             import socket
-            print(f"dashboard: http://{socket.gethostname()}:{a.dashboard}/?key={pub.key}", flush=True)
+            print(f"dashboard: http://{socket.gethostname()}:{a.dashboard}/?key={dashboard.key}", flush=True)
         connection = LocalConn(world)
     else:
         from sim.habitat_bridge.authkey import authkey

@@ -538,6 +538,21 @@ def read_gray(shm, hdr):
     return None
 
 
+def read_preview(shm, hdr) -> bytes | None:
+    """The head's latest preview JPEG from its shared memory (a seqlock read;
+    robot/dashboard.py's server reads it from its own process)."""
+    i = _I["preview_seq"]
+    for _ in range(1000):
+        s1 = hdr[i]
+        if int(s1) % 2:
+            continue
+        n = int(hdr[_I["preview_len"]])
+        out = bytes(shm.buf[_HEADER:_HEADER + n]) if 0 < n <= _PREVIEW_MAX else None
+        if hdr[i] == s1:
+            return out
+    return None
+
+
 class HeadFeed:
     """Starts the head's sensor process; reads its state, sends motor commands."""
 

@@ -151,6 +151,20 @@ change, results unchanged), the per-block readout, body and mushroom body
 (28%), the neocortex (10%; one PyTorch thread, `FLY_TORCH_THREADS=1`, is as
 fast as six on its small nets and leaves the cores free).
 
+Everything at once (2026-10-01, max clocks): the real D500 (`--rover fake
+--lidar-port /dev/ttyUSB0`: the real lidar with the simulated base), the
+Orbit with the person detector and face recognition (`--faces`, 6.5 ms a
+frame on the GPU at 5 Hz), the face server, the neocortex and learning: a
+step takes 62 ms (95th percentile 66 ms, no step late in 2 minutes). Since
+the day before: the neocortex's critic runs in numpy on the rover
+(`FLY_CRITIC=numpy`; 4.4 -> 0.7 ms a step, the same results), and sensory
+inputs that did not change are recognised without recomputing (unchanged
+encoders return the same read-only array; the session and the engine skip
+the update; output identical). What is left: waiting for the GPU's brain
+steps 30%, the per-millisecond readout, body and mushroom body 37%, sensory
+input 12%, the neocortex 3%. Without `jetson_clocks` (after a reboot) the
+same run took 84 ms and was late 13 times: install the unit (one-time setup).
+
 ## Not yet
 
 - The kit's 160-degree camera on the rover's pan-tilt (the ESP32's T133):

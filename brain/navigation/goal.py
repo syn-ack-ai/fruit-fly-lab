@@ -142,16 +142,14 @@ class GoalDrive:
         self.goal = float(goal_deg) % 360.0
 
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
+        from brain.sensory.encoders import memo_of
+        rm = memo_of(self)
         if not self.enabled:
-            return np.zeros(len(self.indices))
-        key = (self.goal, self.offset, self.gain, self.peak_hz, self.sigma)   # set per control step
-        m = getattr(self, "_memo", None)
-        if m is not None and m[0] == key:
-            return m[1].copy()
-        d = (self.goal + self.offset - self._ang + 180.0) % 360.0 - 180.0
-        out = self.gain * self.peak_hz * np.exp(-0.5 * (d / self.sigma) ** 2)
-        self._memo = (key, out)
-        return out.copy()
+            return rm.zeros(len(self.indices))
+        # set per control step, asked every block: the same (read-only) rates
+        return rm.get((self.goal, self.offset, self.gain, self.peak_hz, self.sigma), lambda: (
+            self.gain * self.peak_hz * np.exp(
+                -0.5 * (((self.goal + self.offset - self._ang + 180.0) % 360.0 - 180.0) / self.sigma) ** 2)))
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "goal", "active": self.enabled, "goal_deg": round(self.goal, 1)}

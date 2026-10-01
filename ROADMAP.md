@@ -165,6 +165,10 @@ decides the *words*.
   the face page, then learns the face (`robot/faces.py`, `robot/people.py`,
   `--faces`). TensorRT or OpenCV; checked on an RTX 3080 Ti, end to end with
   a recorded video. Next: on the Jetson with a live person.
+- **done 2026-10-01** Everything at once on the Jetson (real D500 lidar,
+  the Orbit with person and face recognition, brain, neocortex, learning):
+  62 ms a step (95th percentile 66, none late). The critic in numpy on the
+  rover (same results), unchanged sensory inputs skipped (output identical).
 - **next** The kit's 160-degree camera on the rover's pan-tilt (ESP32 T133
   instead of the Orbit's motors); speech recognition on the robot, so Milo
   hears the answer instead of reading it from the face page.

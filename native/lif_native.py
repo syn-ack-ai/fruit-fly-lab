@@ -154,6 +154,7 @@ class NativeLIFEngine:
             self._lib.lif_spike_counts(self._h), (self.n,))
         self._silenced = np.zeros(self.n, dtype=bool)   # mirror, for inspection
         self._poi_idx = np.empty(0, np.int32)             # current Poisson targets
+        self._in_idx = self._in_rates = None              # the caller's last (read-only) arrays
 
     # State views. With the CUDA engine the state lives on the GPU and these
     # host mirrors are refreshed when read (and uploaded again by wake_all()).
@@ -214,6 +215,7 @@ class NativeLIFEngine:
         self._lib.lif_reset(self._h)
         self._silenced[:] = False
         self._poi_idx = np.empty(0, np.int32)
+        self._in_idx = self._in_rates = None
         if seed is not None:
             self._lib.lif_set_seed(self._h, seed & 0xFFFFFFFF)
 
@@ -291,6 +293,16 @@ class NativeLIFEngine:
 
     # -------------------------------------------------------------- stimulation
     def set_poisson(self, indices, rates_hz):
+        # the same read-only arrays as last time (Session._rates_at, within a
+        # control step): nothing can have changed
+        if (indices is self._in_idx and rates_hz is self._in_rates
+                and not getattr(getattr(indices, "flags", None), "writeable", True)
+                and not getattr(getattr(rates_hz, "flags", None), "writeable", True)):
+            return
+        self._in_idx = self._in_rates = None
+        # remembered only if read-only now (their values then cannot change)
+        keep = (not getattr(getattr(indices, "flags", None), "writeable", True)
+                and not getattr(getattr(rates_hz, "flags", None), "writeable", True))
         idx = np.ascontiguousarray(np.atleast_1d(indices), np.int32)
         rates = np.ascontiguousarray(np.atleast_1d(np.asarray(rates_hz, np.float64)))
         if rates.size == 1 and idx.size > 1:
@@ -303,9 +315,11 @@ class NativeLIFEngine:
                 and np.array_equal(idx, self._poi_idx)):
             last = getattr(self, "_poi_rates", None)
             if last is not None and np.array_equal(rates, last):
+                self._in_idx, self._in_rates = (indices, rates_hz) if keep else (None, None)
                 return
             if self._lib.lif_set_poisson_rates(self._h, rates, idx.size) == 0:
                 self._poi_rates = rates.copy()
+                self._in_idx, self._in_rates = (indices, rates_hz) if keep else (None, None)
                 return
         if np.unique(idx).size != idx.size:
             # the CPU engine would drive a repeated neuron twice, the CUDA engine once
@@ -313,10 +327,12 @@ class NativeLIFEngine:
         self._lib.lif_set_poisson(self._h, idx, rates, idx.size)
         self._poi_idx = idx
         self._poi_rates = rates.copy()
+        self._in_idx, self._in_rates = (indices, rates_hz) if keep else (None, None)
 
     def clear_poisson(self):
         self._lib.lif_set_poisson(self._h, np.zeros(1, np.int32), np.zeros(1), 0)
         self._poi_idx = np.empty(0, np.int32)
+        self._in_idx = self._in_rates = None
 
     def silence(self, indices, on: bool = True):
         """Silence neurons by removing their output (Shiu et al. `silence()`)."""

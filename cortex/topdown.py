@@ -74,19 +74,19 @@ class AttendEncoder:
         self.gain = float(np.clip(gain, 0.0, 1.0))
 
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
+        from brain.sensory.encoders import memo_of
+        rm = memo_of(self)
         if self.gain <= 0:
-            return np.zeros(len(self.indices))
-        key = (self.az, self.gain, self.max_hz)          # set once per control step, asked every block
-        m = getattr(self, "_memo", None)
-        if m is not None and m[0] == key:
-            return m[1].copy()
+            return rm.zeros(len(self.indices))
+        # set once per control step, asked every block: the same (read-only) rates
+        return rm.get((self.az, self.gain, self.max_hz), self._rates)
+
+    def _rates(self) -> np.ndarray:
         from simulation.stimuli.looming import angular_distance_deg
         half = ATTEND_SIZE_DEG / 2
         d = angular_distance_deg(self.az, 0.0, self._az, self._el)
         edge = np.maximum(0.0, d - half)
-        out = self.gain * self.max_hz * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
-        self._memo = (key, out)
-        return out.copy()
+        return self.gain * self.max_hz * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "cortex_attend", "active": self.gain > 0,
@@ -110,8 +110,9 @@ class DopamineEncoder:
         self.rpe = float(np.clip(rpe, -1.0, 1.0))
 
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
+        from brain.sensory.encoders import memo_of
         r = DAN_MAX_HZ * self.rpe
-        return np.where(self._is_pam, max(r, 0.0), max(-r, 0.0))
+        return memo_of(self).get(r, lambda: np.where(self._is_pam, max(r, 0.0), max(-r, 0.0)))
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "cortex_dopamine", "active": self.rpe != 0.0, "rpe": round(self.rpe, 3)}
@@ -163,7 +164,9 @@ class ExciteEncoder:
         self.level = float(np.clip(level, 0.0, 1.0))
 
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
-        return np.full(len(self.indices), P1_MAX_HZ * self.level)
+        from brain.sensory.encoders import memo_of
+        r = P1_MAX_HZ * self.level
+        return memo_of(self).get(r, lambda: np.full(len(self.indices), r))
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "cortex_excite", "active": self.level > 0, "level": round(self.level, 2)}
@@ -181,7 +184,9 @@ class RestEncoder:
         self.level = float(np.clip(level, 0.0, 1.0))
 
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
-        return np.full(len(self.indices), REST_HZ * self.level)
+        from brain.sensory.encoders import memo_of
+        r = REST_HZ * self.level
+        return memo_of(self).get(r, lambda: np.full(len(self.indices), r))
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "cortex_rest", "active": self.level > 0, "level": round(self.level, 2)}

@@ -64,6 +64,41 @@ class SensoryEncoder:
         raise NotImplementedError
 
 
+def frozen(a) -> np.ndarray:
+    """A read-only array. Encoders return the same read-only array while their
+    inputs are unchanged, so the session can tell by identity that nothing
+    changed (simulation/engine/session.Session._rates_at)."""
+    a = np.asarray(a)
+    a.flags.writeable = False
+    return a
+
+
+class RatesMemo:
+    """One encoder's last rates and the inputs they came from."""
+    __slots__ = ("key", "rates", "_zeros")
+
+    def __init__(self):
+        self.key = self.rates = self._zeros = None
+
+    def get(self, key, fn) -> np.ndarray:
+        if self.rates is None or self.key != key:
+            self.rates, self.key = frozen(fn()), key
+        return self.rates
+
+    def zeros(self, n: int) -> np.ndarray:
+        if self._zeros is None or len(self._zeros) != n:
+            self._zeros = frozen(np.zeros(n))
+        return self._zeros
+
+
+def memo_of(obj) -> RatesMemo:
+    """obj's RatesMemo (created on first use; works for objects built by __new__)."""
+    m = getattr(obj, "_rmemo", None)
+    if m is None:
+        m = obj._rmemo = RatesMemo()
+    return m
+
+
 @dataclass
 class LoomingTuning:
     """C: saturating tuning constants. Model parameters, not measurements."""
@@ -108,13 +143,13 @@ class LoomingEncoder(SensoryEncoder):
             self.rf["rf_radius_deg"].to_numpy(dtype=np.float64), 5.0, 60.0)
         self._is_lc4 = (self.rf["cell_type"] == "LC4").to_numpy()
         self._is_lplc2 = (self.rf["cell_type"] == "LPLC2").to_numpy()
-        self._memo = None
+        self._memo = RatesMemo()
 
     # ------------------------------------------------------------------ rates
     def rates_hz(self, t_ms: float, stim: LoomingStimulus) -> np.ndarray:
         st = stim.state(t_ms)
         if not st["active"] or st["half_angle_deg"] <= 0.0:
-            return np.zeros(len(self.indices))
+            return self._memo.zeros(len(self.indices))
 
         # The session asks every 1 ms block; a camera or lidar stimulus changes
         # at ~10 Hz. The same inputs give the same rates: computed once.
@@ -122,9 +157,10 @@ class LoomingEncoder(SensoryEncoder):
         key = (st["half_angle_deg"], st["expansion_rate_deg_s"], st["azimuth_deg"], st["elevation_deg"],
                tn.lc4_max_hz, tn.lplc2_max_hz, tn.lc4_half_vel_deg_s, tn.lplc2_half_size_deg,
                tn.lplc2_expansion_gate_deg_s, tn.rf_gain)
-        if self._memo is not None and self._memo[0] == key:
-            return self._memo[1].copy()
+        return self._memo.get(key, lambda: self._rates(st))
 
+    def _rates(self, st) -> np.ndarray:
+        tn = self.tuning
         theta = st["half_angle_deg"]
         rate_raw = st["expansion_rate_deg_s"]
         dtheta = max(0.0, rate_raw)                     # expansion only (B)
@@ -145,9 +181,7 @@ class LoomingEncoder(SensoryEncoder):
         exp_gate = dtheta / (dtheta + tn.lplc2_expansion_gate_deg_s)
         rates[self._is_lplc2] = (tn.lplc2_max_hz * theta
                                  / (theta + tn.lplc2_half_size_deg)) * exp_gate
-        out = np.clip(rates * gate, 0.0, None)
-        self._memo = (key, out)
-        return out.copy()
+        return np.clip(rates * gate, 0.0, None)
 
     # ------------------------------------------------------------- provenance
     @property

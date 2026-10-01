@@ -138,6 +138,7 @@ FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_cli
 | `FLY_TORCH_DEVICE` | the neocortex's small networks (`cuda` if available; `cpu` on the rover) |
 | `FLY_CUDA_NO_GRAPH` | CUDA engine: launch directly, not through CUDA graphs (for Nsight Compute) |
 | `FLY_TORCH_THREADS` | the neocortex's PyTorch threads (1 on the rover) |
+| `FLY_CRITIC` | `numpy` (the rover's default): the neocortex's critic without PyTorch's per-call overhead; `torch` elsewhere |
 | `FLY_MODELS`, `FLY_PEOPLE_DIR` | the camera models (`~/milo/models`) and the faces Milo knows (`~/milo/people`; `robot/people.py`) |
 | `FLY_PERSON_ENGINE`, `FLY_TRT_LIB` | the camera's person detector on a Jetson: its TensorRT engine (`~/milo/models/yolox_tiny.engine`) and `native/libtrt_detect.so` (`robot/detector.py`) |
 | `FLY_MOTOR_TAU` | robot motor lag `tau_v,tau_w[,stages[,tau_w_fast]]` in s (`0.3,1.5`; `0` = off) |

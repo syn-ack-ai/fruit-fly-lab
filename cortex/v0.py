@@ -227,6 +227,100 @@ class Critic:
         self.opt.step()
         return float(loss.detach())
 
+    def state_dict(self) -> dict:
+        return self.net.state_dict()
+
+    def load_state_dict(self, sd: dict) -> None:
+        t = self.torch
+        # tensors as saved (any device: load_state_dict copies), or numpy arrays (NumpyCritic)
+        self.net.load_state_dict({k: (v if t.is_tensor(v) else t.as_tensor(np.asarray(v))) for k, v in sd.items()})
+
+
+class NumpyCritic:
+    """Critic's network and training in numpy (float32): the same weights at
+    the start (initialised by PyTorch with the same seed), the same forward
+    pass, TD(0) loss, backward pass and Adam update (torch.optim.Adam's
+    defaults and formula), equal to PyTorch's up to float rounding
+    (tests/test_cortex_critic.py). PyTorch's per-call overhead dominated these
+    tiny nets on the Jetson (~10 ms a control step); here a step takes well
+    under 1 ms. The rover uses it (FLY_CRITIC=numpy); the Habitat studies keep
+    Critic, so their runs stay reproducible."""
+
+    B1, B2, EPS, LR = 0.9, 0.999, 1e-8, 1e-3
+
+    def __init__(self, n_in, seed=0):
+        import torch
+        torch.manual_seed(seed)
+        net = torch.nn.Sequential(torch.nn.Linear(n_in, 64), torch.nn.Tanh(),
+                                  torch.nn.Linear(64, 64), torch.nn.Tanh(),
+                                  torch.nn.Linear(64, 1))
+        self.load_state_dict(net.state_dict())
+        self.buf = deque(maxlen=20000)
+        self.rng = np.random.default_rng(seed)
+        self.net = self                           # .net.state_dict() as for Critic
+
+    KEYS = ("0.weight", "0.bias", "2.weight", "2.bias", "4.weight", "4.bias")
+
+    def state_dict(self) -> dict:
+        return {k: self.p[k].copy() for k in self.KEYS}
+
+    def load_state_dict(self, sd: dict) -> None:
+        def arr(v):
+            v = v.detach().cpu().numpy() if hasattr(v, "detach") else v
+            return np.array(v, np.float32)
+        p = {k: arr(sd[k]) for k in self.KEYS}
+        old = getattr(self, "p", None)
+        if old is not None and any(p[k].shape != old[k].shape for k in self.KEYS):
+            raise ValueError("critic state: shapes " + str({k: p[k].shape for k in self.KEYS})
+                             + " do not match this network " + str({k: old[k].shape for k in self.KEYS}))
+        self.p = p
+        self.m = {k: np.zeros_like(v) for k, v in self.p.items()}
+        self.v = {k: np.zeros_like(v) for k, v in self.p.items()}
+        self.t = 0
+
+    def _forward(self, X):
+        p = self.p
+        h1 = np.tanh(X @ p["0.weight"].T + p["0.bias"])
+        h2 = np.tanh(h1 @ p["2.weight"].T + p["2.bias"])
+        return h1, h2, (h2 @ p["4.weight"].T + p["4.bias"])[..., 0]
+
+    def value(self, phi):
+        return float(self._forward(np.asarray(phi, np.float32))[2])
+
+    def learn(self, phi, r, phi2, batch=64):
+        self.buf.append((phi, r, phi2))
+        idx = self.rng.integers(0, len(self.buf), size=min(batch, len(self.buf)))
+        idx[-1] = len(self.buf) - 1                 # always include the newest step
+        P, R, P2 = (np.array([self.buf[i][k] for i in idx], np.float32) for k in range(3))
+        target = R + np.float32(GAMMA) * self._forward(P2)[2]
+        h1, h2, y = self._forward(P)
+        err = y - target
+        loss = float(np.mean(err * err))
+        p = self.p
+        dy = (np.float32(2.0 / len(err)) * err)[:, None]            # d loss / d y
+        g = {"4.weight": dy.T @ h2, "4.bias": dy.sum(0)}
+        d2 = (dy @ p["4.weight"]) * (1.0 - h2 * h2)
+        g["2.weight"], g["2.bias"] = d2.T @ h1, d2.sum(0)
+        d1 = (d2 @ p["2.weight"]) * (1.0 - h1 * h1)
+        g["0.weight"], g["0.bias"] = d1.T @ P, d1.sum(0)
+        # Adam, as torch.optim.Adam (no weight decay, no amsgrad)
+        self.t += 1
+        bc1 = 1.0 - self.B1 ** self.t
+        bc2_sqrt = (1.0 - self.B2 ** self.t) ** 0.5
+        step = self.LR / bc1
+        for k in self.KEYS:
+            gk = g[k].astype(np.float32, copy=False)
+            self.m[k] = self.m[k] * np.float32(self.B1) + gk * np.float32(1.0 - self.B1)
+            self.v[k] = self.v[k] * np.float32(self.B2) + gk * gk * np.float32(1.0 - self.B2)
+            denom = np.sqrt(self.v[k]) / np.float32(bc2_sqrt) + np.float32(self.EPS)
+            p[k] -= np.float32(step) * self.m[k] / denom
+        return loss
+
+
+def make_critic(n_in, seed=0):
+    """Critic (PyTorch), or NumpyCritic with FLY_CRITIC=numpy (the rover)."""
+    return (NumpyCritic if os.environ.get("FLY_CRITIC", "torch").strip().lower() == "numpy" else Critic)(n_in, seed)
+
 
 class CortexV0:
     N_FOURIER = 16
@@ -247,7 +341,7 @@ class CortexV0:
         self.freq = self.rng.normal(0, 1.0 / 2.0, size=(self.N_FOURIER, 2))
         self.phase = self.rng.uniform(0, 2 * np.pi, self.N_FOURIER)
         self.map = CognitiveMap()
-        self.critic = Critic(self._n_features(), seed)
+        self.critic = make_critic(self._n_features(), seed)
         self.days = 0
         self.owner_prior = {}                       # cell -> learned "where my person hangs out"
         self.lifetime = {"rewards": 0.0, "rpe_abs": 0.0, "steps": 0}
@@ -279,7 +373,7 @@ class CortexV0:
             if self.obstacles is not None:
                 from cortex.obstacle_map import ObstacleMap
                 self.obstacles = ObstacleMap(self.obstacles.body_radius)
-            self.critic = Critic(self._n_features(), int(self.rng.integers(1 << 30)))
+            self.critic = make_critic(self._n_features(), int(self.rng.integers(1 << 30)))
         self.hunger, self.social = 0.6, 0.5          # a new day: hungry, wants company
         self.sleepy, self.resting, self.want_rest = 0.2, False, False
         self.nap_kind, self._want_kind, self._u_best = None, None, {}
@@ -762,7 +856,10 @@ class CortexV0:
         path = os.path.join(self.state_path, "cortex.pkl")
         with open(path + ".tmp", "wb") as fh:            # atomic: a crash mid-write keeps the old file
             pickle.dump({"map": self.map, "owner_prior": self.owner_prior, "days": self.days,
-                         "critic": self.critic.net.state_dict(), "lifetime": self.lifetime,
+                         # PyTorch's critic saves tensors (as before), NumpyCritic arrays
+                         "critic": {k: (v.detach().cpu() if hasattr(v, "detach") else v)
+                                    for k, v in self.critic.state_dict().items()},
+                         "lifetime": self.lifetime,
                          "freq": self.freq, "phase": self.phase, "obstacles": self.obstacles}, fh)
         os.replace(path + ".tmp", path)
 
@@ -777,6 +874,6 @@ class CortexV0:
         with open(os.path.join(self.state_path, "cortex.pkl"), "rb") as fh:
             s = pickle.load(fh)
         self.map, self.owner_prior, self.days = s["map"], s["owner_prior"], s["days"]
-        self.critic.net.load_state_dict(s["critic"])
+        self.critic.load_state_dict(s["critic"])
         self.lifetime, self.freq, self.phase = s["lifetime"], s["freq"], s["phase"]
         self._saved_obstacles = s.get("obstacles")      # restored by enable_route()

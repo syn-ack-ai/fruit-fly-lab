@@ -323,9 +323,14 @@ class RoverWorld:
     def _stale_sensors(self, now: float) -> list:
         """Which sensors have gone quiet (a dead serial port, a stalled lidar
         motor, a rebooted base): the layers above would act on a frozen world."""
-        if self.fake:
-            return []
         out = []
+        if self.fake:
+            # the simulated base never goes quiet; a real lidar on the bench can
+            if self.lidar_beams and self.lidar is not None and not hasattr(self.lidar, "update"):
+                s = self.lidar.latest()
+                if s is None or now - s[0] > STALE_LIDAR_S:
+                    out.append("lidar")
+            return out
         age = self.base.state().get("fb_age_s")
         if age is None or age > STALE_BASE_S:
             out.append("base")
@@ -383,7 +388,7 @@ class RoverWorld:
             self.base.advance(dt / steps)
             if self.person is not None:
                 self.person.advance(dt / steps)
-        if self.lidar is not None:
+        if self.lidar is not None and hasattr(self.lidar, "update"):   # the simulated lidar
             self.lidar.update(self.t + dt)
 
     def _camera_person(self) -> dict | None:
@@ -507,8 +512,14 @@ def make_world(kind: str, ugv_port: str = "/dev/ttyTHS1", lidar_port: str | None
             room = FakeRoom()
             base = FakeBase(start=(-1.0, 0.5, 0.0), room=room)
             person = None if cam is not None else FakePerson()
-            return RoverWorld(base, FakeLidar(room, base, person, beams), person, hfov_deg, fake=True,
-                              camera=cam)
+            if lidar_port:
+                # the real D500 with the simulated base (a bench test of the
+                # sensors and the timing; the scans do not move with the base)
+                from robot.d500 import D500
+                lidar = D500(lidar_port, beams)
+            else:
+                lidar = FakeLidar(room, base, person, beams)
+            return RoverWorld(base, lidar, person, hfov_deg, fake=True, camera=cam)
         from robot.ugv import UGVBase
         base = UGVBase(ugv_port)
         lidar = None

@@ -279,7 +279,9 @@ class LidarTouch:
                 drive.append(TOUCH_TONIC * lv + (1.0 - TOUCH_TONIC) * max(lv - self._a[i], 0.0))
             left, right = drive
             self.last.update(drive_left=round(left, 2), drive_right=round(right, 2))
-        return np.where(self._right, TOUCH_HZ * right, TOUCH_HZ * left)
+        from brain.sensory.encoders import memo_of
+        # the same contact as the last block: the same (read-only) rates
+        return memo_of(self).get((left, right), lambda: np.where(self._right, TOUCH_HZ * right, TOUCH_HZ * left))
 
     def state(self, t_ms: float) -> dict:
         return {"kind": "lidar_touch", "active": max(self.last.values()) > 0, **self.last}

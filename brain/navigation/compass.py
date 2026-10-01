@@ -140,16 +140,13 @@ class CompassDrive:
         self.heading = (self.heading + omega_deg_s * dt_ms / 1000.0) % 360.0
 
     def rates_hz(self, t_ms: float = 0.0, stim=None) -> np.ndarray:
+        from brain.sensory.encoders import memo_of
+        rm = memo_of(self)
         if not self.enabled:
-            return np.zeros(len(self.indices))
-        key = (self.heading, self.peak_hz, self.sigma)   # unchanged while not turning
-        m = getattr(self, "_memo", None)
-        if m is not None and m[0] == key:
-            return m[1].copy()
-        d = (self.heading - self._ang + 180.0) % 360.0 - 180.0
-        out = self.peak_hz * np.exp(-0.5 * (d / self.sigma) ** 2)
-        self._memo = (key, out)
-        return out.copy()
+            return rm.zeros(len(self.indices))
+        # unchanged while not turning: the same (read-only) rates
+        return rm.get((self.heading, self.peak_hz, self.sigma), lambda: self.peak_hz * np.exp(
+            -0.5 * (((self.heading - self._ang + 180.0) % 360.0 - 180.0) / self.sigma) ** 2))
 
     def state(self, t_ms: float = 0.0) -> dict:
         return {"kind": "compass", "active": self.enabled, "heading_deg": round(self.heading, 1)}

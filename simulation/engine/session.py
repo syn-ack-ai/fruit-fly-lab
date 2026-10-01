@@ -497,6 +497,17 @@ BODY_TRACK_FIELDS = ("t_ms", "x_mm", "y_mm", "z_mm", "heading_deg", "speed_mm_s"
                      "leg_extension", "airborne", "behaviour")
 
 
+def _frozen(a) -> bool:
+    """A read-only numpy array (its values cannot have changed)."""
+    f = getattr(a, "flags", None)
+    return f is not None and not f.writeable
+
+
+def _freeze(a):
+    a.flags.writeable = False
+    return a
+
+
 class Session:
     """One interactive experiment on the real FlyWire connectome."""
 
@@ -670,7 +681,13 @@ class Session:
                     order = False                    # duplicates: use general path
                 enc._ascending = order
             if order is not False:
-                return enc.indices[order], enc.rates_hz(t_ms, stim)[order]
+                r = enc.rates_hz(t_ms, stim)
+                last = getattr(self, "_rates_last", None)
+                if last is not None and last[0] is enc and last[1][0] is r and _frozen(r):
+                    return last[2]
+                out = (_freeze(enc.indices[order]), _freeze(r[order]))
+                self._rates_last = (enc, [r], out)
+                return out
         # A neuron driven by several stimuli takes the strongest drive. The
         # merge (unique targets in ascending order, which fixes how Poisson
         # draws map to neurons, and which inputs overlap) is computed once per
@@ -682,16 +699,26 @@ class Session:
             idx = np.concatenate(arrs)
             uniq, inv, cnt = np.unique(idx, return_inverse=True, return_counts=True)
             multi = cnt[inv] > 1
-            m = self._merge = (arrs, uniq, inv[~multi], np.flatnonzero(~multi),
+            m = self._merge = (arrs, _freeze(uniq), inv[~multi], np.flatnonzero(~multi),
                                inv[multi], np.flatnonzero(multi))
         _, uniq, inv_s, pos_s, inv_m, pos_m = m
-        rates = np.concatenate([enc.rates_hz(t_ms, stim) for enc, stim in self.encoders])
+        parts = [enc.rates_hz(t_ms, stim) for enc, stim in self.encoders]
+        # Within a control step the inputs rarely change: encoders then return
+        # the same read-only arrays (brain/sensory/encoders.RatesMemo), and so
+        # does this (the engine sees the same objects and skips the update).
+        last = getattr(self, "_rates_last", None)
+        if (last is not None and last[0] is m and len(last[1]) == len(parts)
+                and all(a is b and _frozen(a) for a, b in zip(parts, last[1]))):
+            return last[2]
+        rates = np.concatenate(parts)
         out = np.empty(uniq.size, dtype=np.float64)
         out[inv_s] = rates[pos_s]
         if pos_m.size:
             out[inv_m] = np.nan
             np.fmax.at(out, inv_m, rates[pos_m])      # the largest; NaN only if all are NaN
-        return uniq, out
+        res = (uniq, _freeze(out))
+        self._rates_last = (m, parts, res)
+        return res
 
     def _apply_rates(self, r) -> None:
         if r is not None:

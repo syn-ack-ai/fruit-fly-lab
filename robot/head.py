@@ -705,8 +705,10 @@ class ObjectEncoder:
 
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
         from simulation.stimuli.looming import angular_distance_deg
+        from brain.sensory.encoders import frozen, memo_of
         s = self.feed.state()
-        rates = np.zeros(len(self.indices))
+        rm = memo_of(self)
+        rates = rm.zeros(len(self.indices))
         self.last = {"target": None}
         if not s.get("ready") or s.get("stale") or s.get("moving", 0) > 0:
             return rates
@@ -732,10 +734,9 @@ class ObjectEncoder:
         # the same target as the last block (the camera updates at ~10 Hz,
         # the session asks every 1 ms): the same rates
         key = (az, el, half, moving, kind, self.arousal, self.PEAK_DEG, self.STILL_FRACTION, self.MAX_HZ)
-        m = getattr(self, "_memo", None)
-        if m is not None and m[0] == key:
-            self.last = dict(m[2], azimuth_deg=round(az, 1))
-            return m[1].copy()
+        if rm.rates is not None and rm.key == key:
+            self.last = dict(self._memo_last, azimuth_deg=round(az, 1))
+            return rm.rates
         size = max(2 * half, 1.0)
         tuning = np.exp(-0.5 * (np.log(size / self.PEAK_DEG) / 0.8) ** 2)
         gain = self.STILL_FRACTION + (1 - self.STILL_FRACTION) * moving
@@ -746,8 +747,9 @@ class ObjectEncoder:
         rates = self.MAX_HZ * tuning * gain * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
         self.last = {"target": kind, "azimuth_deg": round(az, 1), "size_deg": round(size, 1),
                      "drive_hz": round(float(rates.max()), 1)}
-        self._memo = (key, rates, dict(self.last))
-        return rates.copy()
+        self._memo_last = dict(self.last)
+        rm.rates, rm.key = frozen(rates), key
+        return rm.rates
 
     def state(self, t_ms: float) -> dict:
         return {"kind": "head_object", "active": self.last.get("target") is not None, **self.last}
@@ -865,6 +867,7 @@ class RestingOlfaction:
         osp = OlfactorySpace([ty[4:] for ty in types])
         gi = {ty: i for i, ty in enumerate(types)}
         self._rates = np.array([osp.spont[gi[t[i]]] for i in self.indices])
+        self._rates.flags.writeable = False       # constant (Session._rates_at: unchanged by identity)
 
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
         return self._rates

@@ -790,7 +790,8 @@ def main():
                          "hw = the Waveshare base and D500 lidar, fake = a simulated room, base and person "
                          "with the real brain and timing")
     ap.add_argument("--ugv-port", default="/dev/ttyTHS1", help="--rover hw: the base's serial port")
-    ap.add_argument("--lidar-port", default=None, help="--rover hw: the D500's serial port (none: no lidar)")
+    ap.add_argument("--lidar-port", default=None, help="--rover hw: the D500's serial port (required); --rover fake: the real D500 "
+                         "with the simulated base (a bench test)")
     ap.add_argument("--hfov", type=float, default=53.0, help="--rover: the head camera's horizontal field of view")
     ap.add_argument("--faces", action="store_true",
                     help="--rover: recognise faces; greet the people Milo knows and ask new ones their name "
@@ -811,10 +812,13 @@ def main():
             # the lidar safety layer (brake, steering) must never be silently off on the robot
             raise SystemExit("--rover hw needs --lidar and --lidar-port")
         a.body = "rover"
+        if a.rover == "fake" and a.lidar_port and not a.lidar:
+            raise SystemExit("--rover fake --lidar-port: add --lidar (the real lidar is read only with it)")
         if a.faces and (a.camera or ("auto" if a.rover == "hw" else "none")) == "none":
             raise SystemExit("--faces needs a camera (--camera auto or a device)")
         os.environ.setdefault("FLY_TORCH_DEVICE", "cpu")   # the neocortex's small nets; the brain has the GPU
         os.environ.setdefault("FLY_TORCH_THREADS", "1")    # ...on one core (Jetson: same speed, the rest free)
+        os.environ.setdefault("FLY_CRITIC", "numpy")       # ...or rather numpy: PyTorch's overhead was ~10 ms a step
     home = None
     if a.home:
         from sim.habitat_bridge.home import HomeWorld

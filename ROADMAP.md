@@ -97,10 +97,27 @@ Steps:
   replayed into the trimmed brain, one startle (~1 s of escape command),
   then a fading wariness without more escapes
   (`experiments/fear_levels.py --knife`). Habitat: `results/robot_brain_2026-10-01`.
-- **now** Vision into the fly, the rest: toys as well as people to pursue
-  (LC10a), the embedding model for novelty (arousal) and recognition, the
-  fast route for danger (depth + lidar time-to-collision of something
-  approaching by itself, appraised by meaning).
+- **done 2026-10-01** Toys and novelty into the pursuit pathway (LC10a):
+  - toys: the person detector's same inference (YOLOX, 3.3 ms) also finds a
+    ball, a frisbee or a teddy bear (`robot/detector.TOYS`); a toy is pursued
+    when no one is there or when it moves (thrown, rolling), else the person
+    (`robot/head.ObjectEncoder`, `play` gate like `arousal`);
+  - novelty and recognition (`robot/seeing.py`, `--curious`): SigLIP 2 base
+    (Apache-2.0) embeds the whole frame and its left / middle / right halves
+    twice a second (TensorRT, 20 ms for the four on the Orin); a memory of
+    seen views habituates (~5 s of interest in a new thing) and is saved with
+    the learning (`seen.npz`); the most novel side, if novel enough, is a
+    pursuit target after people and toys, so Milo turns to what is new;
+    zero-shot labels tell the personality what it is ("you notice something
+    new on the left: a knife").
+  - Live on the Orin, everything on (curiosity, toys, Gemma's danger looks,
+    personality, real lidar and camera, simulated base): 39.8 ms a step,
+    1 late step in 90 s. The user held a knife by the chair: curiosity named
+    it, the personality became wary (below the startle), Gemma's camera
+    looks saw no danger (it was not pointed at Milo); no startle.
+- **now** The fast route for danger: depth + lidar time-to-collision of
+  something approaching by itself, appraised by meaning; toys and novelty
+  tested live with a ball and new things.
 - **done 2026-10-01** Startle instead of escape (`ForagingBody(wheeled=True)`,
   the robot's default; `FLY_STARTLE=0` gives the old fast dash): the escape
   command freezes Milo (0.3 s), backs it off ~15-20 cm while turning to face

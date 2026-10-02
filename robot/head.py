@@ -85,6 +85,7 @@ CAP_W, CAP_H = 320, 240
 PROC_W, PROC_H = 160, 90
 VFOV_DEG = HFOV_DEG * 180.0 / 320.0          # ~30 deg for the band
 HAILO_HEF = "/usr/share/hailo-models/yolov8m_h10.hef"
+TOY_KINDS = ("ball", "frisbee", "teddy bear")   # robot/detector.TOYS' names, in shared memory as an index
 PERSON_PERIOD_S = 0.1                        # run the detector at most every 0.1 s (10 Hz: the
                                              # control rate; frames come at 15-30 Hz with the light)
 SETTLE_S = 0.25                              # vision blanked after a move ends
@@ -259,7 +260,11 @@ _F = ["seq", "t_wall", "fps", "frames", "pan_deg", "tilt_deg", "moving",
       "gray_seq", "gray_w", "gray_h", "gray_pan", "gray_tilt", "gray_moving",
       # the whole frame as a clean JPEG (no overlays), for the vision-language
       # model's appraisal (robot/appraise.py)
-      "clean_seq", "clean_len", "clean_pan", "clean_tilt", "clean_moving", "clean_t"]
+      "clean_seq", "clean_len", "clean_pan", "clean_tilt", "clean_moving", "clean_t",
+      # a toy (robot/detector.TOYS: ball, frisbee, teddy bear), head-centred
+      "toy_active", "toy_az", "toy_el", "toy_half_deg", "toy_score", "toy_t", "toy_kind",
+      # what is seen: SigLIP embeddings of four views (robot/seeing.py)
+      "see_seq", "see_t", "see_pan", "see_tilt", "see_ms"]
 _I = {k: i for i, k in enumerate(_F)}
 _HEADER = 512
 _PREVIEW_MAX = 256 * 1024
@@ -268,7 +273,9 @@ _GRAY_AT = _HEADER + _PREVIEW_MAX
 _CLEAN_AT = _GRAY_AT + GRAY_W * GRAY_H
 _CLEAN_MAX = 128 * 1024
 CLEAN_PERIOD_S = 0.25                        # a clean JPEG this often (~1 ms to encode)
-SHM_SIZE = _CLEAN_AT + _CLEAN_MAX
+_SEE_AT = _CLEAN_AT + _CLEAN_MAX
+_SEE_N = 4 * 768                             # robot/seeing.VIEWS x DIM float32
+SHM_SIZE = _SEE_AT + 4 * _SEE_N
 assert len(_F) * 8 <= _HEADER
 
 
@@ -278,7 +285,7 @@ def _seq_write(buf, i, fn):
     buf[i] += 1
 
 
-def _preview(rgb, mask, est, person, pan, tilt, moving, fps) -> bytes:
+def _preview(rgb, mask, est, person, pan, tilt, moving, fps, toy=None) -> bytes:
     import cv2
     img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     img = cv2.resize(img, (640, 480), interpolation=cv2.INTER_LINEAR)
@@ -300,6 +307,12 @@ def _preview(rgb, mask, est, person, pan, tilt, moving, fps) -> bytes:
         cv2.rectangle(img, (x0, y0), (x1, y1), (255, 180, 60), 2)
         cv2.putText(img, "person %.0f%%" % (100 * person["score"]), (x0 + 4, max(14, y0 - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 180, 60), 1, cv2.LINE_AA)
+    if toy:
+        x0 = int((toy["cx"] - toy["w"] / 2) * 640); x1 = int((toy["cx"] + toy["w"] / 2) * 640)
+        y0 = int((toy["cy"] - toy["h"] / 2) * 480); y1 = int((toy["cy"] + toy["h"] / 2) * 480)
+        cv2.rectangle(img, (x0, y0), (x1, y1), (80, 220, 255), 2)
+        cv2.putText(img, "%s %.0f%%" % (toy["name"], 100 * toy["score"]), (x0 + 4, max(14, y0 - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 220, 255), 1, cv2.LINE_AA)
     txt = "%.0f fps  pan %+.0f  tilt %+.0f%s" % (fps, pan, tilt, "  [moving: vision blanked]" if moving else "")
     cv2.putText(img, txt, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
     ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -337,7 +350,7 @@ def _face_angles(box, w: int, h: int) -> dict:
 
 
 def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bool = True,
-               use_faces: bool = False) -> None:
+               use_faces: bool = False, use_see: bool = False) -> None:
     import cv2
     from brain.sensory.camera import LoomingExtractor
 
@@ -377,10 +390,19 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
         except Exception as ex:                          # no models: carry on without
             print("face recognition unavailable:", ex, file=sys.stderr)
             faces = None
-    t_face_next = t_clean_next = 0.0
+    t_face_next = t_clean_next = t_see_next = 0.0
+    seer = None
+    if use_see:
+        try:
+            from robot.seeing import Seer
+            seer = Seer()
+        except Exception as ex:                          # no model: carry on without
+            print("seeing (SigLIP) unavailable:", ex, file=sys.stderr)
+    see_buf = np.ndarray((_SEE_N,), np.float32, buffer=shm.buf, offset=_SEE_AT)
     parent = os.getppid()
     last_cmd = 0
     person, person_t, det_ms, t_det_next = None, 0.0, 0.0, 0.0
+    toy, toy_t = None, 0.0
     t_last, frames, rate = time.monotonic(), 0, 0.0
     try:
         while os.getppid() == parent and not hdr[_I["cmd_stop"]]:
@@ -418,8 +440,13 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                 t_det_next = t_det_next + PERSON_PERIOD_S if t - t_det_next < PERSON_PERIOD_S else t + PERSON_PERIOD_S
                 try:
                     t_det = time.perf_counter()
-                    person = det.detect(frame if getattr(det, "bgr", False) else rgb)
-                    person_t = time.time()
+                    img = frame if getattr(det, "bgr", False) else rgb
+                    if hasattr(det, "detect_all"):              # people and toys in one pass
+                        found = det.detect_all(img)
+                        person, toy = found["person"], found["toy"]
+                    else:
+                        person, toy = det.detect(img), None
+                    person_t = toy_t = time.time()
                     det_ms = 1e3 * (time.perf_counter() - t_det)
                 except Exception as ex:
                     print("detector error:", ex, file=sys.stderr)
@@ -429,7 +456,7 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                         pass
                     det = None
             if moving:
-                person = None
+                person = toy = None
             while cmds:
                 # commands from the brain client (robot/people.Social); a failure
                 # is reported back, never the end of the camera process
@@ -494,6 +521,16 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                     hdr[_I["person_t"]] = person_t
                 else:
                     hdr[_I["person_active"]] = 0.0
+                if toy is not None:
+                    hdr[_I["toy_active"]] = 1.0
+                    hdr[_I["toy_az"]] = (toy["cx"] - 0.5) * HFOV_DEG
+                    hdr[_I["toy_el"]] = (0.5 - toy["cy"]) * HFOV_DEG * CAP_H / CAP_W
+                    hdr[_I["toy_half_deg"]] = 0.5 * max(toy["w"] * HFOV_DEG, toy["h"] * HFOV_DEG * CAP_H / CAP_W)
+                    hdr[_I["toy_score"]] = toy["score"]
+                    hdr[_I["toy_t"]] = toy_t
+                    hdr[_I["toy_kind"]] = float(TOY_KINDS.index(toy["name"]) if toy["name"] in TOY_KINDS else -1)
+                else:
+                    hdr[_I["toy_active"]] = 0.0
             _seq_write(hdr, _I["seq"], write)
             small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (GRAY_W, GRAY_H),
                                interpolation=cv2.INTER_AREA)
@@ -504,6 +541,22 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                 hdr[_I["gray_pan"]], hdr[_I["gray_tilt"]] = pt.pan_deg, pt.tilt_deg
                 hdr[_I["gray_moving"]] = float(moving)
             _seq_write(hdr, _I["gray_seq"], wg)
+            if seer is not None and not moving and t >= t_see_next:
+                from robot.seeing import SEE_PERIOD_S
+                t_see_next = t + SEE_PERIOD_S
+                try:
+                    emb = seer.see(rgb)
+
+                    def ws():
+                        see_buf[:] = emb.reshape(-1)
+                        hdr[_I["see_pan"]], hdr[_I["see_tilt"]] = pt.pan_deg, pt.tilt_deg
+                        hdr[_I["see_t"]] = time.time()
+                        hdr[_I["see_ms"]] = seer.ms
+                    _seq_write(hdr, _I["see_seq"], ws)
+                except Exception as ex:
+                    print("seeing error:", ex, file=sys.stderr)
+                    seer.close()
+                    seer = None
             if t >= t_clean_next:
                 t_clean_next = t + CLEAN_PERIOD_S
                 ok_j, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -516,7 +569,7 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
                         hdr[_I["clean_t"]] = time.time()
                     _seq_write(hdr, _I["clean_seq"], wc)
             if int(hdr[_I["frames"]]) % 3 == 0:
-                jpg = _preview(rgb, ext.mask, est, person, pt.pan_deg, pt.tilt_deg, moving, rate)
+                jpg = _preview(rgb, ext.mask, est, person, pt.pan_deg, pt.tilt_deg, moving, rate, toy)
                 if 0 < len(jpg) <= _PREVIEW_MAX:
                     def wp():
                         shm.buf[_HEADER:_HEADER + len(jpg)] = jpg
@@ -526,6 +579,9 @@ def run_worker(shm_name: str, dev: str, use_person: bool = True, use_looming: bo
         cap.release()
         if det is not None:
             det.close()
+        if seer is not None:
+            seer.close()
+        del see_buf
         if faces is not None:
             faces.close()
         try:
@@ -595,7 +651,7 @@ class HeadFeed:
     STALE_S = 0.5
 
     def __init__(self, dev: str | None = None, person: bool = True, looming: bool = True,
-                 faces: bool = False):
+                 faces: bool = False, see: bool = False):
         dev = dev or find_orbit()
         if dev is None:
             raise RuntimeError("pan/tilt camera (Logitech Orbit) not found")
@@ -610,6 +666,8 @@ class HeadFeed:
             args.append("--no-looming")
         if faces:
             args.append("--faces")
+        if see:
+            args.append("--see")
         self.proc = subprocess.Popen(args, cwd=root, stderr=subprocess.PIPE,
                                      stdout=subprocess.PIPE if faces else subprocess.DEVNULL,
                                      stdin=subprocess.PIPE if faces else None)
@@ -705,6 +763,7 @@ class HeadFeed:
         d["ready"] = True
         d["stale"] = time.time() - d["t_wall"] > self.STALE_S
         d["person_stale"] = time.time() - d["person_t"] > 0.5
+        d["toy_stale"] = time.time() - d["toy_t"] > 0.5
         return d
 
     def command(self, dpan_deg: float, dtilt_deg: float = 0.0, reset: bool = False) -> None:
@@ -718,6 +777,23 @@ class HeadFeed:
         """The latest small grey frame: (seq, (GRAY_H, GRAY_W) uint8, pan_deg,
         tilt_deg, moving), or None (robot/eye.py reads the same memory)."""
         return read_gray(self.shm, self._h)
+
+    def seen(self, max_age_s: float = 2.0) -> dict | None:
+        """The latest look (robot/seeing.py): {"seq", "emb" (4 x 768), "pan",
+        "tilt", "ms"}, or None (seeing off, or no look within max_age_s)."""
+        i = _I["see_seq"]
+        for _ in range(1000):
+            s1 = self._h[i]
+            if int(s1) % 2:
+                continue
+            if s1 == 0 or time.time() - self._h[_I["see_t"]] > max_age_s:
+                return None
+            emb = np.frombuffer(self.shm.buf, np.float32, _SEE_N, _SEE_AT).reshape(4, -1).copy()
+            out = {"seq": int(s1), "emb": emb, "pan": float(self._h[_I["see_pan"]]),
+                   "tilt": float(self._h[_I["see_tilt"]]), "ms": float(self._h[_I["see_ms"]])}
+            if self._h[i] == s1:
+                return out
+        return None
 
     def clean_jpeg(self):
         """The latest clean frame (read_clean), or None."""
@@ -775,6 +851,8 @@ class ObjectEncoder:
     PEAK_DEG = 15.0          # preferred angular (full) size
     STILL_FRACTION = 0.4     # a still object drives LC10a less than a moving one
     arousal = 1.0            # interest in the person (see __init__)
+    play = 1.0               # interest in a toy
+    curiosity = 1.0          # interest in something new
 
     def __init__(self, connectome, feed: HeadFeed):
         from brain.sensory.retinotopy import load_retinotopy, receptive_fields_2hop
@@ -792,6 +870,11 @@ class ObjectEncoder:
         # arousal gates the LC10a pursuit pathway; Hindmarsh Sten et al. 2021).
         # Applies to the person only, not to other moving objects.
         self.arousal = 1.0
+        # Wanting to play, 0..1 (1 = innate; the neocortex may set it): the
+        # same gate for a toy (robot/detector.TOYS) as arousal for the person.
+        self.play = 1.0
+        self.curiosity = 1.0     # interest in something new (robot/seeing.py)
+        self._motion = {}
         self.last = {}
 
     def rates_hz(self, t_ms: float, stim=None) -> np.ndarray:
@@ -803,28 +886,26 @@ class ObjectEncoder:
         self.last = {"target": None}
         if not s.get("ready") or s.get("stale") or s.get("moving", 0) > 0:
             return rates
-        if s.get("person_active", 0) > 0 and not s.get("person_stale"):
-            az, el, half, kind = s["person_az"], s["person_el"], s["person_half_deg"], "person"
-            # Is the person moving? Estimated once per new detection (the
-            # feed's person_t), not per call: rates_hz runs every block while a
-            # detection stays the same. A clock that jumps back (a new episode
-            # in simulation) or a long gap starts the estimate afresh.
-            pt = s.get("person_t", time.monotonic())
-            prev = getattr(self, "_prev_person", None)
-            if prev is None or pt < prev[0] or pt - prev[0] > 1.0:
-                self._prev_person, self._pmove = (pt, az), 0.0
-            elif pt - prev[0] >= 0.08:
-                speed = abs(az - prev[1]) / (pt - prev[0])
-                self._pmove = 0.8 * self._pmove + 0.2 * (1.0 if speed > 5.0 else 0.0)
-                self._prev_person = (pt, az)
-            moving = self._pmove
+        person = s.get("person_active", 0) > 0 and not s.get("person_stale")
+        toy = s.get("toy_active", 0) > 0 and not s.get("toy_stale", True)
+        pmove = self._moving("person", s.get("person_t", 0.0), s.get("person_az", 0.0)) if person else 0.0
+        tmove = self._moving("toy", s.get("toy_t", 0.0), s.get("toy_az", 0.0)) if toy else 0.0
+        if toy and (not person or tmove > 0.5):
+            # a toy when no one is there, or a moving one (thrown, rolling): play
+            az, el, half, moving, kind = s["toy_az"], s["toy_el"], s["toy_half_deg"], tmove, "toy"
+        elif person:
+            az, el, half, moving, kind = s["person_az"], s["person_el"], s["person_half_deg"], pmove, "person"
+        elif s.get("novel_active", 0) > 0:
+            # something new (robot/seeing.Curiosity): curiosity draws Milo to it
+            az, el, half, moving, kind = s["novel_az"], s["novel_el"], s["novel_half_deg"], 1.0, "novel"
         elif s.get("obj_active", 0) > 0:
             az, el, half, moving, kind = s["obj_az"], s["obj_el"], s["obj_half_deg"], 1.0, "object"
         else:
             return rates
         # the same target as the last block (the camera updates at ~10 Hz,
         # the session asks every 1 ms): the same rates
-        key = (az, el, half, moving, kind, self.arousal, self.PEAK_DEG, self.STILL_FRACTION, self.MAX_HZ)
+        key = (az, el, half, moving, kind, self.arousal, self.play, self.curiosity, s.get("novelty"),
+               self.PEAK_DEG, self.STILL_FRACTION, self.MAX_HZ)
         if rm.rates is not None and rm.key == key:
             self.last = dict(self._memo_last, azimuth_deg=round(az, 1))
             return rm.rates
@@ -833,6 +914,10 @@ class ObjectEncoder:
         gain = self.STILL_FRACTION + (1 - self.STILL_FRACTION) * moving
         if kind == "person":
             gain *= self.arousal
+        elif kind == "toy":
+            gain *= self.play
+        elif kind == "novel":
+            gain *= self.curiosity * float(s.get("novelty", 1.0))
         d = angular_distance_deg(az, el, self._az, self._el)
         edge = np.maximum(0.0, d - half)
         rates = self.MAX_HZ * tuning * gain * np.exp(-edge ** 2 / (2 * self._sigma ** 2))
@@ -841,6 +926,24 @@ class ObjectEncoder:
         self._memo_last = dict(self.last)
         rm.rates, rm.key = frozen(rates), key
         return rm.rates
+
+    def _moving(self, kind: str, t: float, az: float) -> float:
+        """Is the target moving? 0..1, estimated once per new detection (its
+        time t), not per call: rates_hz runs every block while a detection
+        stays the same. A clock that jumps back (a new episode in simulation)
+        or a long gap starts the estimate afresh."""
+        m = self._motion.get(kind)
+        if m is None or t < m[0] or t - m[0] > 1.0:
+            self._motion[kind] = (t, az, 0.0)
+            return 0.0
+        if t - m[0] >= 0.08:
+            speed = abs(az - m[1]) / (t - m[0])
+            self._motion[kind] = (t, az, 0.8 * m[2] + 0.2 * (1.0 if speed > 5.0 else 0.0))
+        return self._motion[kind][2]
+
+    def reset_motion(self) -> None:
+        """A new episode: no carried-over motion estimates."""
+        self._motion = {}
 
     def state(self, t_ms: float) -> dict:
         return {"kind": "head_object", "active": self.last.get("target") is not None, **self.last}
@@ -920,6 +1023,7 @@ def main():
     ap.add_argument("--no-person", action="store_true")
     ap.add_argument("--no-looming", action="store_true", help="no moving-object estimate (saves CPU)")
     ap.add_argument("--faces", action="store_true", help="faces and who they are (robot/faces.py, robot/people.py)")
+    ap.add_argument("--see", action="store_true", help="SigLIP embeddings of what is seen (robot/seeing.py)")
     ap.add_argument("--test", action="store_true", help="run the sensor for 10 s and print")
     a = ap.parse_args()
     if a.test:
@@ -938,7 +1042,7 @@ def main():
         feed.close()
         return
     run_worker(a.shm, a.dev or find_orbit(), use_person=not a.no_person, use_looming=not a.no_looming,
-               use_faces=a.faces)
+               use_faces=a.faces, use_see=a.see)
 
 
 if __name__ == "__main__":

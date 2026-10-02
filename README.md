@@ -130,7 +130,12 @@ FLY_NATIVE_LIB=$PWD/native/liblif_cuda.so python -m sim.habitat_bridge.brain_cli
 `robot/faces.py`, `robot/people.py`), `--dashboard 8080` (a read-only dashboard
 for an iPad: camera, lidar, brain, neocortex, voice; `robot/dashboard.py`),
 `--eye` (the camera and the lidar through the fly's optic lobes: the flyvis
-eye model, `robot/eye.py`; `experiments/vision_ab`).
+eye model, `robot/eye.py`; `experiments/vision_ab`), `--see-danger` (Gemma
+looks at the camera for real danger, which alone drives the fly's looming
+circuit and the startle; `robot/appraise.py`, `robot/threat.py`), `--curious`
+(an image-embedding model remembers what Milo has seen; something new draws
+it to look; `robot/seeing.py`). Toys (a ball, a frisbee, a teddy bear) are
+chased like the person (`robot/detector.TOYS`).
 
 **Environment variables:**
 

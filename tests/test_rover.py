@@ -355,7 +355,7 @@ def test_camera_person_in_habitats_frame():
 def test_fake_world_with_camera_has_no_fake_person(monkeypatch):
     import robot.rover_world as rw
     cam = _Cam(person_active=0.0)
-    monkeypatch.setattr(rw, "open_camera", lambda c, faces=False: cam if c else None)
+    monkeypatch.setattr(rw, "open_camera", lambda c, faces=False, see=False: cam if c else None)
     w = rw.make_world("fake", camera="auto")
     assert w.person is None and w.camera is cam
     assert not w.handle({"cmd": "reset"})["visible"]
@@ -407,3 +407,11 @@ def test_yolox_decode_largest_person():
     assert p["cx"] == pytest.approx(0.5) and p["w"] == pytest.approx(1.0)
     assert p["cy"] == pytest.approx(28 / 32) and p["h"] == pytest.approx(8 / 32)
     assert p["score"] == pytest.approx(0.81, abs=1e-6)
+    # toys from the same inference: the cat is not one; a ball (COCO 32) is
+    assert det.detect_all(frame)["toy"] is None
+    out[64 + 7, :4] = [0.5, 0.5, 0.0, 0.0]                    # stride 16, cell (x=3, y=1): centre (56, 24)
+    out[64 + 7, 4], out[64 + 7, 5 + 32] = 0.8, 0.7
+    found = det.detect_all(frame)
+    assert found["toy"]["name"] == "ball" and found["toy"]["cx"] == pytest.approx(56 / 64)
+    assert found["toy"]["score"] == pytest.approx(0.56, abs=1e-6)
+    assert found["person"]["score"] == pytest.approx(0.81, abs=1e-6)

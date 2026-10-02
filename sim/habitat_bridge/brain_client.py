@@ -117,6 +117,21 @@ class SimFeed:
                   "obj_active": 1.0 if vis else 0.0, "obj_az": obs["az"], "obj_el": obs["el"],
                   "obj_half_deg": half, "obj_exp_deg_s": max(self._exp, 0.0),
                   "pan_deg": 0.0, "tilt_deg": 0.0}
+        toy = obs.get("toy")
+        if toy:
+            self.s.update(toy_active=1.0, toy_stale=False, toy_t=self.clock.t, toy_az=toy["az"],
+                          toy_el=toy["el"], toy_half_deg=toy["half"], toy_kind=toy.get("kind", "toy"))
+        else:
+            self.s.update(toy_active=0.0, toy_stale=True)
+        self.s["novel_active"] = 0.0
+
+    def set_novel(self, tgt: dict | None) -> None:
+        """Something new to look at (robot/seeing.Curiosity), or None."""
+        if tgt:
+            self.s.update(novel_active=1.0, novel_az=tgt["az"], novel_el=tgt["el"],
+                          novel_half_deg=tgt["half"], novelty=tgt["novelty"])
+        else:
+            self.s["novel_active"] = 0.0
 
     def state(self) -> dict:
         return self.s
@@ -214,7 +229,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 seed: int, video_dir: str | None, brain=None, home=None, cortex=None,
                 safe_speed: bool = True, person=None, personality=None, voice=None,
                 checkpoint=None, checkpoint_s: float = 600.0, social=None, ears=None,
-                dashboard=None, eye=None, appraiser=None) -> dict:
+                dashboard=None, eye=None, appraiser=None, curiosity=None) -> dict:
     from fly.body.foraging_body import ForagingBody
     from robot.safety import ProximityGovernor
     governor = ProximityGovernor() if safe_speed else None
@@ -227,7 +242,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         ses.reset(seed=seed)                      # clears stimuli: attach the head's encoders again
         clock.t = 0.0
         feed.reset()
-        obj._prev_person, obj._pmove = None, 0.0
+        obj.reset_motion()
         if getattr(ses, "nav", None) is not None and hasattr(ses.nav, "reset"):
             ses.nav.reset()
         for enc, stim in parts:
@@ -301,6 +316,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         if mode == "brain":
             clock.t = t_sim
             feed.update(obs, period_ms / 1000.0)
+            if curiosity is not None:
+                # what is new: the pursuit pathway turns to it (robot/seeing.py)
+                feed.set_novel(curiosity.step(t_sim, obs.get("seen"), personality))
             if getattr(ses, "lidar", None) is not None and obs.get("lidar"):
                 # the pose when the scan was taken (the real rover's odometry at
                 # the end of the lidar's revolution; Habitat's scan is instantaneous)
@@ -530,6 +548,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             if eye is not None:
                 tel["eye"] = eye.status()
             tel["fear"] = dict(ses.fear.last, looks=appraiser.summary() if appraiser is not None else None)
+            if curiosity is not None:
+                tel["seeing"] = curiosity.last
             dashboard.publish(tel, ses.engine.spike_counts)
         if bumped:
             hs = math.hypot(obs["human"][0] - prev_obs["human"][0],
@@ -547,8 +567,20 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                     "az": round(obs["az"], 1), "v": round(v, 3), "w_deg": round(math.degrees(w), 1),
                     "turn_bias": tb, "dn": dn,
                     "lc10a_hz": (obj.last.get("drive_hz") if mode == "brain" else None)})
+        if obs.get("toy"):
+            log[-1]["toy"] = {k: obs["toy"][k] for k in ("kind", "az", "half")}
+            if mode == "brain":
+                log[-1]["toy"]["pursued"] = obj.last.get("target") == "toy"
+        if obs.get("toy"):
+            log[-1]["toy"] = {k: obs["toy"][k] for k in ("kind", "az", "half")}
+            if mode == "brain":
+                log[-1]["toy"]["pursued"] = obj.last.get("target") == "toy"
         if mode == "brain" and str(ses.body.state.behaviour).startswith("startle"):
             log[-1]["startle"] = ses.body.state.behaviour
+        if curiosity is not None and curiosity.target is not None:
+            log[-1]["novel"] = {"az": round(curiosity.target["az"]), "novelty": round(curiosity.target["novelty"], 2),
+                                "what": curiosity.target["what"],
+                                "pursued": mode == "brain" and obj.last.get("target") == "novel"}
         if mode == "brain" and ses.fear.last["active"]:
             F = ses.fear.last
             log[-1]["fear"] = {"source": F["source"], "level": F["level"], "az": round(F["azimuth_deg"]),
@@ -612,6 +644,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                        "steps_afraid": sum(1 for e in log if "fear" in e)}
         if appraiser is not None:
             res["fear"]["looks"] = appraiser.summary()
+    if curiosity is not None:
+        res["curiosity"] = {**curiosity.stats, "memory": len(curiosity.mem)}
     if ears is not None:
         res["ears"] = {"utterances": ears.stats["utterances"], "alive": ears.alive}
     if personality is not None:
@@ -821,6 +855,7 @@ def _telemetry(t, obs, ses, fr, cortex, personality, social, v, w, voice_log) ->
            "readout": brain_readout(fr, cortex) if fr is not None else None,
            "person": {"visible": bool(obs["visible"]), "az": round(float(obs["az"]), 1),
                       "dist": None if obs["dist"] != obs["dist"] else round(float(obs["dist"]), 2)},
+           "toy": obs.get("toy"),
            "faces": [{"who": f.get("who"), "facing": bool(f.get("facing")), "facing_s": f.get("facing_s", 0.0)}
                      for f in obs.get("faces") or []],
            "voice": list(voice_log)}
@@ -898,6 +933,9 @@ def main():
                     help="what the camera and the lidar see goes through the fly's optic lobes (robot/eye.py: "
                          "the flyvis eye model; --rover: on the GPU in its own process; in Habitat: the "
                          "server's pet camera (habitat_server --eye-camera), in simulated time)")
+    ap.add_argument("--curious", action="store_true",
+                    help="--rover with the camera: an image-embedding model (SigLIP 2) remembers what Milo has "
+                         "seen; something new draws it to look and approach (robot/seeing.py)")
     ap.add_argument("--see-danger", action="store_true",
                     help="--rover with --personality and the camera: the vision-language model looks at the "
                          "camera about once a second and its fear appraisal drives the fly's looming circuit "
@@ -1036,7 +1074,7 @@ def main():
         getattr(mb.e, "commit_plastic", lambda *_: None)(mb.edge_pos)
         print("loaded mushroom-body weights from", a.weights, flush=True)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    person = personality = voice = dashboard = eye = appraiser = None
+    person = personality = voice = dashboard = eye = appraiser = curiosity = None
     if a.speech:
         from sim.habitat_bridge.speech import ScriptedPerson
         person = ScriptedPerson(name=a.pet_name, seed=a.seed)
@@ -1086,7 +1124,14 @@ def main():
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         from robot.rover_world import LocalConn, make_world
         cam = a.camera or ("auto" if a.rover == "hw" else "none")
-        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov, camera=cam, faces=a.faces)
+        world = make_world(a.rover, a.ugv_port, a.lidar_port, LIDAR_BEAMS, a.hfov, camera=cam, faces=a.faces,
+                           see=a.curious)
+        if a.curious:
+            if brain is None or not hasattr(world.camera, "seen"):
+                raise SystemExit("--curious needs --mode brain and the camera")
+            from robot.seeing import Curiosity, Labels
+            curiosity = Curiosity(a.hfov, Labels(), state_path=a.cortex_state)
+            print(f"curious: SigLIP looks twice a second; {len(curiosity.mem)} views remembered", flush=True)
         if a.eye:
             if brain is None:
                 raise SystemExit("--eye: the fly brain's optic lobes, with --mode brain")
@@ -1151,6 +1196,8 @@ def main():
                 with open(tmp, "wb") as fh:
                     np.save(fh, mb.weights)
                 os.replace(tmp, a.weights)
+            if curiosity is not None:
+                curiosity.save()                  # the views it has seen (how familiar each is)
             if cortex is not None:
                 if final:
                     cortex.save()
@@ -1162,7 +1209,7 @@ def main():
                                 a.video_dir, brain, home, cortex, safe_speed=a.safe_speed,
                                 person=person, personality=personality, voice=voice,
                                 checkpoint=save_learning if a.rover else None, social=social, ears=ears,
-                                dashboard=dashboard, eye=eye, appraiser=appraiser)
+                                dashboard=dashboard, eye=eye, appraiser=appraiser, curiosity=curiosity)
             except BaseException:
                 if a.rover:
                     save_learning()               # stopped or crashed: keep what was learned

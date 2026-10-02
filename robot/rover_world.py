@@ -422,8 +422,14 @@ class RoverWorld:
         st = self.base.state()
         pose = tuple(float(x) for x in st["pose"])
         seen = {"az": 0.0, "el": 0.0, "half": 0.0, "visible": False, "in_fov": False, "dist": float("nan")}
+        toy = looked = None
         if self.camera is not None:
             seen.update(self._camera_person() or {})
+            toy = self._camera_toy()
+            if hasattr(self.camera, "seen"):
+                looked = self.camera.seen()           # robot/seeing.py's four views, or None
+                if looked is not None:                # views centred on the head's pan (Curiosity adds it)
+                    looked["el"] = looked["tilt"] - CAM_PITCH_DEG
         elif self.person is not None:
             g = person_geometry(pose, self.person.xz(), self.hfov)
             seen.update({k: g[k] for k in ("az", "el", "half", "visible", "in_fov")})
@@ -462,7 +468,21 @@ class RoverWorld:
                               "person_seen_s": round(self.seen_s, 1)} if self.camera is not None else {}),
                           **self.timing.stats()},
                 "stale": list(self.stale), "battery_v": st.get("battery_v"), "rover": True,
-                "faces": faces, "camera_events": cam_events}
+                "faces": faces, "camera_events": cam_events, "toy": toy, "seen": looked}
+
+    def _camera_toy(self) -> dict | None:
+        """A toy through the head camera (ball, frisbee, teddy bear), in the
+        person's frame (see _camera_person), or None. Uses the state read by
+        _camera_person this step."""
+        s = self._cam_state
+        if (s is None or s.get("stale") or s["moving"] or not s.get("toy_active")
+                or s.get("toy_stale", True)):
+            return None
+        from robot.head import TOY_KINDS
+        k = int(s.get("toy_kind", -1))
+        return {"az": s["toy_az"] + s["pan_deg"], "el": s["toy_el"] + s["tilt_deg"] - CAM_PITCH_DEG,
+                "half": float(s["toy_half_deg"]), "kind": TOY_KINDS[k] if 0 <= k < len(TOY_KINDS) else "toy",
+                "score": round(float(s["toy_score"]), 2)}
 
     def _camera_faces(self) -> list | None:
         """Faces in view (robot/people.FaceTracker tracks) with their azimuth
@@ -489,7 +509,7 @@ class RoverWorld:
                         self.camera.close()
 
 
-def open_camera(camera: str | None, faces: bool = False):
+def open_camera(camera: str | None, faces: bool = False, see: bool = False):
     """robot.head.HeadFeed on a device ("auto": the Orbit if plugged in), or
     None. "auto" without a camera is not an error (the robot runs blind)."""
     if not camera or camera == "none":
@@ -500,7 +520,7 @@ def open_camera(camera: str | None, faces: bool = False):
         print("no head camera found: the person is never seen", flush=True)
         return None
     try:
-        return HeadFeed(dev, person=True, looming=False, faces=faces)
+        return HeadFeed(dev, person=True, looming=False, faces=faces, see=see)
     except Exception as ex:                       # never stop the robot over its camera
         print(f"head camera {dev} failed to start ({ex}): the person is never seen", flush=True)
         return None
@@ -508,10 +528,10 @@ def open_camera(camera: str | None, faces: bool = False):
 
 def make_world(kind: str, ugv_port: str = "/dev/ttyTHS1", lidar_port: str | None = None,
                beams: int = 90, hfov_deg: float = 53.0, camera: str | None = None,
-               faces: bool = False) -> RoverWorld:
+               faces: bool = False, see: bool = False) -> RoverWorld:
     """kind "fake": simulated room, base, lidar and person (the person from
     the real camera when there is one); "hw": the robot."""
-    cam = open_camera(camera, faces)
+    cam = open_camera(camera, faces, see)
     try:
         if kind == "fake":
             room = FakeRoom()

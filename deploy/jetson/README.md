@@ -121,6 +121,23 @@ uv pip install --python .venv/bin/python sherpa-onnx
   saw ...`. To watch the appraisals live and try things in front of the camera:
   `.venv/bin/python -m robot.appraise --camera /dev/video0 --seconds 120 --save /tmp/fear`.
 
+- Toys: the person detector also finds a ball, a frisbee or a teddy bear;
+  Milo chases a toy when no one is around or when it moves.
+  `.venv/bin/python -m robot.detector --camera /dev/video0 --seconds 30` prints
+  what it finds.
+- `--curious`: an image-embedding model (SigLIP 2 base, Apache-2.0) remembers
+  what Milo has seen (`seen.npz` in `--cortex-state`); something new draws
+  it to look and approach, and the personality hears what it is
+  (`robot/seeing.py`). The model is exported once on a machine with
+  `transformers` and `onnx` (the Mac: a throwaway venv), then built here:
+
+  ```bash
+  python -m robot.seeing --export ~/milo_models        # on the Mac (transformers, onnx, torch)
+  rsync ~/milo_models/siglip2_b16_* milo:milo/models/
+  .venv/bin/python -m robot.detector --build ~/milo/models/siglip2_b16_vision.onnx   # on the Jetson, ~1 min
+  .venv/bin/python -m robot.seeing --camera /dev/video0 --seconds 30                 # watch novelty live
+  ```
+
 The language model runs on the Mac Studio (PAIR); until PAIR runs on the
 Jetson, a reverse tunnel from the Mac gives the Jetson's 127.0.0.1:1234:
 `ssh -f -N -R 127.0.0.1:1234:127.0.0.1:1234 milo` (on the Mac).

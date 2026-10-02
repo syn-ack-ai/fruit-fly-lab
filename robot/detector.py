@@ -4,7 +4,9 @@ Apache-2.0; COCO-trained, class 0 = person) run by TensorRT through
 native/libtrt_detect.so. It returns what robot/head.py's Hailo detector
 returned on the Pi: the largest person as fractions of the frame
 {cx, cy, w, h, score}, so the rest of the head (the head-and-shoulders target,
-its azimuth, elevation and angular size) is unchanged.
+its azimuth, elevation and angular size) is unchanged. The same inference
+also gives the most confident toy (TOYS: a ball, a frisbee, a teddy bear;
+detect_all), which Milo pursues through LC10a like a person.
 
 The engine blocks its thread while the GPU works (no GIL held, no spinning
 core). It runs on a lowest-priority CUDA stream, which puts the brain's
@@ -37,7 +39,11 @@ LIB = os.environ.get("FLY_TRT_LIB", os.path.join(HERE, "..", "native", "libtrt_d
 TRTEXEC = shutil.which("trtexec") or "/usr/src/tensorrt/bin/trtexec"
 DEFAULT_ENGINE = os.path.expanduser("~/milo/models/yolox_tiny.engine")
 PERSON = 0
+# toys Milo may play with (COCO classes YOLOX knows): pursued like a person
+# through LC10a (robot/head.ObjectEncoder)
+TOYS = {32: "ball", 29: "frisbee", 77: "teddy bear"}
 SCORE_MIN = 0.45
+TOY_SCORE_MIN = 0.35
 NMS_IOU = 0.45
 STRIDES = (8, 16, 32)
 
@@ -122,6 +128,19 @@ def nms(boxes: np.ndarray, scores: np.ndarray, iou: float = NMS_IOU) -> list:
     return keep
 
 
+def _fractions(p: dict, hw) -> dict:
+    h, w = hw
+    return {"cx": (p["x0"] + p["x1"]) / (2 * w), "cy": (p["y0"] + p["y1"]) / (2 * h),
+            "w": (p["x1"] - p["x0"]) / w, "h": (p["y1"] - p["y0"]) / h, "score": p["score"],
+            "area": (p["x1"] - p["x0"]) * (p["y1"] - p["y0"]) / (w * h)}
+
+
+def _largest(objs: list, hw) -> dict | None:
+    if not objs:
+        return None
+    return _fractions(max(objs, key=lambda p: (p["x1"] - p["x0"]) * (p["y1"] - p["y0"])), hw)
+
+
 class YoloxPersons:
     """People in a BGR frame, from a YOLOX engine (input 1 x 3 x H x W)."""
 
@@ -151,11 +170,12 @@ class YoloxPersons:
         self.eng.input[0] = img.transpose(2, 0, 1)      # float32, HWC -> CHW
         return r
 
-    def decode(self, out: np.ndarray, r: float, frame_hw) -> list:
-        """Raw output (N x 85) -> people [{x0, y0, x1, y1 (px), score}]."""
+    def decode(self, out: np.ndarray, r: float, frame_hw, cls: int = PERSON,
+               score_min: float | None = None) -> list:
+        """Raw output (N x 85) -> objects of one class [{x0, y0, x1, y1 (px), score}]."""
         o = out.reshape(-1, out.shape[-1])
-        score = o[:, 4] * o[:, 5 + PERSON]
-        m = score >= self.score_min
+        score = o[:, 4] * o[:, 5 + cls]
+        m = score >= (self.score_min if score_min is None else score_min)
         if not m.any():
             return []
         o, score = o[m], score[m]
@@ -179,18 +199,25 @@ class YoloxPersons:
 
     def detect(self, bgr: np.ndarray) -> dict | None:
         """The largest person as fractions of the frame (robot/head.py's format)."""
-        h, w = bgr.shape[:2]
-        best = None
-        for p in self.people(bgr):
-            area = (p["x1"] - p["x0"]) * (p["y1"] - p["y0"])
-            if best is None or area > best[0]:
-                best = (area, p)
-        if best is None:
-            return None
-        p = best[1]
-        return {"cx": (p["x0"] + p["x1"]) / (2 * w), "cy": (p["y0"] + p["y1"]) / (2 * h),
-                "w": (p["x1"] - p["x0"]) / w, "h": (p["y1"] - p["y0"]) / h,
-                "score": p["score"], "area": best[0] / (w * h)}
+        return self.detect_all(bgr)["person"]
+
+    def detect_all(self, bgr: np.ndarray) -> dict:
+        """One inference: {"person": the largest person, "toy": the most
+        confident toy (with "name")}, each as fractions of the frame or None."""
+        r = self.preprocess(bgr)
+        t0 = time.perf_counter()
+        out = self.eng.run()
+        self.ms = 1e3 * (time.perf_counter() - t0)
+        hw = bgr.shape[:2]
+        person = _largest(self.decode(out, r, hw), hw)
+        toy = None
+        for c, name in TOYS.items():
+            for d in self.decode(out, r, hw, c, TOY_SCORE_MIN):
+                if toy is None or d["score"] > toy[0]["score"]:
+                    toy = (d, name)
+        if toy is not None:
+            toy = dict(_fractions(toy[0], hw), name=toy[1])
+        return {"person": person, "toy": toy}
 
     def close(self) -> None:
         self.eng.close()
@@ -238,7 +265,8 @@ def main():
     ap.add_argument("--build", metavar="ONNX", help="build an FP16 engine next to the ONNX file")
     ap.add_argument("--engine", default=DEFAULT_ENGINE)
     ap.add_argument("--image", help="detect people in an image file")
-    ap.add_argument("--camera", help="detect people from a V4L2 camera for 10 s (e.g. /dev/video0)")
+    ap.add_argument("--camera", help="detect people and toys from a V4L2 camera (e.g. /dev/video0)")
+    ap.add_argument("--seconds", type=float, default=10.0)
     ap.add_argument("--bench", type=int, default=0, help="time N inferences")
     a = ap.parse_args()
     if a.build:
@@ -267,10 +295,16 @@ def main():
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
             t0 = time.monotonic()
-            while time.monotonic() - t0 < 10:
+            while time.monotonic() - t0 < a.seconds:
                 ok, frame = cap.read()
                 if ok:
-                    print(det.detect(frame), f"{det.ms:.1f} ms", flush=True)
+                    found = det.detect_all(frame)
+                    p, toy = found["person"], found["toy"]
+                    print(f"{time.monotonic() - t0:5.1f} s  person "
+                          + (f"{p['score']:.2f} at x {p['cx']:.2f}" if p else "-   ")
+                          + "  toy " + (f"{toy['name']} {toy['score']:.2f} at x {toy['cx']:.2f}, "
+                                        f"{100 * toy['w']:.0f}% wide" if toy else "-")
+                          + f"  ({det.ms:.1f} ms)", flush=True)
             cap.release()
     finally:
         det.close()

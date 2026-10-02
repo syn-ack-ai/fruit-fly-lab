@@ -186,6 +186,7 @@ class Curiosity:
         self._seq = None
         self._told_t = -1e9
         self.target = None               # {"az", "el", "half", "novelty", "what"} or None
+        self.scene = []                  # [(label, centre az, half width)] of the last look
         self.last = {}
         self.stats = {"looks": 0, "novel_looks": 0, "told": 0}
 
@@ -194,6 +195,7 @@ class Curiosity:
         None). Updates the novelty and the target on a new look."""
         if seen is None or seen.get("emb") is None:
             self.target = None
+            self.scene = []
             return None
         if seen["seq"] == self._seq:
             return self.target
@@ -205,6 +207,12 @@ class Curiosity:
             self.mem.learn(emb[i], t, done)
         self.stats["looks"] += 1
         side = max(VIEW_AZ_FRAC, key=lambda v: nov[v])
+        if self.labels is not None:
+            # what each side shows (robot/threat.FastDanger: what is rushing in)
+            pan = float(seen.get("pan", 0.0))
+            self.scene = [(lab, pan + VIEW_AZ_FRAC[v] * self.hfov, self.hfov / 4.0)
+                          for v in VIEW_AZ_FRAC
+                          for lab, sc in [self.labels.top(emb[VIEWS.index(v)])] if sc >= LABEL_MIN]
         what, score = (None, 0.0)
         if self.labels is not None:
             what, score = self.labels.top(emb[VIEWS.index(side)])

@@ -321,3 +321,109 @@ def test_touch_drives_only_the_benign_head_bristles_on_male_brains():
     assert bm == set(a["root_id"][a["subtype"].isin(TOUCH_SUBTYPES)].astype(np.int64))
     assert not bm & set(a["root_id"][a["subtype"].isin(["BM_FrOr", "BM_Or"])].astype(np.int64))
     assert got == {"BM", "BM_Vib"} and lt._right.any() and (~lt._right).any()
+
+
+def _world(n=90):
+    ang = beam_angles(n)
+    scan = LidarScan(ang, 0.13)
+    return scan, LidarLooming(scan), ang
+
+
+def test_a_kick_is_a_fast_rush_a_walk_is_not():
+    scan, loom, ang = _world()
+    i = ang.index(0.0)
+    foot = [0.60, 0.60, 0.60, 0.60, 0.45, 0.15]          # still, then 3 m/s over the last 0.1 s
+    for k, r in enumerate(foot):
+        rr = np.full(90, 3.0)
+        rr[i] = r
+        scan.update(rr, 0.05 * k, pose=(0.0, 0.0, 0.0))  # a 20 Hz bench scan for a quick swing
+        loom.update()
+    assert loom.fast["active"] and loom.fast["closing_ms"] > 1.6 and loom.fast["azimuth_deg"] == 0.0
+    assert loom.fast["confirmed"]                        # it was approaching in the scan before too
+    scan, loom, ang = _world()
+    for k in range(10):                                  # someone walking up at 1.2 m/s
+        rr = np.full(90, 3.0)
+        rr[i] = 1.8 - 0.12 * k
+        scan.update(rr, 0.1 * k, pose=(0.0, 0.0, 0.0))
+        loom.update()
+    assert loom.fast["active"] and loom.fast["closing_ms"] < 1.6
+
+
+def test_driving_at_a_wall_is_not_a_rush():
+    scan, loom, ang = _world()
+    for k in range(10):                                  # the robot drives at 0.5 m/s toward a still wall
+        x = 0.05 * k
+        a = np.radians(np.array(ang))
+        with np.errstate(divide="ignore"):
+            rr = np.where(np.cos(a) > 0.2, (2.0 - x) / np.cos(a), 8.0)
+        scan.update(np.minimum(rr, 8.0), 0.1 * k, pose=(x, 0.0, 0.0))
+        loom.update()
+    assert not loom.fast["active"] and not loom.last["active"]
+
+
+def test_driving_past_furniture_is_not_a_rush():
+    import math
+    from robot.rover_world import FakeBase, FakeLidar, FakeRoom
+    room = FakeRoom()
+    base = FakeBase(start=(-1.5, 0.0, 0.0), room=room)
+    lid = FakeLidar(room, base, None, 90)
+    scan = LidarScan(beam_angles(90), 0.13)
+    loom = LidarLooming(scan)
+    rushes = 0
+    for k in range(300):                                 # 30 s weaving through the room and past the box
+        base.drive(0.3, 0.6 * math.sin(k / 15.0))
+        base.advance(0.1)
+        lid.update(0.1 * k)
+        t, r = lid.latest()[:2]
+        scan.update(r, 0.1 * k, pose=base.state()["pose"])
+        loom.update()
+        rushes += loom.fast["active"] and loom.fast["confirmed"] and loom.fast["closing_ms"] > 1.6
+    assert rushes == 0
+
+
+class _Mover:
+    def __init__(self, xz, v):
+        self.p, self.v = np.array(xz, float), np.array(v, float)
+
+    def xz(self):
+        return tuple(self.p)
+
+
+def _drive_with(mover, steps, v=0.25, w=0.0, start=(-1.5, 0.0, 0.0)):
+    from robot.rover_world import FakeBase, FakeLidar, FakeRoom
+    room = FakeRoom()
+    base = FakeBase(start=start, room=room)
+    lid = FakeLidar(room, base, mover, 90)
+    scan = LidarScan(beam_angles(90), 0.13)
+    loom = LidarLooming(scan)
+    found = []
+    for k in range(steps):
+        base.drive(v, w)
+        base.advance(0.1)
+        mover.p += 0.1 * mover.v
+        lid.update(0.1 * k)
+        scan.update(lid.latest()[1], 0.1 * k, pose=base.state()["pose"])
+        loom.update()
+        if loom.fast["active"] and loom.fast["confirmed"] and loom.fast["closing_ms"] > 1.6:
+            found.append(loom.fast)
+    return found
+
+
+def test_a_rush_is_seen_while_driving_a_walk_past_is_not():
+    # something rushing at the driving robot from ahead (+x), 3 m/s
+    found = _drive_with(_Mover((0.3, 0.0), (-3.0, 0.0)), 6)
+    assert found and abs(found[-1]["azimuth_deg"]) <= 8 and found[-1]["closing_ms"] > 2.0
+    # a person walking across in front at 1.2 m/s
+    assert not _drive_with(_Mover((-0.6, -1.2), (0.0, 1.2)), 20)
+
+
+def test_stepping_out_from_cover_is_not_a_rush():
+    scan, loom, ang = _world()
+    i = ang.index(0.0)
+    for k in range(8):                                   # a wall at 2.5 m; a person appears at 1.0 m at once
+        rr = np.full(90, 2.5)
+        if k >= 5:
+            rr[i - 1:i + 2] = 1.0 - 0.1 * (k - 5)        # then walks up at 1 m/s
+        scan.update(rr, 0.1 * k, pose=(0.0, 0.0, 0.0))
+        loom.update()
+        assert not (loom.fast["active"] and loom.fast.get("confirmed") and loom.fast["closing_ms"] > 1.6)

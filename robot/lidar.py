@@ -141,7 +141,12 @@ class LidarLooming:
     still walls in half the steps while walking.)"""
 
     BASE_S = 0.5              # compare with the scan this long ago
+    FAST_BASE_S = 0.15        # .fast: a short baseline for quick rushes (a kick lasts ~0.15 s;
+                              # robot/threat.FastDanger), as noisy but over a 1.6 m/s threshold
     MATCH_M = 0.08
+    RADIAL_DEG = 25.0
+    CONFIRM_DEG = 15.0
+    EDGE_M = 0.15
 
     def __init__(self, scan: LidarScan):
         self.scan = scan
@@ -152,30 +157,62 @@ class LidarLooming:
         from collections import deque
         self._hist = deque()
         self.last = {"active": False}
+        self.fast = {"active": False}
+        self._fast_prev = {"active": False}
 
     def update(self) -> None:
         s = self.scan
         self.last = {"active": False}
+        self.fast = {"active": False}
         if s.t is None or s.pose is None:
+            self._fast_prev = self.fast
             return
         while self._hist and (s.t < self._hist[-1][0] or s.t - self._hist[0][0] > 2 * self.BASE_S):
             if s.t < self._hist[-1][0]:
                 self._hist.clear()               # the clock went back: a new episode
             else:
                 self._hist.popleft()
-        ref = None
+        refs = {}
         for t_old, pts_old in self._hist:
-            if s.t - t_old >= self.BASE_S:
-                ref = (t_old, pts_old)
+            for name, base in (("last", self.BASE_S), ("fast", self.FAST_BASE_S)):
+                if s.t - t_old >= base - 1e-6:
+                    refs[name] = (t_old, pts_old)  # the newest scan at least `base` old
         ok = np.isfinite(s.ranges)
-        pts = s.points_world()                   # finite beams only, in beam order
         self._hist.append((s.t, s.points_world_all()))
-        if ref is None or not ok.any():
+        if not ok.any():
             return
+        pts = s.points_world()                   # finite beams only, in beam order
+        prev_fast = self._fast_prev
+        for name, ref in refs.items():
+            setattr(self, name, self._approach(s, ok, pts, ref, radial=name == "fast"))
+        # a rush builds over scans: the one before saw it approaching too, on
+        # about the same bearing and farther out. Something stepping out from
+        # behind a doorframe appears at once (Habitat: "rushes" at 8-10 m/s)
+        # The closing speed is then the lesser of the two estimates: since the
+        # reference scan, and since the scan before (one step out from cover
+        # still reaches back to the wall behind)
+        f = self.fast
+        if f["active"]:
+            f["t"] = s.t
+            f["confirmed"] = bool(prev_fast.get("active") and abs(((f["azimuth_deg"] - prev_fast["azimuth_deg"]
+                                                                       + 180.0) % 360.0) - 180.0) <= self.CONFIRM_DEG
+                                  and prev_fast["range_m"] > f["range_m"] and s.t > prev_fast["t"])
+            if f["confirmed"]:
+                step = (prev_fast["range_m"] - f["range_m"]) / (s.t - prev_fast["t"])
+                f["closing_ms"] = min(f["closing_ms"], step)
+        self._fast_prev = f
+
+    def _approach(self, s, ok, pts, ref, radial: bool = False) -> dict:
+        """The fastest-expanding beam that moved toward the robot since `ref`.
+        radial: only a point whose earlier position lies farther out along its
+        own line of sight (within RADIAL_DEG) and as far as its closing speed
+        says: something coming AT the robot. Without this, wall coming into
+        view past an edge as the robot drives reads as a rush (Habitat
+        2026-10-01: 843 false rushes in 30 days, median 3.5 m/s)."""
         t_old, old = ref
         old = old[np.isfinite(old[:, 0])]
         if not len(old):
-            return
+            return {"active": False}
         dt = s.t - t_old
         x, z, _ = s.pose
         idx = np.flatnonzero(np.isfinite(s.ranges))
@@ -191,15 +228,34 @@ class LidarLooming:
         tol = self.MATCH_M + r * spacing * 1.5
         clear = np.maximum(r - s.body[beams], 0.05)
         moving = (dmin > tol) & (closing > MOVING_MS) & (clear < LOOM_MAX_M)
+        if radial and moving.any():
+            to_old = old[j] - P                                # where the point was, seen from now
+            ray = (P - np.array([x, z])) / np.maximum(r[:, None], 1e-6)
+            cos = (to_old * ray).sum(1) / np.maximum(dmin, 1e-6)
+            moving &= (cos >= np.cos(np.radians(self.RADIAL_DEG))) & (dmin <= 1.5 * closing * dt + tol)
+            # ... and nearer on that line of sight than the scan before showed it
+            # (projected into this pose): a wall seen at a grazing angle while
+            # turning passes the test above, but its range grows
+            if moving.any() and len(self._hist) >= 2:
+                prev = self._hist[-2][1]
+                prev = prev[np.isfinite(prev[:, 0])]
+                pred = s.predict_from(prev) if len(prev) else np.full(len(s.angles), np.inf)
+                moving &= np.isfinite(pred[beams]) & (r < pred[beams] - self.MATCH_M)
+            # ... and not behind a much nearer neighbouring beam: a surface seen
+            # edge-on as the robot turns (a box's side) slides along its edge;
+            # a foot, a ball, a leg is as near as its neighbours or nearer
+            rr = s.ranges
+            nb = np.minimum(rr[(beams - 1) % len(rr)], rr[(beams + 1) % len(rr)])
+            moving &= r <= nb + self.EDGE_M
         if not moving.any():
-            return
+            return {"active": False}
         w2 = OBJECT_W_M / 2
         half = np.degrees(np.arctan(w2 / clear))
         exp = np.degrees(w2 * closing / (clear ** 2 + w2 ** 2))
         k = int(np.argmax(np.where(moving, exp, -1.0)))
-        self.last = {"active": True, "azimuth_deg": float(s.angles[beams[k]]),
-                     "half_angle_deg": float(half[k]), "expansion_rate_deg_s": float(exp[k]),
-                     "range_m": float(r[k]), "closing_ms": float(closing[k])}
+        return {"active": True, "azimuth_deg": float(s.angles[beams[k]]),
+                "half_angle_deg": float(half[k]), "expansion_rate_deg_s": float(exp[k]),
+                "range_m": float(r[k]), "clear_m": float(clear[k]), "closing_ms": float(closing[k])}
 
     def state(self, t_ms: float) -> dict:
         L = self.last

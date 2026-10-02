@@ -156,3 +156,27 @@ def test_head_clean_frame_roundtrip():
     finally:
         shm.close()
         shm.unlink()
+
+
+def test_fast_route_only_for_rushes_and_by_what_it_is():
+    from robot.threat import FastDanger, load_valence
+    val = load_valence()
+    assert val["a foot"] == 2 and val["a person"] < 2 and val["a wall"] == 0 and "something unknown" in val
+    fd, fear = FastDanger({"a foot": 2, "a person": 1, "a teddy bear": 0, "something unknown": 1}), Fear()
+    walk = {"active": True, "azimuth_deg": 0.0, "clear_m": 0.5, "closing_ms": 1.2}
+    assert not fd.step(1.0, walk, [], fear)["rush"]                         # walking pace: nothing
+    far = {"active": True, "azimuth_deg": 0.0, "clear_m": 2.0, "closing_ms": 2.0}
+    assert not fd.step(1.0, far, [], fear)["rush"]                          # not arriving yet
+    kick = {"active": True, "azimuth_deg": 20.0, "clear_m": 0.4, "closing_ms": 3.0}
+    scene = [("a person", 15.0, 10.0), ("a foot", 25.0, 13.0), ("a teddy bear", -30.0, 13.0)]
+    L = fd.step(1.0, kick, scene, fear)
+    assert L["rush"] and L["what"] == "a foot" and L["valence"] == 2       # the most dangerous match
+    F = fear.update(1.0)
+    assert F["source"] == "fast" and F["level"] == 1.0 and F["azimuth_deg"] == 20.0
+    fear2 = Fear()
+    teddy = dict(kick, azimuth_deg=-30.0)
+    assert fd.step(2.0, teddy, scene, fear2)["valence"] == 0 and not fear2.update(2.0)["active"]
+    behind = dict(kick, azimuth_deg=170.0)                                   # unseen: wary only
+    assert fd.step(3.0, behind, scene, fear2)["what"] == "something unknown"
+    assert fear2.update(3.0)["level"] == LEVELS[1]
+    assert fd.count == {0: 1, 1: 1, 2: 1}

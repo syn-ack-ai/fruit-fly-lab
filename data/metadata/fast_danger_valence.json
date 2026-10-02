@@ -1,0 +1,203 @@
+{
+ "model": "gemma-4-e4b-it-mlx",
+ "date": "2026-10-01",
+ "question": "You judge danger for a small wheeled home robot, about 25 cm tall, that lives with people. Things in a home come toward it all the time: people walking up to say hello, pets coming over, a toy rolling gently -- none of that is danger. Here something is RUSHING at the robot, much faster than walking pace (running, kicked, thrown, charging, falling over toward it), and will reach it in under a second. Would that thing, arriving that fast, really hurt the robot (kick it, step on it, hit it hard, knock it over, bite, burn or soak it)? If this kind of thing cannot rush, be thrown or fall over by itself (a wall, a floor, a room), answer 0. Reply with ONLY one JSON object: {\"fear\": 0 (no danger) or 1 (be wary) or 2 (danger), \"why\": a few words}",
+ "valence": {
+  "a person": {
+   "fear": 1,
+   "why": "High speed impact from a person could cause damage or tippin"
+  },
+  "a person's face": {
+   "fear": 0,
+   "why": "Face is not physically dangerous to a small robot"
+  },
+  "a hand": {
+   "fear": 1,
+   "why": "Fast impact could damage sensors or casing"
+  },
+  "a foot": {
+   "fear": 2,
+   "why": "High impact force from a fast-moving foot"
+  },
+  "a cat": {
+   "fear": 1,
+   "why": "Fast movement could knock it over or cause minor impact."
+  },
+  "a dog": {
+   "fear": 1,
+   "why": "Fast movement/impact risk"
+  },
+  "a ball": {
+   "fear": 1,
+   "why": "Can cause impact damage or knock over"
+  },
+  "a toy": {
+   "fear": 1,
+   "why": "Fast-moving toy could impact or knock over"
+  },
+  "a teddy bear": {
+   "fear": 0,
+   "why": "Teddy bears don't rush fast enough to cause harm."
+  },
+  "a shoe": {
+   "fear": 2,
+   "why": "High impact from fast-moving shoe"
+  },
+  "a sock": {
+   "fear": 0,
+   "why": "Too light to cause damage"
+  },
+  "a chair": {
+   "fear": 1,
+   "why": "Can be knocked over or hit by a forceful movement."
+  },
+  "a table": {
+   "fear": 0,
+   "why": "Tables do not rush or move on their own."
+  },
+  "a sofa": {
+   "fear": 0,
+   "why": "A sofa cannot rush or move on its own."
+  },
+  "a bed": {
+   "fear": 0,
+   "why": "A bed cannot rush at the robot."
+  },
+  "a door": {
+   "fear": 0,
+   "why": "Doors move slowly enough not to be a threat"
+  },
+  "a wall": {
+   "fear": 0,
+   "why": "Walls do not rush or move toward the robot."
+  },
+  "a floor": {
+   "fear": 0,
+   "why": "Floor cannot rush or hurt"
+  },
+  "a rug": {
+   "fear": 0,
+   "why": "A rug cannot rush or hurt the robot."
+  },
+  "a plant": {
+   "fear": 0,
+   "why": "Plants do not rush or attack."
+  },
+  "a cup": {
+   "fear": 1,
+   "why": "Can be thrown/kicked with force"
+  },
+  "a bottle": {
+   "fear": 1,
+   "why": "Can break and cause impact damage"
+  },
+  "a bag": {
+   "fear": 1,
+   "why": "Can be thrown or kicked with force"
+  },
+  "a cardboard box": {
+   "fear": 0,
+   "why": "Low mass, unlikely to cause damage"
+  },
+  "a book": {
+   "fear": 1,
+   "why": "Can cause impact damage or knock over"
+  },
+  "a laptop": {
+   "fear": 1,
+   "why": "Can cause impact damage or knock it over"
+  },
+  "a phone": {
+   "fear": 1,
+   "why": "Can cause impact damage or knock it over"
+  },
+  "a television": {
+   "fear": 0,
+   "why": "TVs don't rush or move on their own."
+  },
+  "a cable": {
+   "fear": 0,
+   "why": "A cable won't rush fast enough to cause harm."
+  },
+  "stairs": {
+   "fear": 1,
+   "why": "Falling objects can cause impact damage"
+  },
+  "a kitchen": {
+   "fear": 0,
+   "why": "A room cannot rush at the robot."
+  },
+  "a bathroom": {
+   "fear": 0,
+   "why": "A room cannot rush at the robot."
+  },
+  "a window": {
+   "fear": 1,
+   "why": "Could shatter and injure robot"
+  },
+  "a robot vacuum": {
+   "fear": 0,
+   "why": "Low mass and speed is unlikely to cause damage"
+  },
+  "a knife": {
+   "fear": 2,
+   "why": "High velocity impact/piercing risk"
+  },
+  "fire": {
+   "fear": 2,
+   "why": "Fire can cause burns or damage."
+  },
+  "water on the floor": {
+   "fear": 0,
+   "why": "Water is not forceful enough to cause damage."
+  },
+  "a desk": {
+   "fear": 0,
+   "why": "A desk cannot rush or move on its own."
+  },
+  "a lamp": {
+   "fear": 0,
+   "why": "Lamps don't rush or move on their own."
+  },
+  "a basket": {
+   "fear": 0,
+   "why": "Basket is not a threat"
+  },
+  "clothes": {
+   "fear": 0,
+   "why": "Clothes won't rush fast enough to cause harm."
+  },
+  "a toy car": {
+   "fear": 1,
+   "why": "Fast impact could damage or knock over"
+  },
+  "a remote control": {
+   "fear": 0,
+   "why": "Too light to cause harm"
+  },
+  "a pillow": {
+   "fear": 1,
+   "why": "Can cause impact/knock over"
+  },
+  "a guitar": {
+   "fear": 1,
+   "why": "Can be thrown/kicked hard enough to damage"
+  },
+  "food": {
+   "fear": 0,
+   "why": "Food does not rush at it with force."
+  },
+  "a bicycle": {
+   "fear": 2,
+   "why": "High impact from fast-moving object"
+  },
+  "a mirror": {
+   "fear": 0,
+   "why": "Mirrors do not rush or attack"
+  },
+  "something unknown": {
+   "fear": 1,
+   "why": "Unknown object moving fast could cause impact damage"
+  }
+ }
+}

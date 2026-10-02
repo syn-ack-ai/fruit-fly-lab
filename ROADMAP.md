@@ -115,9 +115,33 @@ Steps:
     1 late step in 90 s. The user held a knife by the chair: curiosity named
     it, the personality became wary (below the startle), Gemma's camera
     looks saw no danger (it was not pointed at Milo); no startle.
-- **now** The fast route for danger: depth + lidar time-to-collision of
-  something approaching by itself, appraised by meaning; toys and novelty
-  tested live with a ball and new things.
+- **done 2026-10-01** The fast route for danger (`robot/threat.FastDanger`):
+  the lidar sees something RUSHING in (faster than walking, 1.6 m/s, beyond
+  the robot's own motion, arriving within 0.6 s; a 0.15 s baseline so a kick
+  registers); what it is comes from what the camera last saw on that side
+  (the person and toy detector, SigLIP's labels), and whether that is a
+  danger was asked of Gemma once per kind of thing
+  (`data/metadata/fast_danger_valence.json`: a foot, a shoe, a knife, a
+  bicycle, fire -> danger; a person, a dog, a ball, something unseen ->
+  wary; walls, rooms, a teddy bear -> nothing). No slow model in the loop.
+  A rush must come along the line of sight, be nearer on it than the scan
+  before showed it, and not lie behind a nearer neighbouring beam: the
+  first Habitat run (843 false "rushes" in 30 days, median 3.5 m/s, mostly
+  while driving) came from walls seen at a grazing angle and box sides seen
+  edge-on as Milo turned (reproduced in the fake room, 32 in 30 s, now 0;
+  a 3 m/s rush at the driving robot is still seen, a walk past is not),
+  then people stepping out from behind a doorframe (8-10 m/s "rushes"): a
+  rush must also be confirmed over two scans. Habitat: 843 -> 3 rushes in
+  30 days, no startles, no significant difference
+  (`results/robot_brain_2026-10-01` section 4).
+  The first question ("coming at it fast") made Gemma fear nearly
+  everything, people included; asking about rushing in, with people walking
+  up named as no danger, gave the table above. No depth model: for a 25 cm
+  robot threats come along the floor, the lidar's plane; something falling
+  from above and being knocked or lifted (the base's IMU, not yet
+  connected) are left for later.
+- **now** Live checks: a ball and new things (toys, curiosity), the fast
+  route's false alarms with the real lidar in a lived-in room.
 - **done 2026-10-01** Startle instead of escape (`ForagingBody(wheeled=True)`,
   the robot's default; `FLY_STARTLE=0` gives the old fast dash): the escape
   command freezes Milo (0.3 s), backs it off ~15-20 cm while turning to face

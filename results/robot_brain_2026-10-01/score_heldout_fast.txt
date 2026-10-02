@@ -1,0 +1,33 @@
+
+=== petsteer  (lidar on)
+                                                meaning (30 d)               fast (30 d)
+  furniture bumps/day                           0.47 ->  90.7%            0.53 ->  89.3%
+  pet-caused person bumps/day                   0.57 ->   6.7%            0.60 ->   0.0%
+  safety-layer brake s/day                     29.38 ->  51.0%           25.89 ->  56.9%
+  pinned/pressing s/day                        11.88 ->  60.4%           14.03 ->  53.2%
+  s/day below 20% battery                      10.28 ->  82.9%            1.14 ->  98.1%
+  fraction of days with a flat battery            0.00 -> 100.0%            0.00 -> 100.0%
+  s/day eating when full                        0.15 ->  98.5%            0.20 ->  98.0%
+  walked m/day                                 22.18 ->  99.7%           22.63 -> 100.0%
+  s/day near the person                        17.02 ->  56.7%           18.62 ->  62.1%
+  speed variation (CV) while moving             0.58 -> 100.0%            0.58 -> 100.0%
+  heading reversals / active min                1.79 ->  91.1%            1.72 ->  91.4%
+  move/pause bouts / min                        3.95 -> 100.0%            3.95 -> 100.0%
+  irregularity of bouts (CV)                    0.67 -> 100.0%            0.71 -> 100.0%
+  turns toward person on appearance             0.80 ->  79.7%            0.76 ->  75.6%
+  SAFETY (28)                                            50.4%                     47.3%
+  SELF-CARE (21)                                         91.2%                     98.7%
+  LIFE (21)                                              78.2%                     81.0%
+  ALIVENESS (30)                                         92.2%                     91.2%
+  TOTAL (range over seeds)                       77.4% [75-79]             78.3% [77-79]
+    without aliveness                                    71.0%                     72.8%
+    meaning: stuck against something 4.7 s/day, song bouts 3.8/day
+    meaning: dock 8/30 days, meals 5, eating 5.8 s/day, battery at day end 0.52
+    fast: stuck against something 2.3 s/day, song bouts 3.8/day
+    fast: dock 9/30 days, meals 6, eating 6.2 s/day, battery at day end 0.61
+
+=== overall
+  total              meaning    all conditions  77.4%   with lidar (the rover's setup)  77.4%
+  total              fast       all conditions  78.3%   with lidar (the rover's setup)  78.3%
+  without aliveness  meaning    all conditions  71.0%   with lidar (the rover's setup)  71.0%
+  without aliveness  fast       all conditions  72.8%   with lidar (the rover's setup)  72.8%

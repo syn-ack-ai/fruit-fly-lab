@@ -1,0 +1,15 @@
+A = heldout_meaning (fear from meaning, no fast route)
+B = heldout_fast (+ the fast route and the wheeled startle)
+REAL: p(days) < 0.0045 (Bonferroni) and all seeds apart
+== petsteer
+  furniture  A    0.47  B    0.53  p(days)=0.984  
+  person     A    0.57  B    0.60  p(days)=0.861  
+  brake      A   29.38  B   25.89  p(days)=0.496  
+  pinned     A   11.88  B   14.03  p(days)=0.399  
+  walked     A   22.18  B   22.63  p(days)=0.69  
+  company    A   17.02  B   18.62  p(days)=0.408  
+  speed_cv   A    0.58  B    0.58  p(days)=0.953  
+  reversals  A    1.79  B    1.72  p(days)=0.695  
+  bouts      A    3.95  B    3.95  p(days)=0.661  
+  orient     A    0.79  B    0.76  p(days)=0.918  
+  eating_s   A    5.83  B    6.20  p(days)=0.735  

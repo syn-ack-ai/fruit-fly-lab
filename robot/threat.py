@@ -43,7 +43,8 @@ GAMMA = 2.5                   # drive = level ** GAMMA: the circuit is steep (a 
                               # already crosses the escape threshold), "wary" must stay below it
 FADE_S = {"vision": 2.0,       # time constant of a fear's fading: a look comes every
           "llm": 4.0,          # ~1 s and its answer flickers (knife test 2026-10-01: 2, 1,
-          "test": 2.0}         # 0, 1, 1, 0, 1), a reply comes once and lasts a while
+          "test": 2.0,         # 0, 1, 1, 0, 1), a reply comes once and lasts a while
+          "fast": 1.5}         # the fast route (FastDanger): a rush is over quickly
 FLOOR = 0.05                  # a fear faded below this is gone
 LEVELS = {0: 0.0, 1: 0.25, 2: 1.0}   # the language model's fear 0 / 1 (wary) / 2 (danger)
 
@@ -126,3 +127,66 @@ def llm_level(fear) -> float:
         return LEVELS.get(int(fear), 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+# ------------------------------------------------------------------ fast route
+# Something RUSHING at Milo (faster than walking pace, about to arrive) is
+# seen by the lidar 10 times a second (robot/lidar.LidarLooming: points that
+# came closer than a still world predicts from the robot's own motion). What
+# it is comes from what the camera last saw on that side (the person or toy
+# detector, robot/seeing.py's labels), and whether that is a danger when it
+# rushes in was asked of the language model once per kind of thing
+# (data/metadata/fast_danger_valence.json): a foot or a shoe is, a person or a
+# ball is to be wary of, a teddy bear is not. Nothing waits on a slow model:
+# the reflex is fast, the meaning was looked up beforehand.
+FAST_MS = 1.6                 # closing speed beyond self-motion: faster than walking (~1.2 m/s)
+TTC_S = 0.6                   # arriving within this
+VALENCE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "data", "metadata", "fast_danger_valence.json")
+UNKNOWN = "something unknown"
+
+
+def load_valence(path: str = VALENCE_FILE) -> dict:
+    """label -> 0 / 1 / 2 (the language model's answer for that thing rushing in)."""
+    import json
+    with open(path) as fh:
+        return {k: int(v["fear"]) for k, v in json.load(fh)["valence"].items()}
+
+
+class FastDanger:
+    """The fast route: lidar rush x what it is -> a Fear appraisal ("fast")."""
+
+    def __init__(self, valence: dict | None = None):
+        self.valence = valence if valence is not None else load_valence()
+        self.last = {"rush": False}
+        self.count = {0: 0, 1: 0, 2: 0}
+
+    def what(self, az: float, scene: list) -> tuple:
+        """The most dangerous description of what is at bearing az: scene =
+        [(label, centre_az, half_width_deg)]; (UNKNOWN, its valence) if none."""
+        best = None
+        for label, c, half in scene:
+            if abs(((az - c + 180.0) % 360.0) - 180.0) <= half:
+                v = self.valence.get(label, self.valence.get(UNKNOWN, 1))
+                if best is None or v > best[1]:
+                    best = (label, v)
+        return best or (UNKNOWN, self.valence.get(UNKNOWN, 1))
+
+    def step(self, t: float, rush: dict, scene: list, fear: Fear) -> dict:
+        """rush = LidarLooming.last ({"active", "azimuth_deg", "clear_m",
+        "closing_ms"}); appraises `fear` when something rushes in."""
+        self.last = {"rush": False}
+        if not rush.get("active") or not rush.get("confirmed", True) or rush.get("closing_ms", 0.0) < FAST_MS:
+            return self.last
+        ttc = rush.get("clear_m", rush.get("range_m", 9.0)) / max(rush["closing_ms"], 1e-6)
+        if ttc > TTC_S:
+            return self.last
+        az = float(rush["azimuth_deg"])
+        label, v = self.what(az, scene)
+        self.count[v] += 1
+        self.last = {"rush": True, "what": label, "valence": v, "az": round(az), "ttc_s": round(ttc, 2),
+                     "closing_ms": round(rush["closing_ms"], 2)}
+        if v:
+            fear.appraise("fast", LEVELS[v], t, azimuth_deg=az, what=f"{label} rushing in")
+        return self.last
+

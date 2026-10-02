@@ -126,3 +126,34 @@ near-person speed limit) while it wanted company -- the pet nudging up to its
 person. The fly's looming had been an accidental "personal space" brake: the
 person's growing image slowed or turned it. That job belongs to the robot's
 social manners (keeping a little distance unless invited), not to fear.
+
+## 4. The fast route for danger, and the startle
+
+`robot/threat.FastDanger` (with `FLY_LOOM=meaning` and the lidar): something
+RUSHING at Milo -- faster than walking (1.6 m/s beyond its own motion),
+arriving within 0.6 s -- is appraised by what the camera last saw on that
+side, from a table the language model filled in once
+(`data/metadata/fast_danger_valence.json`: a foot, a shoe, a knife, a
+bicycle, fire -> danger; a person, a dog, a ball, unseen -> wary; walls,
+rooms, a teddy bear -> nothing). The escape command it may cause is a
+startle on the wheeled body (freeze, back off facing it, watch).
+
+Getting the lidar's "rush" right took three passes, each found in Habitat
+(held-out seeds 41-43, 10 days, the trimmed brain, petsteer):
+
+| version | rushes in 30 days | afraid steps | startles | total |
+|---|---|---|---|---|
+| no fast route (section 3) | - | 0% | 0 | 77.4% |
+| short baseline only | 843 (median 3.5 m/s, 85% while driving) | 23.5% | 0 | 80.3% |
+| + along the line of sight, nearer than the scan before, not behind an edge | 174 (8-10 m/s) | 7.3% | 1 | 81.3% |
+| + confirmed over two scans, the lesser of the two speeds | 3 (1.7-2.5 m/s) | 0.2% | 0 | 78.3% (`score_heldout_fast.txt`) |
+
+The false rushes were walls seen at a grazing angle and box sides seen
+edge-on as Milo turned (reproduced in the fake room: 32 in 30 s, now 0), then
+a person stepping out from behind a doorframe (appearing at once). Kept: a
+kick (a foot from 0.6 to 0.15 m in 0.1 s) and a 3 m/s rush at the driving
+robot are seen; walking up at 1.2 m/s and a walk past are not
+(`tests/test_lidar.py`). The final version against section 3: no significant
+difference in any metric (`stats_meaning_vs_fast.txt`). The higher totals of
+the middle versions came from the false "wary" fear braking Milo near
+people -- the personal-space job again, not a reason to keep false fear.

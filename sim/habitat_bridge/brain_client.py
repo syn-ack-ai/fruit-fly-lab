@@ -184,6 +184,10 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
                 parts.append((LoomingEncoder(c, load_retinotopy(c)), lloom))
         ses.lidar = (scan, lloom, ltouch)
         ses.lidar_limit = True
+        if LOOM_MODE == "meaning":
+            # the fast route: something rushing in, appraised by what it is (robot/threat.py)
+            from robot.threat import FastDanger
+            ses.fast = FastDanger()
         ses.body_dims = (BODIES[body]["half_len"], BODIES[body]["half_wid"])
     if home is not None:
         from sim.habitat_bridge.home import HomeSenses
@@ -217,6 +221,24 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
         ses.topdown = TopDown(c, obj, channels=topdown)
     ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0, wheeled=_wheeled())
     return ses, feed, obj, clock, parts
+
+
+TOY_LABEL = {"ball": "a ball", "frisbee": "a toy", "teddy bear": "a teddy bear"}
+
+
+def _scene(obs: dict, curiosity=None) -> list:
+    """What the camera last saw where (robot/threat.FastDanger): [(label,
+    centre azimuth, half width deg)]: the person, a toy, and robot/seeing.py's
+    label of each side."""
+    out = []
+    if obs.get("visible"):
+        out.append(("a person", float(obs["az"]), max(10.0, 2.0 * float(obs["half"]))))
+    toy = obs.get("toy")
+    if toy:
+        out.append((TOY_LABEL.get(toy.get("kind"), "a toy"), float(toy["az"]), max(8.0, 2.0 * float(toy["half"]))))
+    if curiosity is not None:
+        out += curiosity.scene
+    return out
 
 
 def robot_command(body_state) -> tuple:
@@ -258,6 +280,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             if hasattr(ses.lidar[2], "reset"):
                 ses.lidar[2].reset()                 # touch adaptation
         ses.fear.reset()
+        if getattr(ses, "fast", None) is not None:
+            ses.fast.count = {0: 0, 1: 0, 2: 0}   # rushes counted per day
         if getattr(ses, "cmon", None) is not None:
             ses.cmon.reset()
         if getattr(ses, "avoid", None) is not None:
@@ -394,6 +418,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                 ses.topdown.apply(float(obs["robot"][2]) % 360.0, cmd)
             if appraiser is not None:
                 appraiser.step(t_sim, ses.fear, personality)
+            if getattr(ses, "fast", None) is not None and ses.lidar is not None:
+                ses.fast.step(t_sim, ses.lidar[1].fast, _scene(obs, curiosity), ses.fear)
             ses.fear.update(t_sim)
             fr = fr_prev = ses.advance(period_ms)[-1]
             # the song channel over the whole step (every 1 ms block's 50 ms
@@ -581,6 +607,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             log[-1]["novel"] = {"az": round(curiosity.target["az"]), "novelty": round(curiosity.target["novelty"], 2),
                                 "what": curiosity.target["what"],
                                 "pursued": mode == "brain" and obj.last.get("target") == "novel"}
+        if mode == "brain" and getattr(ses, "fast", None) is not None and ses.fast.last.get("rush"):
+            log[-1]["rush"] = dict(ses.fast.last)
         if mode == "brain" and ses.fear.last["active"]:
             F = ses.fear.last
             log[-1]["fear"] = {"source": F["source"], "level": F["level"], "az": round(F["azimuth_deg"]),
@@ -641,6 +669,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
     if mode == "brain":
         res["fear"] = {"mode": __import__("robot.threat", fromlist=["LOOM_MODE"]).LOOM_MODE,
                        "appraisals": ses.fear.count, "startles": ses.body.startles,
+                       "rushes": dict(ses.fast.count) if getattr(ses, "fast", None) is not None else None,
                        "steps_afraid": sum(1 for e in log if "fear" in e)}
         if appraiser is not None:
             res["fear"]["looks"] = appraiser.summary()

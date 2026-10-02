@@ -19,8 +19,9 @@ simulated time):
     -> robot velocity, SCALED from fly to robot (documented approximation):
        speed x 0.025 (fly walking 12 mm/s -> robot 0.3 m/s), limited to
        -0.3 .. +0.5 m/s; turn rate x 0.5 (deg/s), limited to +-120 deg/s.
-       The robot cannot fly: a takeoff (escape) becomes a fast dash in the
-       direction the body chose.
+       The robot cannot fly: the escape command becomes a startle -- freeze,
+       back off facing the threat, watch (ForagingBody wheeled=True;
+       FLY_STARTLE=0: the old fast dash).
     -> motor dynamics (robot/motion.MotorLag, FLY_MOTOR_TAU, default 0.3 s speed
        / 1.5 s turn), then the robot's layers in order: battery (emergency
        return, dock approach), the speed governor near people, the lidar safety
@@ -122,6 +123,12 @@ class SimFeed:
 
 
 LIDAR_BEAMS = 90
+# The robot cannot fly: the escape command is a startle (freeze, back off
+# facing the threat, watch; fly/body/foraging_body.py wheeled=True).
+# FLY_STARTLE=0: the old fast dash ("flight" on wheels).
+def _wheeled() -> bool:
+    import config                       # not at import: main() sets FLY_TRIM first
+    return config.env_flag("FLY_STARTLE", True)
 
 
 def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = False,
@@ -193,7 +200,7 @@ def build_brain(seed: int, home=None, learning: bool | None = None, nav: bool = 
         # the neocortex's channels into the fly brain (cortex/topdown.py)
         from cortex.topdown import TopDown
         ses.topdown = TopDown(c, obj, channels=topdown)
-    ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0)
+    ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0, wheeled=_wheeled())
     return ses, feed, obj, clock, parts
 
 
@@ -227,7 +234,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             ses.add_stimulus(enc, stim)
         if ses.topdown is not None:
             ses.topdown.attach(ses)
-        ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0)
+        ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0, wheeled=_wheeled())
         if ses.mb is not None:
             ses.mb.reset_activity()               # new day: ongoing activity gone, memories kept
         if getattr(ses, "lidar", None) is not None:
@@ -284,6 +291,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
     found_t = None
     bumps = []                                    # (t, person speed m/s, pet speed m/s, wanted company)
     last_v = 0.0
+    startles_seen = 0
     while t_sim < seconds and not obs["over"]:
         dn = {}
         if home is not None:
@@ -378,8 +386,16 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             fr["hz_pIP10_step"] = float(sm.get("hz_pIP10", fr["channels"].get("hz_pIP10", 0.0)))
             v, w = robot_command(ses.body.state)
             raw = (v, w)                          # what the brain asked for, before the robot's layers
-            if motor is not None and not str(ses.body.state.behaviour).startswith("escape"):
+            if motor is not None and not str(ses.body.state.behaviour).startswith(("escape", "startle")):
                 v, w = motor(v, w, period_ms / 1000.0)      # a startle escape is not smoothed
+            if ses.body.startles > startles_seen:
+                startles_seen = ses.body.startles
+                if voice is not None:
+                    voice.sound("startle")                  # a startled yelp (robot/sounds.py)
+                if obs.get("rover"):
+                    F = ses.fear.last
+                    print(f"{t_sim:7.1f} s  startle ({ses.body.state.escape_mode} mode)"
+                          + (f": {F['source']} saw {F['what'] or 'danger'}" if F.get("active") else ""), flush=True)
             dn = {kk: round(vv, 1) for kk, vv in fr["dn_rates"].items()
                   if kk.startswith(("DNa01", "DNa02", "DNg100", "DNp09", "DNp01", "DNp02", "DNp04", "DNp11", "MDN", "DNge078"))}
             tb = round(fr["channels"].get("turn_bias", 0.0), 3)
@@ -416,6 +432,9 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
             else:
                 from robot.safety import obstacle_limit
                 v = obstacle_limit(ses.lidar[0].clearance(), ses.lidar[0].angles, v)   # forward cone
+                if mode == "brain" and str(ses.body.state.behaviour).startswith("startle"):
+                    from robot.safety import rear_limit
+                    v = rear_limit(ses.lidar[0].clearance(), ses.lidar[0].angles, v)   # backing off: not into things
                 if getattr(ses, "avoid", None) is not None and not emergency["active"]:
                     from robot.avoid import pivot
                     w, pivoted = pivot(ses.avoid.last, v_pre, v, w)       # pinned: turn in place to the open side
@@ -528,6 +547,8 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
                     "az": round(obs["az"], 1), "v": round(v, 3), "w_deg": round(math.degrees(w), 1),
                     "turn_bias": tb, "dn": dn,
                     "lc10a_hz": (obj.last.get("drive_hz") if mode == "brain" else None)})
+        if mode == "brain" and str(ses.body.state.behaviour).startswith("startle"):
+            log[-1]["startle"] = ses.body.state.behaviour
         if mode == "brain" and ses.fear.last["active"]:
             F = ses.fear.last
             log[-1]["fear"] = {"source": F["source"], "level": F["level"], "az": round(F["azimuth_deg"]),
@@ -587,7 +608,7 @@ def run_episode(conn, mode: str, episode: int, seconds: float, period_ms: float,
         res["eye"] = eye.status()
     if mode == "brain":
         res["fear"] = {"mode": __import__("robot.threat", fromlist=["LOOM_MODE"]).LOOM_MODE,
-                       "appraisals": ses.fear.count,
+                       "appraisals": ses.fear.count, "startles": ses.body.startles,
                        "steps_afraid": sum(1 for e in log if "fear" in e)}
         if appraiser is not None:
             res["fear"]["looks"] = appraiser.summary()

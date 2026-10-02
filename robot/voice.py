@@ -9,8 +9,8 @@ process.
 Pocket TTS (100M parameters, CC-BY-4.0) copies the voice of a short reference
 recording: Stuart Bell from Kyutai's voice-zero set (CC0). On the Orin's CPU,
 2 threads, it speaks faster than real time (a 6 s sentence in ~3.5 s), so the
-first sentence plays while the next is made. Sounds (beep, chirp, ... and the
-fly brain's own song) are synthesised here. The parent mutes the ears while
+first sentence plays while the next is made. Sounds (beep, chirp, curious,
+startle ... and the fly brain's own song) are synthesised by robot/sounds.py. The parent mutes the ears while
 Milo speaks (the "speaking" messages say for how long), so it does not hear
 itself.
 
@@ -45,7 +45,7 @@ VOICE = os.environ.get("FLY_VOICE_REF", "stuart_bell")
 STYLE = os.environ.get("FLY_VOICE_STYLE", "tin")           # robot/voice_fx.PRESETS (chosen 2026-10-01)
 THREADS = 2
 MAX_CHARS = 300
-SOUNDS = ("beep", "boop", "chirp", "trill", "whirr", "buzz", "song")
+from robot.sounds import NAMES as SOUNDS          # robot/sounds.py: beep ... startle, curious, happy ...
 
 
 def find_speaker() -> str:
@@ -80,32 +80,10 @@ def sentences(text: str) -> list:
 
 
 def synth_sound(name: str, sr: int = 24000) -> np.ndarray:
-    """A short robot sound (the personality's set, and the fly brain's song)."""
-    def tone(f0, f1, dur, vol=0.35, kind="sine"):
-        t = np.arange(int(sr * dur)) / sr
-        f = f0 * (f1 / f0) ** (t / dur)
-        ph = 2 * np.pi * np.cumsum(f) / sr
-        w = np.sin(ph) if kind == "sine" else np.sign(np.sin(ph)) * 0.5
-        env = np.minimum(1, t / 0.01) * np.minimum(1, (dur - t) / 0.03)
-        return (vol * w * env).astype(np.float32)
-    gap = lambda d: np.zeros(int(sr * d), np.float32)
-    if name == "beep":
-        return tone(1200, 1200, 0.15)
-    if name == "boop":
-        return tone(500, 360, 0.2)
-    if name == "chirp":
-        return tone(900, 2400, 0.12)
-    if name == "trill":
-        return np.concatenate([tone(1400, 1700, 0.06), gap(0.02)] * 4)
-    if name == "whirr":
-        t = np.arange(int(sr * 0.5)) / sr
-        return (0.25 * np.sin(2 * np.pi * (180 + 60 * np.sin(2 * np.pi * 7 * t)) * t)
-                * np.minimum(1, t / 0.05) * np.minimum(1, (0.5 - t) / 0.1)).astype(np.float32)
-    if name == "buzz":
-        return tone(140, 120, 0.3, 0.25, kind="square")
-    if name == "song":                       # the fly brain's courtship song (pIP10): a run of chirps
-        return np.concatenate([np.concatenate([tone(1800 + 150 * k, 2600, 0.05), gap(0.04)]) for k in range(6)])
-    return np.zeros(0, np.float32)
+    """A robot sound (robot/sounds.py: a small wordless voice, servo whirrs;
+    the personality's set, moods, the startle and the fly brain's song)."""
+    from robot.sounds import make
+    return make(name, sr)
 
 
 def _emit(d: dict) -> None:

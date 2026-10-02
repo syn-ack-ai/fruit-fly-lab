@@ -60,7 +60,9 @@ def replay(c, retino, looks, seed, every_s=1.0, tail_s=4.0):
     """The escape command (max of takeoff and long mode) per 0.25 s while the
     looks arrive as the robot got them."""
     from robot.threat import LEVELS
+    from fly.body.foraging_body import ForagingBody
     ses = Session(c, seed=seed)
+    ses.body = ForagingBody(neural=True, seed=seed, spontaneous_takeoff_per_s=0.0, wheeled=True)
     fear = Fear()
     ses.add_stimulus(LoomingEncoder(c, retino), fear)
     ses.advance(PRE_MS)
@@ -73,8 +75,9 @@ def replay(c, retino, looks, seed, every_s=1.0, tail_s=4.0):
         ses.advance(WIN_MS)
         t = round(t + WIN_MS / 1e3, 6)
         ch = ses.readout.channels(ses.recorder.window_sum, ses.window_ms)
-        trace.append((t, L.get("level", 0.0), max(ch.get("escape_takeoff", 0.0), ch.get("escape_long_mode", 0.0))))
-    return trace
+        trace.append((t, L.get("level", 0.0), max(ch.get("escape_takeoff", 0.0), ch.get("escape_long_mode", 0.0)),
+                      ses.body.state.behaviour))
+    return trace, ses.body.startles
 
 
 def main():
@@ -85,16 +88,18 @@ def main():
     c = load_connectome()
     retino = load_retinotopy(c)
     if a.knife:
-        traces = [replay(c, retino, KNIFE, s) for s in range(a.seeds)]
+        runs = [replay(c, retino, KNIFE, s) for s in range(a.seeds)]
+        traces = [r[0] for r in runs]
         print(f"brain {config.BRAIN_KEY}: the knife test's looks {KNIFE}, one a second")
-        print("   t (s)  look  fear level  escape command (mean of seeds; > 0.5 = escape)")
+        print("   t (s)  look  fear level  escape command (mean of seeds; > 0.5 = escape)   body (seed 0, wheeled)")
         for i in range(0, len(traces[0]), 5):
             t, lv = traces[0][i][0], traces[0][i][1]
             esc = np.mean([tr[i][2] for tr in traces])
             look = KNIFE[int(t - 0.05)] if t - 0.05 < len(KNIFE) and abs((t - 0.05) % 1.0) < 1e-6 else ""
-            print(f"  {t:6.2f}  {look!s:4}  {lv:10.2f}  {esc:5.2f} {'#' * int(round(esc * 20))}")
+            print(f"  {t:6.2f}  {look!s:4}  {lv:10.2f}  {esc:5.2f} {'#' * int(round(esc * 20)):20}  {traces[0][i][3]}")
         over = np.mean([[x[2] > 0.5 for x in tr] for tr in traces], axis=0)
-        print(f"escape (> 0.5) in {100 * over.mean():.0f}% of 50 ms windows over {traces[0][-1][0]:.0f} s")
+        print(f"escape (> 0.5) in {100 * over.mean():.0f}% of 50 ms windows over {traces[0][-1][0]:.0f} s; "
+              f"startles per seed: {[r[1] for r in runs]}")
         return
     print(f"brain {config.BRAIN_KEY}: {c.n} neurons")
     print(" level    az | max takeoff  max long | windows > 0.5 | first > 0.5 (ms)")

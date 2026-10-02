@@ -44,6 +44,17 @@ What is NOT in the connectome, and therefore modelled here:
 
 With neural=False the body runs the spontaneous process alone: the control
 condition for "what does the brain add?".
+
+wheeled=True (the robot, sim/habitat_bridge/brain_client.py): a wheeled
+body cannot take off. The escape command becomes a STARTLE instead (robot
+engineering, C): freeze (STARTLE_FREEZE_MS), back off while turning to face
+the threat's side (the more active escape side, as the fly's directed
+takeoff turns away from it; STARTLE_BACK_MS, longer for the giant fibre's
+short mode), then watch it, still (STARTLE_WATCH_MS); then ordinary life. As
+in the fly, one threat gives one response: the next needs the escape command
+to fall below threshold first. Mammals do much the same -- a startle, a
+freeze, orienting to the source, withdrawing (Yilmaz & Meister 2013 Curr
+Biol 23:2011: mice freeze or flee from looming).
 """
 from __future__ import annotations
 
@@ -161,6 +172,12 @@ LAND_DESCENT_MM_S = 150.0
 LANDING_THRESHOLD = 0.30
 FLIGHT_ESCAPE_THRESHOLD = 0.35
 GRAVITY_MM_S2 = 9810.0
+# --- C: the wheeled body's startle (fly units; x 0.025 = robot m/s, x 0.5 = robot deg/s) --
+STARTLE_FREEZE_MS = 300.0
+STARTLE_BACK_MS = {"short": 1000.0, "long": 700.0}   # the giant fibre: the more urgent
+STARTLE_BACK_MM_S = -8.0         # robot -0.2 m/s: ~14-20 cm back
+STARTLE_LOOK_DEG_S = 120.0       # robot 60 deg/s toward the threat's side while backing
+STARTLE_WATCH_MS = 1500.0
 
 
 def _env_seconds(name: str, default: float) -> float:
@@ -180,8 +197,9 @@ def _env_seconds(name: str, default: float) -> float:
 
 class ForagingBody:
     def __init__(self, neural: bool = True, seed: int = 0,
-                 spontaneous_takeoff_per_s: float = SPONT_TAKEOFF_PER_S):
+                 spontaneous_takeoff_per_s: float = SPONT_TAKEOFF_PER_S, wheeled: bool = False):
         self.neural = neural
+        self.wheeled = wheeled
         self.spont_takeoff = spontaneous_takeoff_per_s
         self._seed = seed
         self.reset()
@@ -200,6 +218,8 @@ class ForagingBody:
         import config
         self._prob_hold = config.env_flag("FLY_PROBOSCIS_HOLD", True)   # 0: the 50 ms readout before 2026-09-29
         self._escape_complete = False
+        self._startle = None            # wheeled: (t0_ms, mode, laterality) while startled
+        self.startles = 0
         self._phase = "ground"          # ground | jump | cruise | landing
         self._flight_end = 0.0
         self._evade_until = -1.0
@@ -264,6 +284,18 @@ class ForagingBody:
                 self._arm(t_ms, "short", "GF (DNp01) escape command", takeoff)
             elif long_mode >= LONG_MODE_THRESHOLD:
                 self._arm(t_ms, "long", "long-mode escape command (DNp02/04/11)", long_mode)
+        if self.wheeled and self._escape_armed_at is not None and self._startle is None:
+            self._startle = (self._escape_armed_at, self._escape_mode, float(laterality))
+            self._escape_armed_at = None
+            self.startles += 1
+            self._prob_hz, self._prob_on = 0.0, False      # a startle interrupts feeding ...
+            self._fwd_s = self._bwd_s = self._dng_s = 0.0  # ... and a walk
+            self._walking = False
+            self._log(t_ms, "startle (%s mode)" % self._startle[1], abs(laterality))
+        if self._startle is not None:
+            self._escape_armed_at = None               # one threat, one startle
+            if self._startled(t_ms):
+                return
         if self._escape_armed_at is not None:
             el = t_ms - self._escape_armed_at
             s.speed_mm_s, s.turn_rate_deg_s = 0.0, 0.0
@@ -358,6 +390,30 @@ class ForagingBody:
         if (self._walking and not feeding and self.spont_takeoff > 0
                 and self.rng.random() < dt_s * self.spont_takeoff):
             self._takeoff(t_ms, 0.0, directed=False, why="spontaneous")
+
+    def _startled(self, t_ms) -> bool:
+        """The wheeled body's startle; False once it is over."""
+        s = self.state
+        t0, mode, lat = self._startle
+        el = t_ms - t0
+        back = STARTLE_BACK_MS.get(mode, STARTLE_BACK_MS["long"])
+        s.proboscis_extension = 0.0
+        s.speed_mm_s, s.turn_rate_deg_s = 0.0, 0.0
+        if el < STARTLE_FREEZE_MS:
+            s.behaviour = "startle (freeze)"
+        elif el < STARTLE_FREEZE_MS + back:
+            # face the threat: on the right (laterality > 0) turn clockwise (negative)
+            s.speed_mm_s = STARTLE_BACK_MM_S
+            s.turn_rate_deg_s = -STARTLE_LOOK_DEG_S * max(-1.0, min(1.0, 3.0 * lat))
+            s.behaviour = "startle (back off)"
+        elif el < STARTLE_FREEZE_MS + back + STARTLE_WATCH_MS:
+            s.behaviour = "startle (watch)"
+        else:
+            self._startle = None
+            self._escape_complete = True               # re-armed when the command falls
+            s.behaviour = "resting"
+            return False
+        return True
 
     def _arm(self, t_ms, mode, what, strength):
         self._escape_armed_at, self._escape_mode = t_ms, mode

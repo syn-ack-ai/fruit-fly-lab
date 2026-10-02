@@ -101,9 +101,20 @@ Steps:
   (LC10a), the embedding model for novelty (arousal) and recognition, the
   fast route for danger (depth + lidar time-to-collision of something
   approaching by itself, appraised by meaning).
-- **next** Startle instead of escape: the takeoff command becomes a startle
-  (stop, back off, look, a beep) for the wheeled body; being lifted or
-  knocked (IMU) as a danger of its own.
+- **done 2026-10-01** Startle instead of escape (`ForagingBody(wheeled=True)`,
+  the robot's default; `FLY_STARTLE=0` gives the old fast dash): the escape
+  command freezes Milo (0.3 s), backs it off ~15-20 cm while turning to face
+  the threat's side (the brain's left/right escape neurons; longer for the
+  giant fibre), then it watches (1.5 s) and carries on; a beep from the
+  speaker. One threat, one startle: the next needs the escape command to
+  fall first. The back-off is limited by the lidar's clearance behind
+  (`robot/safety.rear_limit`; the other layers unchanged). The knife test
+  replayed through the trimmed brain and the wheeled body: one startle per
+  seed (3 of 3), then walking again (`experiments/fear_levels.py --knife`).
+- **next** Personal space as manners, not fear: keep a little distance from
+  a person unless invited (petting, "come here"); the fly's looming did
+  this by accident (`results/robot_brain_2026-10-01` section 3). Being
+  lifted or knocked (IMU) as a danger of its own.
 - **later** Memory and SLAM (with the user, step by step), then curiosity and
   the social reward loop.
 - The flyvis eye stays an option (`--eye`, for watching the optic lobes on

@@ -104,6 +104,26 @@ def obstacle_limit(clearance_m, angles_deg, v: float, v_free: float = V_FREE) ->
     return min(v, OBST_V_MIN + (v_free - OBST_V_MIN) * min(1.0, max(0.0, f)))
 
 
+REAR_STOP_M = 0.08              # clearance behind at which a startle's backing stops
+REAR_FREE_M = 0.30
+REAR_CONE_DEG = 40.0            # "behind" = beams within this of straight back
+
+
+def rear_limit(clearance_m, angles_deg, v: float) -> float:
+    """Backing speed allowed by the lidar's clearance behind: for the startle's
+    back-off (fly/body/foraging_body.py, wheeled), which must not back into
+    something. Forward motion is not changed (obstacle_limit does that)."""
+    if v >= 0:
+        return v
+    a = ((np.asarray(angles_deg, float) + 180.0) % 360.0) - 180.0
+    behind = np.abs(a) >= 180.0 - REAR_CONE_DEG
+    c = np.asarray(clearance_m, float)[behind]
+    if c.size == 0:
+        return v
+    f = (float(c.min()) - REAR_STOP_M) / (REAR_FREE_M - REAR_STOP_M)
+    return v * min(1.0, max(0.0, f))
+
+
 # ------------------------------------------- footprint time-to-collision (lidar)
 # The Nav2 Collision Monitor "approach" idea (the rover will run the real Nav2
 # node): project the commanded (v, w) forward TTC_S seconds and sweep the

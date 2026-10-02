@@ -115,7 +115,10 @@ uv pip install --python .venv/bin/python sherpa-onnx
   Milo (`robot/appraise.py`); only that -- and the personality's `fear` for
   words like "watch out!" -- drives the fly's looming neurons, aimed at the
   danger's side (`robot/threat.py`). People and things coming closer are not
-  danger. To watch the appraisals live and try things in front of the camera:
+  danger. The brain's escape command then becomes a startle: Milo freezes,
+  backs off a little facing the danger (not into anything behind it), watches
+  it, beeps (`--voice`), and the console prints `startle (... mode): vision
+  saw ...`. To watch the appraisals live and try things in front of the camera:
   `.venv/bin/python -m robot.appraise --camera /dev/video0 --seconds 120 --save /tmp/fear`.
 
 The language model runs on the Mac Studio (PAIR); until PAIR runs on the
